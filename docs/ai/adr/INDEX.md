@@ -30,11 +30,22 @@ only when relevant to the current task.
 
 ## M4L
 
+The M4L ADRs (002–004) collectively define v1. v1 ships when ADRs 002,
+003, and 004 all flip to *Implemented*.
+
 | #   | Title | Status | Notes |
 |-----|-------|--------|-------|
 | 002 | [M4L Architecture — Stencil TM + Stencil QT](002-m4l-architecture.md) | Proposed | Two-device topology; per-device host/patcher/engine layering; live.* parameters; MIDI I/O & triggerMode; QT humanize layer; state ownership. |
+| 003 | [M4L UI Design — Stencil TM / Stencil QT](003-m4l-ui-design.md) | Proposed | Double-height canvas; live.* params + 2 jsui widgets per device (TM clickable bit ring, QT pulse-animated scale keyboard); inboil visual identity (palette, monospace, panel pattern); logic-layer / renderer split per CLAUDE.md §GUI. |
+| 004 | [M4L Bake & Distribution](004-m4l-bake-distribution.md) | Proposed | Bake script port (TM/QT argv); bare-sibling path conventions; abs-path / external-ref guard tests; dist/ tracking; bundle vs split listing; listing material requirements. |
 
 ## VST
+
+VST is post-v1. The target is paused at scaffold state while m4l v1
+ships; it will get its own architecture ADR(s) when picked up. Engine
+spec and shared test vectors carry over via ADR 001; the m4l-specific
+ADRs (002–004) do not necessarily apply (e.g. two-device topology may
+become single-plugin in VST).
 
 | #   | Title | Status | Notes |
 |-----|-------|--------|-------|

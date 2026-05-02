@@ -179,6 +179,15 @@ Per-step flow (driven by Max `step` message):
   bypasses `lock` entirely while active; if no input has arrived since
   transport start, fall back to `auto`-style behavior.
 
+Direct register write (independent of `triggerMode`):
+
+- **`setBit <index> <value>`** (Max → host) — write `value ∈ {0, 1}` to
+  `state.register[index]` directly, no shift, no rng advance. Used by
+  the jsui register ring's click interaction (ADR 003). After the write,
+  the host re-emits the `register` outlet so the UI reflects the new
+  state. `setBit` is valid in any `triggerMode` and does not interact
+  with `lock` or `seed`-mode shift semantics.
+
 ### Engine wiring
 
 The host imports the engine via TS source (`../engine/turing.ts`). Each
@@ -229,6 +238,10 @@ Per-input-event flow (driven by `noteIn pitch velocity` from Max):
    timingOffset)`.
 4. Schedule `noteOn out velocityFinal ch` at `now + timingOffset`.
 5. Schedule `noteOff out 0 ch` at `now + timingOffset + gateFinal × source_step_duration`.
+6. Emit `notePulse out velocityFinal` for the jsui scale keyboard's
+   pulse animation (ADR 003). The pulse outlet fires at the same time
+   the scheduled `noteOn` is dispatched, not at noteIn arrival, so the
+   visual pulse coincides with the audible note.
 
 The "source step duration" is the canonical step length the host uses for
 gate scaling. Since QT has no transport-driven step of its own, it derives
@@ -265,9 +278,16 @@ Stencil TM only:
 
 ```
 step <position>                 // advance to host step index `position`
+setBit <index> <value>          // direct write to register[index] (0/1)
+                                //   from jsui ring click (ADR 003)
 ```
 
 (QT has no `step`; it processes `noteIn` events as they arrive.)
+
+`setBit` is independent of `triggerMode`: it is a direct random-access
+write to the register, not a head-of-shift insert. `seed` mode's
+shift-and-force at the head and `setBit`'s direct index write coexist
+without interaction.
 
 ### Host → Max (outgoing messages, via `Max.outlet`)
 
@@ -289,6 +309,8 @@ Stencil QT only:
 
 ```
 scaleChanged <scale-name> <root>     // emitted on scale/root changes for UI
+notePulse <pitch> <velocity>         // emitted on each quantized noteOn,
+                                     //   for jsui keyboard pulse anim (ADR 003)
 ```
 
 ## live.* parameter surface
@@ -428,22 +450,20 @@ from `(seed, length)` for register; ephemeral for drift).
 
 ## Open questions
 
-These are flagged for follow-up rather than blocking:
-
-- **Distribution form** — conditional on the chosen distribution
-  channel's upload policy. If maxforlive.com (or whichever channel)
-  accepts a zip containing both `.amxd` files, ship as a single bundle
-  under one product identity (`Stencil`). Otherwise, ship as two separate
-  listings (`Stencil TM` and `Stencil QT`). Resolves once the channel's
-  upload form is verified; not implementation-blocking. Topology revisit
-  (2 vs 1 device) was considered 2026-05-02 and 2 devices was reaffirmed:
-  QT-alone (snap arbitrary upstream MIDI to scale) is a real standalone
-  use case worth preserving, and brand fragmentation is mitigated by
-  single-bundle distribution if available. Filename / package-name
-  punctuation is hyphen (`Stencil-TM.amxd`, `@stencil/host-tm`); the
-  user-facing display name keeps the space (`Stencil TM`).
+(None blocking implementation at the architecture level. The
+distribution-form question — bundle vs split listing — moved to
+[ADR 004](004-m4l-bake-distribution.md) §Open questions, which is its
+natural home.)
 
 Resolved:
+
+- **Topology — 2 devices vs 1 combined** — reaffirmed 2 devices on
+  2026-05-02. QT-alone (snap arbitrary upstream MIDI to scale) is a
+  real standalone use case worth preserving; brand fragmentation is
+  mitigated by single-bundle distribution if available (see ADR 004).
+  Filename / package-name punctuation is hyphen (`Stencil-TM.amxd`,
+  `@stencil/host-tm`); user-facing display name keeps the space
+  (`Stencil TM`).
 
 - **QT root-mode control range** — separate `qt.controlChannel` parameter
   (`live.numbox int`, `1..16`, default `16`). When `qt.triggerMode = root`,
@@ -487,11 +507,12 @@ Resolved:
 
 **Out of scope (separate ADRs or deferred):**
 - Engine semantics — see [ADR 001](archive/001-engine-interface.md)
+- UI design (canvas, jsui register ring, jsui scale keyboard, visual
+  identity) — see [ADR 003](003-m4l-ui-design.md)
+- Bake / distribution — see [ADR 004](004-m4l-bake-distribution.md)
 - VST architecture — separate ADR when target is picked up
 - Preset / slot system (oedipa-style 4-slot bank with MIDI recall) — future
   ADR if/when implemented
-- TM register-bit visualization GUI — separate ADR; will need its own logic-
-  layer-vs-renderer split per CLAUDE.md §GUI components
 - TM `gate` / `velocity` output modes, QT `chord` / `harmony` modes — see
   [concept.md §Future extensions](../concept.md#future-extensions)
 
@@ -530,27 +551,36 @@ under `[node.script]` without runtime errors. Engine spec conformance
 ### Stencil TM
 
 - [x] `host-tm/host.ts` — `TmHostState`, step loop, `triggerMode` branches
+- [ ] `host-tm/host.ts` — `setBit(index, value)` direct register write
+      method; re-emits `register` outlet
 - [ ] `host-tm/bridge.ts` — Max protocol parser, message dispatcher
+      (incl. `setBit`)
 - [ ] `host-tm/index.js` — n4m entry, dependency-injects `Max.outlet` into
       `Bridge`
 - [x] `host-tm/*.test.ts` — host state machine tests (no `max-api`),
       including `triggerMode` matrix (20/20 pass under `pnpm -r test`)
-- [ ] `Stencil-TM.maxpat` — UI, `live.*` objects, `[node.script]` wiring,
-      MIDI in/out routing
-- [ ] Bake `Stencil-TM.amxd`; load in Live; verify all `live.*` parameters
-      visible and persistent
+- [ ] `host-tm/host.test.ts` — `setBit` cases: index bounds, idempotent
+      same-value write, register outlet re-emit, no rng advance, no
+      interaction with `lock`
+- [ ] jsui register ring — see [ADR 003](003-m4l-ui-design.md)
+- [ ] `Stencil-TM.maxpat` — see [ADR 003](003-m4l-ui-design.md)
+- [ ] Bake `Stencil-TM.amxd` — see [ADR 004](004-m4l-bake-distribution.md)
 
 ### Stencil QT
 
-- [ ] `host-qt/host.ts` — `QtHostState`, event loop, `triggerMode` branches
+- [ ] `host-qt/host.ts` — `QtHostState`, event loop, `triggerMode` branches,
+      `notePulse` outlet emit on each scheduled `noteOn`
 - [ ] `host-qt/humanize.ts` — `draw`, `drift`, composition helpers; pure
       and tested
 - [ ] `host-qt/bridge.ts`, `host-qt/index.js` — analogous to TM
 - [ ] `host-qt/*.test.ts` — host + humanize tests; humanize draw order is
-      asserted against fixed seed
-- [ ] `Stencil-QT.maxpat` — UI, `live.*` objects, MIDI in/out
-- [ ] Bake `Stencil-QT.amxd`; load in Live; chain `Stencil TM → Stencil QT`
-      on a track and verify the canonical sound
+      asserted against fixed seed; `notePulse` outlet fires in lockstep
+      with scheduled noteOn
+- [ ] jsui scale keyboard — see [ADR 003](003-m4l-ui-design.md)
+- [ ] `Stencil-QT.maxpat` — see [ADR 003](003-m4l-ui-design.md)
+- [ ] Bake `Stencil-QT.amxd` — see [ADR 004](004-m4l-bake-distribution.md);
+      chain `Stencil TM → Stencil QT` on a track and verify the canonical
+      sound
 
 ### Verification
 
