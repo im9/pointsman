@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Stencil M4L target — pnpm workspace root for engine and host packages.",
+  "description": "Stencil M4L target — pnpm workspace root for engine, host-tm, and host-qt packages.",
   "scripts": {
     "build": "pnpm -r build",
     "test": "pnpm -r test",
