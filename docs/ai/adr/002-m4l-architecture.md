@@ -12,7 +12,7 @@ including `triggerMode`, the QT humanize layer, and state ownership.
 ## Context
 
 [concept.md](../concept.md) defines two musical units (TM and QT) and notes
-m4l ships them as separate devices. [ADR 001](001-engine-interface.md)
+m4l ships them as separate devices. [ADR 001](archive/001-engine-interface.md)
 specifies the pure-function engines. Neither defines:
 
 - How the engines are loaded into Max
@@ -486,7 +486,7 @@ Resolved:
 - State persistence via Live preset chunks
 
 **Out of scope (separate ADRs or deferred):**
-- Engine semantics — see [ADR 001](001-engine-interface.md)
+- Engine semantics — see [ADR 001](archive/001-engine-interface.md)
 - VST architecture — separate ADR when target is picked up
 - Preset / slot system (oedipa-style 4-slot bank with MIDI recall) — future
   ADR if/when implemented
@@ -499,8 +499,9 @@ Resolved:
 
 This ADR flips to *Implemented* once both devices ship as `.amxd` files
 loadable in Live, all live.* parameters round-trip through preset chunks,
-the MIDI I/O paths are tested manually in Live, and engine test vectors
-(ADR 001) all pass via the host packages' test suites.
+the MIDI I/O paths are tested manually in Live, and the engine loads
+under `[node.script]` without runtime errors. Engine spec conformance
+(vector pass) is owned by ADR 001 and is independent of this gate.
 
 ## Implementation checklist
 

@@ -26,7 +26,7 @@ only when relevant to the current task.
 
 | #   | Title | Status | Notes |
 |-----|-------|--------|-------|
-| 001 | [Engine Interface — TM + Quantizer](001-engine-interface.md) | Proposed | Pure-function APIs for `turing.ts` and `quantizer.ts`; types, semantics, shared test vectors. Reference impl will live in m4l. |
+| 001 | [Engine Interface — TM + Quantizer](archive/001-engine-interface.md) | Implemented | Pure-function APIs for `turing.ts` and `quantizer.ts`; types, semantics, shared test vectors. m4l reference impl 10/10 (2026-05-02). |
 
 ## M4L
 
