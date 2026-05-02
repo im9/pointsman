@@ -17,6 +17,7 @@
   "include": [
     "host.ts",
     "humanize.ts",
+    "bridge.ts",
     "../engine/turing.ts",
     "../engine/quantizer.ts"
   ],
