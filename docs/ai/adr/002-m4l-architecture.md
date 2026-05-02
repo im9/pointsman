@@ -93,7 +93,12 @@ m4l/
     tsconfig.json
     dist/                 # built; tracked in repo for [node.script] consumption
   host-tm/                # Stencil TM host
-    index.js              # n4m entry, loaded by [node.script]
+    index.mjs             # n4m entry, loaded by [node.script]; .mjs is
+                          #   load-bearing — bake/freeze extracts to a
+                          #   tempdir with no sibling package.json, where
+                          #   .js would default to CJS and the
+                          #   `import Max from "max-api"` would fail.
+                          #   Convention ported from oedipa.
     host.ts               # main TM host class
     bridge.ts             # Max message protocol
     *.test.ts
@@ -553,16 +558,22 @@ under `[node.script]` without runtime errors. Engine spec conformance
 - [x] `host-tm/host.ts` — `TmHostState`, step loop, `triggerMode` branches
 - [x] `host-tm/host.ts` — `setBit(index, value)` direct register write
       method (re-emit of `register` outlet is the bridge's responsibility)
-- [ ] `host-tm/bridge.ts` — Max protocol parser, message dispatcher
-      (incl. `setBit`); calls `Max.outlet("register", ...)` after `setBit`
-- [ ] `host-tm/index.js` — n4m entry, dependency-injects `Max.outlet` into
-      `Bridge`
+- [x] `host-tm/bridge.ts` — Max protocol parser, message dispatcher
+      (incl. `setBit`); calls `emitOutlet("register", ...)` after `setBit`,
+      `step`, `transportStart`, and seed-mode `noteIn`/`noteOff`. Tracks
+      `msPerStep` via EMA across step calls; resets alignment on
+      `transportStop`/`panic`.
+- [x] `host-tm/index.mjs` — n4m entry, dependency-injects Max API
+      (`Max.outlet`, `Date.now`, `setTimeout`) into `TmBridge`
 - [x] `host-tm/*.test.ts` — host state machine tests (no `max-api`),
       including `triggerMode` matrix (30/30 pass under `pnpm -r test`)
 - [x] `host-tm/host.test.ts` — `setBit` cases: index bounds, idempotent
       same-value write, no rng advance, no interaction with `lock`,
       seed-mode non-activation, all triggerModes (10 cases). Outlet
-      re-emit deferred to `bridge.test.ts`.
+      re-emit covered in `bridge.test.ts`.
+- [x] `host-tm/bridge.test.ts` — protocol → host call mapping, scheduling
+      (immediate vs scheduled by `delaySteps × msPerStep`), outlet
+      emission lockstep, EMA estimate (20 cases; 50/50 host-tm pass)
 - [ ] jsui register ring — see [ADR 003](003-m4l-ui-design.md)
 - [ ] `Stencil-TM.maxpat` — see [ADR 003](003-m4l-ui-design.md)
 - [ ] Bake `Stencil-TM.amxd` — see [ADR 004](004-m4l-bake-distribution.md)
