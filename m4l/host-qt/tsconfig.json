@@ -9,11 +9,11 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
+    "rootDir": "../",
     "outDir": "./dist",
-    "rootDir": "./",
     "allowImportingTsExtensions": true,
     "rewriteRelativeImportExtensions": true
   },
-  "include": ["*.ts"],
+  "include": ["humanize.ts", "../engine/turing.ts"],
   "exclude": ["**/*.test.ts", "dist", "node_modules"]
 }

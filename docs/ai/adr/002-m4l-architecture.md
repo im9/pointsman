@@ -578,11 +578,14 @@ packages import it. `quantizer.ts` ships when QT host work begins.
 
 - [ ] `host-qt/host.ts` — `QtHostState`, event loop, `triggerMode` branches,
       `notePulse` outlet emit on each scheduled `noteOn`
-- [ ] `host-qt/humanize.ts` — `draw`, `drift`, composition helpers; pure
-      and tested
+- [x] `host-qt/humanize.ts` — `draw`, `drift`, `composeHumanize`, `DriftState`,
+      `NEUTRAL_DRIFT`; pure functions, RNG threaded explicitly
 - [ ] `host-qt/bridge.ts`, `host-qt/index.mjs` — analogous to TM
-- [ ] `host-qt/*.test.ts` — host + humanize tests; humanize draw order is
-      asserted against fixed seed; `notePulse` outlet fires in lockstep
+- [x] `host-qt/humanize.test.ts` — 18 cases (draw 4 / drift 3 / compose 11);
+      draw order velocity → gate → timing asserted against fixed seed; drift
+      desync-safety (state advances even when factor=0) covered
+- [ ] `host-qt/host.test.ts` + `host-qt/bridge.test.ts` — host state machine
+      + protocol → host call mapping; `notePulse` outlet fires in lockstep
       with scheduled noteOn
 
 ### Verification
