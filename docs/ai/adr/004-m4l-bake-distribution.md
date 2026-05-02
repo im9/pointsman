@@ -163,6 +163,12 @@ Resolution events are noted where known.
       `Stencil-QT.maxpat`
 - [ ] Both `.amxd` load in Live without console errors
 - [ ] `pnpm bake:check` passes on a fresh checkout
+- [ ] TM smoke: trigger modes `auto` / `gate` / `seed` each produce sound
+      in Live (covers ADR 002 host behavior in the real device)
+- [ ] QT smoke: scale snap + humanize coverage audible across input
+      pitches; root mode `controlChannel` updates take effect
+- [ ] TM → QT chain produces a musically coherent scale-locked melody
+- [ ] Transport stop / start / scrub leaves no hung notes on either device
 
 ### Distribution
 

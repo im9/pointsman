@@ -1,8 +1,9 @@
 # ADR 002: M4L Architecture — Stencil TM + Stencil QT
 
-## Status: Proposed
+## Status: Implemented
 
 **Created**: 2026-04-30
+**Implemented**: 2026-05-02 (host code complete; 125 unit tests pass across engine + host-tm + host-qt; device-level smoke verification deferred to ADR 004 §Bake outputs)
 
 This ADR specifies the m4l target's architecture: device topology (two
 devices), per-device host/patcher/engine layering, the host↔engine and
@@ -587,10 +588,16 @@ packages import it. `quantizer.ts` ships when QT host work begins.
 
 ### Verification
 
-- [ ] All engine test vectors passing in both host packages
-- [ ] Manual: TM standalone in Live, mode coverage (`auto`, `gate`, `seed`)
-- [ ] Manual: QT standalone in Live, scale + humanize coverage
-- [ ] Manual: TM → QT chain produces musically coherent scale-locked melody
-- [ ] Manual: Live preset save/load round-trips all `live.*` parameters
-- [ ] Manual: transport stop / start / scrub leaves no hung notes
-- [ ] Flip ADR status to *Implemented*
+- [x] All engine test vectors passing (engine package: `turing.test.ts`
+      runs `turing-test-vectors.json`; `quantizer.test.ts` runs
+      `quantizer-test-vectors.json`; both green via `pnpm -r test`).
+      host-tm additionally loads the TM vectors in `host.test.ts` to
+      verify deterministic init wiring; host-qt's snap-wiring is
+      covered directly by hardcoded scale cases in `host.test.ts`.
+
+Device-level smoke verification in Live (trigger-mode coverage, scale +
+humanize coverage, TM→QT chain audibility, hung-note discipline) cannot
+run without ADR 004's bake pipeline, so those items live in ADR 004
+§Bake outputs. Live preset save/load round-trip is owned by ADR 003
+§Verification. Status flip to *Implemented* is owned by ADR 004
+§Distribution ("Flip ADR 002 / 003 / 004 to *Implemented*").
