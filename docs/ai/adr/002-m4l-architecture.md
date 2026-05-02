@@ -113,6 +113,9 @@ m4l/
   Stencil-TM.amxd         # built device artifact (frozen .maxpat)
   Stencil-QT.maxpat
   Stencil-QT.amxd
+  scripts/
+    maxpat-to-amxd.mjs    # bake .maxpat → .amxd, ported from oedipa
+                          # (argv: device name, "TM" | "QT")
 ```
 
 `dist/` is committed (not in `.gitignore`) because Max's `[node.script]`
@@ -211,9 +214,12 @@ QtHostState {
 
 Per-input-event flow (driven by `noteIn pitch velocity` from Max):
 
-1. If `triggerMode == 'root'` and the note is in the designated control
-   range/channel (TBD, see §Open questions), update `params.root` and
-   rebuild `scalePitches`. Do not emit a quantized note for control events.
+1. If `triggerMode == 'root'` and the note arrives on `qt.controlChannel`,
+   update `params.root` (set to `pitch % 12`), rebuild `scalePitches`, and
+   return — control-channel events are consumed and not forwarded to the
+   quantize path. (When `controlChannel == inputChannel`, this means the
+   same note feeds the root path only; configure separate channels to
+   quantize and root-control simultaneously.)
 2. Snap: `out = snapToScale(pitch, scalePitches)`.
 3. Apply humanize (see §Humanize) to derive `(velocityFinal, gateFinal,
    timingOffset)`.
@@ -313,7 +319,8 @@ scaleChanged <scale-name> <root>     // emitted on scale/root changes for UI
 | `qt.humanizeDrift`        | live.dial float    | `0..1`                                 | `0`            | EMA smoothing across humanize axes     |
 | `qt.outputLevel`          | live.dial float    | `0..1`                                 | `1.0`          | global output velocity multiplier      |
 | `qt.triggerMode`          | live.menu          | `passthrough \| root`                  | `passthrough`  | input handling                         |
-| `qt.inputChannel`         | live.numbox int    | `0..16` (`0` = omni)                   | `0`            | MIDI input channel                     |
+| `qt.inputChannel`         | live.numbox int    | `0..16` (`0` = omni)                   | `0`            | MIDI input channel (quantize path)     |
+| `qt.controlChannel`       | live.numbox int    | `1..16`                                | `16`           | root-update channel; used when `triggerMode = root` |
 | `qt.seed`                 | live.numbox int    | `0..2^31-1`                            | `42`           | humanize PRNG seed                     |
 
 All `live.*` parameters are exposed for host automation. Range and timing
@@ -419,17 +426,48 @@ from `(seed, length)` for register; ephemeral for drift).
 
 These are flagged for follow-up rather than blocking:
 
-- **QT root-mode control range** — does `qt.triggerMode = root` listen on
-  the same `inputChannel` as quantization input (split by note range, e.g.,
-  notes below C2 are root controls), or on a separate `controlChannel`
-  parameter? Decide before implementing root mode.
-- **TM seed-mode interaction with `lock`** — current draft: seed mode
-  bypasses `lock` entirely while input arrives. Alternative: seed-mode
-  treats input as a soft override (write the input bit but still apply
-  `lock` flip on top). Pick one before writing the seed-mode tests.
-- **Patcher freeze pipeline** — oedipa uses a `bake` script
-  (`scripts/maxpat-to-amxd.mjs`) to produce `.amxd` from `.maxpat`. Stencil
-  needs the same; can be ported directly.
+- **Distribution form** — conditional on the chosen distribution
+  channel's upload policy. If maxforlive.com (or whichever channel)
+  accepts a zip containing both `.amxd` files, ship as a single bundle
+  under one product identity (`Stencil`). Otherwise, ship as two separate
+  listings (`Stencil TM` and `Stencil QT`). Resolves once the channel's
+  upload form is verified; not implementation-blocking. Topology revisit
+  (2 vs 1 device) was considered 2026-05-02 and 2 devices was reaffirmed:
+  QT-alone (snap arbitrary upstream MIDI to scale) is a real standalone
+  use case worth preserving, and brand fragmentation is mitigated by
+  single-bundle distribution if available. Filename / package-name
+  punctuation is hyphen (`Stencil-TM.amxd`, `@stencil/host-tm`); the
+  user-facing display name keeps the space (`Stencil TM`).
+
+Resolved:
+
+- **QT root-mode control range** — separate `qt.controlChannel` parameter
+  (`live.numbox int`, `1..16`, default `16`). When `qt.triggerMode = root`,
+  events on `controlChannel` update `params.root` and are consumed by the
+  root path; events on `inputChannel` follow the quantize path. Rationale:
+  a note-range split on a single channel imposes a hidden boundary that
+  breaks low-pitched input to the quantizer (bass / pad use); channel
+  separation is explicit, matches Live's per-clip MIDI channel routing,
+  and costs one numbox. Default `16` is chosen as a sentinel that pushes
+  the user to set it deliberately when switching into root mode (rather
+  than colliding with the typical melody track on ch1).
+- **TM seed-mode interaction with `lock`** — full bypass (matches the
+  current draft). When `triggerMode = seed`, MIDI input drives the
+  register shift via `shiftAndForce` and `lock` is ignored; transport
+  `step` becomes read-only (no additional shift, no flip). Rationale: the
+  mode contract is "input is the shift driver, lock is irrelevant," which
+  is testable as a function from input-event-stream to register state.
+  The alternative (write-then-flip) makes the user's seed input subject to
+  the same probabilistic flip `lock` controls — a `lock = 0.5` would
+  scramble half of the seeded bits, defeating the point of seeding. Users
+  who want `lock` to participate switch back to `auto`.
+- **Patcher freeze pipeline** — port oedipa's
+  `m4l/scripts/maxpat-to-amxd.mjs` with one change: parameterize the device
+  name via argv (`node maxpat-to-amxd.mjs TM` / `... QT`) so each device
+  bakes independently. Core logic (AMPF header splicing, JSON validation,
+  `--check` mode) carries over verbatim. Rationale: `--check` should be
+  able to fail per-device in CI, and a single device can be re-baked
+  without touching the other.
 
 ## Scope
 
@@ -470,6 +508,14 @@ the MIDI I/O paths are tested manually in Live, and engine test vectors
       `@stencil/host-qt`
 - [ ] Update `m4l/pnpm-workspace.yaml` packages list
 - [ ] `pnpm install` to refresh lockfile
+
+### Build tooling
+
+- [ ] Port `m4l/scripts/maxpat-to-amxd.mjs` from oedipa; replace hardcoded
+      `Oedipa.*` paths with `Stencil-${argv[2]}.*` and validate `argv[2] ∈
+      {TM, QT}`
+- [ ] Wire `pnpm bake:tm` / `pnpm bake:qt` (and `bake:check:*`) at the
+      workspace root
 
 ### Engine
 
