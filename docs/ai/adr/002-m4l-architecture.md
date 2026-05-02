@@ -531,27 +531,26 @@ under `[node.script]` without runtime errors. Engine spec conformance
 
 ## Implementation checklist
 
+This checklist scopes ADR 002's own deliverables (host-side code, state
+ownership, message protocol, integration tests). UI / patcher / bake work
+that the device depends on is owned by ADR 003 / 004 and tracked in their
+respective checklists — flipping 002 to *Implemented* requires those
+ADRs' completion as a prerequisite for §Verification below.
+
 ### Scaffold restructure
 
-- [ ] Rename `m4l/host/` → `m4l/host-tm/`; update `package.json` name to
+- [x] Rename `m4l/host/` → `m4l/host-tm/`; update `package.json` name to
       `@stencil/host-tm`
-- [ ] Create `m4l/host-qt/` (copy structure from `host-tm/`); name
+- [x] Create `m4l/host-qt/` (copy structure from `host-tm/`); name
       `@stencil/host-qt`
-- [ ] Update `m4l/pnpm-workspace.yaml` packages list
-- [ ] `pnpm install` to refresh lockfile
-
-### Build tooling
-
-- [ ] Port `m4l/scripts/maxpat-to-amxd.mjs` from oedipa; replace hardcoded
-      `Oedipa.*` paths with `Stencil-${argv[2]}.*` and validate `argv[2] ∈
-      {TM, QT}`
-- [ ] Wire `pnpm bake:tm` / `pnpm bake:qt` (and `bake:check:*`) at the
-      workspace root
+- [x] Update `m4l/pnpm-workspace.yaml` packages list
+- [x] `pnpm install` to refresh lockfile
 
 ### Engine
 
-- [ ] ADR 001 implementation checklist completes (turing.ts, quantizer.ts,
-      test vectors)
+Owned by [ADR 001](archive/001-engine-interface.md) — *Implemented*,
+archived. `turing.ts` (+ vectors) ships under `m4l/engine/`; both host
+packages import it. `quantizer.ts` ships when QT host work begins.
 
 ### Stencil TM
 
@@ -574,9 +573,6 @@ under `[node.script]` without runtime errors. Engine spec conformance
 - [x] `host-tm/bridge.test.ts` — protocol → host call mapping, scheduling
       (immediate vs scheduled by `delaySteps × msPerStep`), outlet
       emission lockstep, EMA estimate (20 cases; 50/50 host-tm pass)
-- [ ] jsui register ring — see [ADR 003](003-m4l-ui-design.md)
-- [ ] `Stencil-TM.maxpat` — see [ADR 003](003-m4l-ui-design.md)
-- [ ] Bake `Stencil-TM.amxd` — see [ADR 004](004-m4l-bake-distribution.md)
 
 ### Stencil QT
 
@@ -584,15 +580,10 @@ under `[node.script]` without runtime errors. Engine spec conformance
       `notePulse` outlet emit on each scheduled `noteOn`
 - [ ] `host-qt/humanize.ts` — `draw`, `drift`, composition helpers; pure
       and tested
-- [ ] `host-qt/bridge.ts`, `host-qt/index.js` — analogous to TM
+- [ ] `host-qt/bridge.ts`, `host-qt/index.mjs` — analogous to TM
 - [ ] `host-qt/*.test.ts` — host + humanize tests; humanize draw order is
       asserted against fixed seed; `notePulse` outlet fires in lockstep
       with scheduled noteOn
-- [ ] jsui scale keyboard — see [ADR 003](003-m4l-ui-design.md)
-- [ ] `Stencil-QT.maxpat` — see [ADR 003](003-m4l-ui-design.md)
-- [ ] Bake `Stencil-QT.amxd` — see [ADR 004](004-m4l-bake-distribution.md);
-      chain `Stencil TM → Stencil QT` on a track and verify the canonical
-      sound
 
 ### Verification
 
