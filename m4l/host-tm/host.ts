@@ -275,6 +275,24 @@ export class TmHost {
     return events;
   }
 
+  // ADR 002 §register direct write: random-access write to register[index].
+  // No shift, no rng advance, no interaction with `lock` or seed-mode shift
+  // semantics. Valid in any triggerMode. Out-of-bounds index is silently
+  // ignored (defensive — Max can deliver any int from a numbox or list).
+  // The bridge re-emits the `register` outlet after each call so the UI
+  // (jsui ring, ADR 003) reflects the new state.
+  setBit(index: number, value: 0 | 1): NoteEvent[] {
+    if (index < 0 || index >= this.params.length) return [];
+    const bit = (value & 1) as 0 | 1;
+    const mask = (1 << index) >>> 0;
+    if (bit === 1) {
+      this.register = (this.register | mask) >>> 0;
+    } else {
+      this.register = (this.register & ~mask) >>> 0;
+    }
+    return [];
+  }
+
   // Tuple range update. Always orders lo ≤ hi.
   setRange(lo: number, hi: number): NoteEvent[] {
     const events: NoteEvent[] = [];

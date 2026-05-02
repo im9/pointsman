@@ -551,17 +551,18 @@ under `[node.script]` without runtime errors. Engine spec conformance
 ### Stencil TM
 
 - [x] `host-tm/host.ts` — `TmHostState`, step loop, `triggerMode` branches
-- [ ] `host-tm/host.ts` — `setBit(index, value)` direct register write
-      method; re-emits `register` outlet
+- [x] `host-tm/host.ts` — `setBit(index, value)` direct register write
+      method (re-emit of `register` outlet is the bridge's responsibility)
 - [ ] `host-tm/bridge.ts` — Max protocol parser, message dispatcher
-      (incl. `setBit`)
+      (incl. `setBit`); calls `Max.outlet("register", ...)` after `setBit`
 - [ ] `host-tm/index.js` — n4m entry, dependency-injects `Max.outlet` into
       `Bridge`
 - [x] `host-tm/*.test.ts` — host state machine tests (no `max-api`),
-      including `triggerMode` matrix (20/20 pass under `pnpm -r test`)
-- [ ] `host-tm/host.test.ts` — `setBit` cases: index bounds, idempotent
-      same-value write, register outlet re-emit, no rng advance, no
-      interaction with `lock`
+      including `triggerMode` matrix (30/30 pass under `pnpm -r test`)
+- [x] `host-tm/host.test.ts` — `setBit` cases: index bounds, idempotent
+      same-value write, no rng advance, no interaction with `lock`,
+      seed-mode non-activation, all triggerModes (10 cases). Outlet
+      re-emit deferred to `bridge.test.ts`.
 - [ ] jsui register ring — see [ADR 003](003-m4l-ui-design.md)
 - [ ] `Stencil-TM.maxpat` — see [ADR 003](003-m4l-ui-design.md)
 - [ ] Bake `Stencil-TM.amxd` — see [ADR 004](004-m4l-bake-distribution.md)

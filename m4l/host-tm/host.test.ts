@@ -267,6 +267,133 @@ test("setParam rangeLo > rangeHi — clamped to rangeHi", () => {
   assert.equal(host.getParams().rangeLo, 72);
 });
 
+// --- setBit (ADR 002 §register direct write) -------------------------------
+//
+// Direct random-access write to register[index]. No shift, no rng advance,
+// no interaction with lock or seed-mode shift semantics. Valid in any
+// triggerMode. The bridge re-emits the `register` outlet after each call;
+// here we verify only host-level state.
+
+test("setBit — write 1 to bit 0 (tail / LSB)", () => {
+  const host = makeHost({ seed: 1, length: 8 });
+  const reg0 = host.getRegister();
+  host.setBit(0, 1);
+  // Bit 0 is the tail (read-then-shift removes it). After setBit, the
+  // register equals reg0 with bit 0 forced to 1: reg0 | 1.
+  assert.equal(host.getRegister(), reg0 | 1);
+});
+
+test("setBit — write 0 clears the bit", () => {
+  const host = makeHost({ seed: 1, length: 8 });
+  host.setBit(0, 1);
+  const after1 = host.getRegister();
+  host.setBit(0, 0);
+  // Bit 0 cleared: after1 with low bit masked off.
+  assert.equal(host.getRegister(), after1 & ~1);
+  assert.equal(host.getRegister() & 1, 0);
+});
+
+test("setBit — write to MSB (bit length-1, the shift head)", () => {
+  const host = makeHost({ seed: 1, length: 8 });
+  host.setBit(7, 1);
+  assert.equal((host.getRegister() >>> 7) & 1, 1);
+  host.setBit(7, 0);
+  assert.equal((host.getRegister() >>> 7) & 1, 0);
+});
+
+test("setBit — idempotent same-value write leaves register unchanged", () => {
+  const host = makeHost({ seed: 1, length: 8 });
+  const reg0 = host.getRegister();
+  const bit0 = reg0 & 1;
+  host.setBit(0, bit0);
+  assert.equal(host.getRegister(), reg0);
+});
+
+test("setBit — out-of-bounds index ignored (no throw, no state change)", () => {
+  // Defensive: Max can deliver any int from a numbox or list. Out-of-bounds
+  // values must be silently ignored rather than corrupting the register.
+  const host = makeHost({ seed: 1, length: 8 });
+  const reg0 = host.getRegister();
+  host.setBit(8, 1); // length boundary (valid range is 0..length-1 = 0..7)
+  host.setBit(-1, 1);
+  host.setBit(100, 1);
+  assert.equal(host.getRegister(), reg0);
+});
+
+test("setBit — value coerced to 0/1 (LSB only, like shiftAndForce)", () => {
+  // Engine's shiftAndForce applies `forceBit & 1`. Mirror that contract here
+  // so setBit(_, 2) is equivalent to setBit(_, 0), not a third state.
+  const host = makeHost({ seed: 1, length: 8 });
+  host.setBit(0, 1);
+  const after1 = host.getRegister();
+  host.setBit(0, 2 as 0 | 1); // 2 & 1 == 0
+  assert.equal(host.getRegister(), after1 & ~1);
+});
+
+test("setBit — does not advance rng (active-flag sequence matches baseline)", () => {
+  // RNG advance would shift the density / flip draws on subsequent step()
+  // calls. Run two hosts: one with setBit calls before stepping, one
+  // without. Collect the active-flag sequence (driven by the density draw
+  // — purely RNG-bound, register-independent). Sequences must match.
+  const params: Partial<HostParams> = {
+    seed: 1,
+    length: 8,
+    density: 0.5, // mid-range so the draw splits roughly 50/50
+    lock: 0.7, // also varies, but flip outcome doesn't affect active-flag
+  };
+  const a = makeHost(params);
+  const b = makeHost(params);
+  a.setBit(3, 1);
+  a.setBit(0, 0);
+  a.setBit(7, 1);
+  const seqA: boolean[] = [];
+  const seqB: boolean[] = [];
+  for (let i = 0; i < 12; i++) {
+    seqA.push(a.step(i).some((e) => e.type === "noteOn"));
+    seqB.push(b.step(i).some((e) => e.type === "noteOn"));
+  }
+  assert.deepEqual(seqA, seqB);
+});
+
+test("setBit — independent of lock (no flip draw consumed)", () => {
+  // Different lock values, same setBit, same final register: setBit does
+  // not consult or interact with the lock probability path.
+  const a = makeHost({ seed: 1, length: 8, lock: 0.0 });
+  const b = makeHost({ seed: 1, length: 8, lock: 1.0 });
+  a.setBit(2, 1);
+  b.setBit(2, 1);
+  assert.equal(a.getRegister(), b.getRegister());
+});
+
+test("setBit — works in seed mode without activating it", () => {
+  // ADR 002 §setBit: setBit must not flip the host into seed-active state.
+  // Activation is reserved for noteIn / noteOff in seed triggerMode.
+  // Probe: with lock=0 and density=1, an *un*activated seed mode falls back
+  // to auto and shifts on step (changes register). If setBit accidentally
+  // set seedActivated=true, the register would freeze instead.
+  const host = makeHost({
+    triggerMode: "seed",
+    seed: 1,
+    length: 8,
+    lock: 0.0,
+    density: 1.0,
+  });
+  host.setBit(0, 1);
+  const before = host.getRegister();
+  host.step(0);
+  assert.notEqual(host.getRegister(), before, "step should advance — seed not activated");
+});
+
+test("setBit — valid in every triggerMode", () => {
+  for (const mode of ["auto", "gate", "seed"] as const) {
+    const host = makeHost({ triggerMode: mode, seed: 1, length: 8 });
+    const reg0 = host.getRegister();
+    const flipped = ((reg0 & 1) ^ 1) as 0 | 1; // flip bit 0
+    host.setBit(0, flipped);
+    assert.equal(host.getRegister() & 1, flipped, `mode=${mode}`);
+  }
+});
+
 test("output range single-note (lo == hi) — note always lo", () => {
   const host = makeHost({
     seed: 1,
