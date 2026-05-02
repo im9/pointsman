@@ -576,17 +576,24 @@ packages import it. `quantizer.ts` ships when QT host work begins.
 
 ### Stencil QT
 
-- [ ] `host-qt/host.ts` — `QtHostState`, event loop, `triggerMode` branches,
-      `notePulse` outlet emit on each scheduled `noteOn`
+- [x] `host-qt/host.ts` — `QtHost` class: scalePitches cache, humanizeRng,
+      driftState, `lastInputTime`-derived sourceStepDuration (250 ms first-
+      event fallback), passthrough/root triggerMode branches, control-channel
+      consume in root mode, output channel mirrors input, `notePulse` event
+      type lockstep with `noteOn`
 - [x] `host-qt/humanize.ts` — `draw`, `drift`, `composeHumanize`, `DriftState`,
       `NEUTRAL_DRIFT`; pure functions, RNG threaded explicitly
 - [ ] `host-qt/bridge.ts`, `host-qt/index.mjs` — analogous to TM
 - [x] `host-qt/humanize.test.ts` — 18 cases (draw 4 / drift 3 / compose 11);
       draw order velocity → gate → timing asserted against fixed seed; drift
       desync-safety (state advances even when factor=0) covered
-- [ ] `host-qt/host.test.ts` + `host-qt/bridge.test.ts` — host state machine
-      + protocol → host call mapping; `notePulse` outlet fires in lockstep
-      with scheduled noteOn
+- [x] `host-qt/host.test.ts` — 30 cases: constructor defaults vs ADR table,
+      passthrough/root triggerMode matrix, channel filter + omni, root path
+      consumes controlChannel and rebuilds scalePitches, sourceStepDuration
+      first-event fallback + delta tracking, humanize reproducibility per
+      seed, `notePulse` lockstep with `noteOn`, transport/panic/setParam
+      flush + state reset
+- [ ] `host-qt/bridge.test.ts` — protocol → host call mapping
 
 ### Verification
 
