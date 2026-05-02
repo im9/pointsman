@@ -181,9 +181,13 @@ Per-step flow (driven by Max `step` message):
 
 ### Engine wiring
 
-The host imports from `../engine/dist/turing.js`. Test code in
-`host-tm/*.test.ts` imports the TS source directly (`../engine/turing.ts`),
-relying on Node's TS-stripping in `node --test`.
+The host imports the engine via TS source (`../engine/turing.ts`). Each
+host's `tsconfig.json` sets `rootDir: "../"` and lists the engine source
+in `include`, so `tsc` compiles host + engine into `dist/host-tm/host.js`
++ `dist/engine/turing.js` together — `[node.script]` loads the host bundle
+without needing a separate engine package resolution. Test code follows
+the same import path; `node --test` TS-strips at runtime. (Pattern ported
+from oedipa's `m4l/host/tsconfig.json`.)
 
 ## Stencil QT — device architecture
 
@@ -524,12 +528,12 @@ the MIDI I/O paths are tested manually in Live, and engine test vectors
 
 ### Stencil TM
 
-- [ ] `host-tm/host.ts` — `TmHostState`, step loop, `triggerMode` branches
+- [x] `host-tm/host.ts` — `TmHostState`, step loop, `triggerMode` branches
 - [ ] `host-tm/bridge.ts` — Max protocol parser, message dispatcher
 - [ ] `host-tm/index.js` — n4m entry, dependency-injects `Max.outlet` into
       `Bridge`
-- [ ] `host-tm/*.test.ts` — host state machine tests (no `max-api`),
-      including `triggerMode` matrix
+- [x] `host-tm/*.test.ts` — host state machine tests (no `max-api`),
+      including `triggerMode` matrix (20/20 pass under `pnpm -r test`)
 - [ ] `Stencil-TM.maxpat` — UI, `live.*` objects, `[node.script]` wiring,
       MIDI in/out routing
 - [ ] Bake `Stencil-TM.amxd`; load in Live; verify all `live.*` parameters
