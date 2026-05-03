@@ -21,6 +21,8 @@ importers:
 
   host-tm: {}
 
+  scripts: {}
+
 packages:
 
   '@types/node@22.19.17':

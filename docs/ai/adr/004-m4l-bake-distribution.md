@@ -36,7 +36,9 @@ single-device case. This ADR ports + extends.
 
 1. Accept `argv[2] ∈ {TM, QT}` (validated; reject else).
 2. Resolve I/O as
-   `m4l/Stencil-${argv[2]}.maxpat` → `m4l/dist/Stencil-${argv[2]}.amxd`.
+   `m4l/Stencil-${argv[2]}.maxpat` → `m4l/Stencil-${argv[2]}.amxd`
+   (flat, matching oedipa's `m4l/Oedipa.amxd` and the project root
+   `CLAUDE.md` §Layout).
 
 Core operations carry verbatim from oedipa: AMPF header splice, JSON
 validation, `--check` mode that returns nonzero without writing.
@@ -54,15 +56,41 @@ pnpm bake:check        # bake:check:tm && bake:check:qt
 
 ### Patcher path conventions
 
-- `[node.script]` references its host index by **bare-sibling path**
-  (`host-tm/index.js`, `host-qt/index.js`) — not absolute.
-- `[jsui]` references its renderer file by bare-sibling path
-  (`host-tm/ui/registerRing.jsui.js`, `host-qt/ui/scaleKeyboard.jsui.js`)
-  per [ADR 003](003-m4l-ui-design.md) §jsui widgets.
+- `[node.script]` references its host entry by **flat sibling filename**
+  at the `m4l/` root (`stencil-tm.mjs`, `stencil-qt.mjs`) — not absolute,
+  not subdirectory-pathed. Empirically Max [node.script]'s `filename`
+  resolution does not handle subdirectory paths in M4L presentation view
+  (observed: "No such file or directory" in Max log even when the file
+  exists at the relative subdirectory location). Same constraint as
+  Max [jsui] above. Compiled bridge artifacts still live under
+  `host-tm/dist/host-tm/` etc.; the flat entry imports them with relative
+  Node ESM paths (`./host-tm/dist/host-tm/bridge.js`), which Node's
+  resolver handles correctly — the subdir constraint is on Max's
+  `filename` attribute, not on what the script itself imports.
+  The `.mjs` extension is load-bearing: when [node.script] extracts the
+  script to a tempdir during baked-`.amxd` load, there's no sibling
+  `package.json` to set `"type":"module"`, so a `.js` filename would be
+  parsed as CJS and the `import` statement would fail. (See header
+  comment in `m4l/stencil-tm.mjs`.)
+- `[jsui]` references its renderer file by **flat sibling filename**
+  at the `m4l/` root (`registerRing.jsui.js`, `scaleKeyboard.jsui.js`).
+  Empirically Max's [jsui] `filename` resolution does not reliably
+  handle subdirectory paths in M4L presentation view — a
+  subdirectory-pathed renderer rendered as a generic gray placeholder
+  in Live instead of running the renderer code. The corresponding
+  `*.logic.ts` and `*.logic.test.ts` stay under
+  `host-{tm,qt}/ui/` (those don't pass through Max's resolver).
 - No absolute paths anywhere in `.maxpat` JSON: no `/Users/`, no
   `/home/`, no `C:\`, no Windows drive letters.
 - All sub-patcher refs (if any are introduced later) follow the same
   bare-sibling rule.
+- Bridge outlet symbols emitted to `[jsui]` (via `Max.outlet` →
+  `[route ...]` → `[prepend ...]`) must NOT collide with Max box
+  attribute names. `position` is the known offender — Max parses it
+  as an attribute setter and shifts the jsui box by N pixels per
+  inlet message (1px-per-step creep observed in M4L locked view,
+  2026-05-03). Use domain-specific camelCase (`ringHead`, not
+  `position`); same rule as oedipa's `latticeCenter` / `setCells`.
 
 ### Guard tests
 
@@ -81,15 +109,18 @@ Run via `pnpm bake:check:*`. Failures are nonzero exit and block bake.
 Tests run on each device's `.maxpat` independently — TM can pass while
 QT fails.
 
-### dist/ tracking
+### Build artifact tracking
 
 - Host TS sources compile to `dist/` per package
   (`m4l/host-tm/dist/`, `m4l/host-qt/dist/`). Committed to git;
   `[node.script]` loads them directly without a build step on the user's
   machine. (Already specified in ADR 002 §File layout.)
-- `.amxd` outputs land in `m4l/dist/Stencil-{TM,QT}.amxd`. Committed to
-  git as the distributable artifact — channel uploads reference these
-  paths or pull from a tagged release.
+- `.amxd` outputs land at `m4l/Stencil-{TM,QT}.amxd` (flat, alongside
+  the matching `.maxpat`). Committed to git as the dev/distributable
+  artifact — matches oedipa's `m4l/Oedipa.amxd` convention and the
+  project root `CLAUDE.md` §Layout. Frozen / channel-upload artifacts
+  (post-Max-Freeze) live at the repo root `dist/` per the same oedipa
+  convention; created at upload time, not by `pnpm bake`.
 
 ### Distribution packaging
 
@@ -130,9 +161,12 @@ Resolution events are noted where known.
 - **Bundle vs split listing** — depends on the channel above. Both are
   achievable from the same artifact set; only the listing material
   differs. (Moved here from ADR 002 §Open questions.)
-- **`.amxd` output path** — `m4l/dist/Stencil-{TM,QT}.amxd` vs flatter
-  `m4l/Stencil-{TM,QT}.amxd`. Default is `dist/` (matches oedipa);
-  flatten only if the bake pipeline forces it.
+- ~~**`.amxd` output path**~~ — *resolved 2026-05-03*. Bake writes
+  `m4l/Stencil-{TM,QT}.amxd` (flat). The earlier draft of this ADR
+  assumed `m4l/dist/` "matched oedipa" — that was a misread; oedipa
+  keeps the dev `.amxd` at `m4l/Oedipa.amxd` and reserves the repo-root
+  `dist/` for frozen/release artifacts. Stencil follows the same
+  convention.
 - **Free vs paid** — README says "free distribution" but channels may
   offer name-your-price or tip-jar models. Non-architectural; resolves
   at upload time.
@@ -147,19 +181,19 @@ Resolution events are noted where known.
 
 ### Bake pipeline
 
-- [ ] Port `m4l/scripts/maxpat-to-amxd.mjs` from oedipa
-- [ ] Parameterize `argv[2]` for `TM` | `QT`; validate
-- [ ] Wire `pnpm bake:tm`, `bake:qt`, `bake`, and `bake:check:*` at
+- [x] Port `m4l/scripts/maxpat-to-amxd.mjs` from oedipa
+- [x] Parameterize `argv[2]` for `TM` | `QT`; validate
+- [x] Wire `pnpm bake:tm`, `bake:qt`, `bake`, and `bake:check:*` at
       `m4l/package.json`
-- [ ] Abs-path scrub guard test
-- [ ] External-validation guard test (verify `[node.script]` filenames
+- [x] Abs-path scrub guard test
+- [x] External-validation guard test (verify `[node.script]` filenames
       resolve as sibling files)
 
 ### Bake outputs
 
-- [ ] `pnpm bake:tm` produces `m4l/dist/Stencil-TM.amxd` from a working
+- [x] `pnpm bake:tm` produces `m4l/Stencil-TM.amxd` from a working
       `Stencil-TM.maxpat`
-- [ ] `pnpm bake:qt` produces `m4l/dist/Stencil-QT.amxd` from a working
+- [ ] `pnpm bake:qt` produces `m4l/Stencil-QT.amxd` from a working
       `Stencil-QT.maxpat`
 - [ ] Both `.amxd` load in Live without console errors
 - [ ] `pnpm bake:check` passes on a fresh checkout

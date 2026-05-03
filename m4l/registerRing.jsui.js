@@ -35,23 +35,34 @@ var MAX_BIT_RADIUS = 14
 var BIT_GAP = 2
 var CANVAS_MARGIN = 4
 
-// --- Visual identity (placeholder until slice (i) samples inboil) ---
+// --- Visual identity (sampled from inboil src/app.css) ---
 //
-// ADR 003 "Visual identity" names the tokens; exact hex picked when
-// the patcher work captures inboil screenshots. These approximations let
-// the renderer ship visually before the official sampling pass.
+// Exact hex values per ADR 003 "Visual identity". These are the inboil
+// design tokens transcoded to 0..1 RGB for mgraphics. Update both the
+// ADR and this block together if the palette ever changes.
 
-var COL_BG          = [0.96, 0.94, 0.86] // cream / oat
-var COL_OUTLINE     = [0.70, 0.66, 0.54] // pale taupe (inactive bits)
-var COL_ACTIVE_FILL = [0.42, 0.45, 0.21] // olive / sage (filled bits)
-var COL_HIGHLIGHT   = [0.95, 0.55, 0.40] // warm peach / coral (read-head)
+var COL_BG          = [0.929, 0.910, 0.863] // #EDE8DC --color-bg     warm cream
+var COL_FG          = [0.118, 0.125, 0.157] // #1E2028 --color-fg     dark navy (text)
+var COL_ACTIVE_FILL = [0.471, 0.471, 0.271] // #787845 --color-olive  olive (active bits)
+var COL_HIGHLIGHT   = [0.910, 0.627, 0.565] // #E8A090 --color-salmon salmon (read-head)
+// Inactive-bit outline: olive at 0.55 alpha. Inboil uses 0.35 but at
+// inboil's larger scale (250x250 svg viewport) 0.35 reads fine; in the
+// M4L 320x132 jsui the dots are smaller and 0.35 reads as nearly
+// invisible. 0.55 keeps the same hue but with enough presence to be
+// legible at the smaller scale.
+var COL_OUTLINE     = [0.471, 0.471, 0.271] // olive base
+var OUTLINE_ALPHA   = 0.55
 
 // --- State ---
 //
 // bits: 0/1 array, length implies the current TM register length. Replaced
 // wholesale by the bridge's `register` outlet on every step and on length
 // changes, so we don't track length separately.
-// readHead: 0..bits.length-1, position from the bridge's `position` outlet.
+// readHead: 0..bits.length-1, position from the bridge's `ringHead` outlet.
+//
+// Empty until the bridge's first `register` message arrives. paint()
+// handles bits.length === 0 by drawing a DEFAULT_LENGTH-dot outline
+// fallback so the device looks alive on first paint.
 
 var bits = []
 var readHead = 0
@@ -59,16 +70,25 @@ var readHead = 0
 // --- Message dispatch ---
 //
 // register <bit0> <bit1> ... <bitN-1>   replace bits, redraw
-// position <n>                          set read-head, redraw
+// ringHead <n>                          set read-head, redraw
 //
 // Use `anything` so message routing is explicit and unhandled messages get
 // a clear post() instead of a silent drop.
+//
+// Outlet symbol from the bridge is `ringHead` (NOT `position`): when a
+// [jsui] inlet receives a message whose first symbol matches a Max
+// box-level attribute name (`position` is one such reserved word), Max
+// interprets it as a setter and shifts the box's screen position --
+// observed empirically as a 1px-per-message creep in M4L locked view.
+// `ringHead` is a domain-specific non-colliding name. Keep this in
+// sync with bridge.ts's emitOutlet call and the patcher's
+// [route ... ringHead] / [prepend ringHead] objects.
 
 function anything() {
   var msg = messagename
   var args = arrayfromargs(arguments)
   if (msg === 'register') { setRegister(args); return }
-  if (msg === 'position') { setReadHead(args[0]); return }
+  if (msg === 'ringHead') { setReadHead(args[0]); return }
   post('registerRing.jsui.js: unhandled message ' + msg + '\n')
 }
 
@@ -147,47 +167,96 @@ function fillCircle(x, y, r, c) {
   mgraphics.fill()
 }
 
-function strokeCircle(x, y, r, c, lineW) {
-  mgraphics.set_source_rgba(c[0], c[1], c[2], 1)
+function strokeCircle(x, y, r, c, alpha, lineW) {
+  mgraphics.set_source_rgba(c[0], c[1], c[2], alpha)
   mgraphics.set_line_width(lineW)
   mgraphics.ellipse(x - r, y - r, r * 2, r * 2)
   mgraphics.stroke()
+}
+
+// Default ring length to draw before the bridge has emitted its first
+// `register` message. Matches DEFAULT_PARAMS.length in host-tm/host.ts.
+// Without this, a freshly-loaded device shows a blank cream rectangle
+// until the first transport step (or any param dump) -- confusing.
+var DEFAULT_LENGTH = 8
+
+// Compute the register's value as a fraction in [0, 1]. Mirrors the
+// engine's `registerToFraction(register, length)` (m4l/engine/turing.ts):
+// num = sum(bits[i] << i), den = (1 << length) - 1, value = num/den.
+// Used for the ring center text per ADR 003 "Layout sketch".
+function registerFraction(bs) {
+  if (bs.length === 0) return 0
+  var num = 0
+  for (var i = 0; i < bs.length; i++) {
+    if (bs[i] === 1) num |= (1 << i)
+  }
+  num = num >>> 0
+  var den = bs.length >= 32 ? 0xffffffff : (((1 << bs.length) - 1) >>> 0)
+  return den > 0 ? num / den : 0
+}
+
+// Format a fraction in [0, 1] as "0.XX" (matches inboil
+// TuringSheet.svelte `displaySnap.value.toFixed(2)`).
+function formatFraction(f) {
+  if (f >= 1) return '1.00'
+  if (f <= 0) return '0.00'
+  // toFixed isn't available in Max's classic JS engine; do it by hand.
+  var hundredths = Math.round(f * 100)
+  var tens = Math.floor(hundredths / 10)
+  var ones = hundredths % 10
+  return '0.' + tens + ones
 }
 
 function paint() {
   var w = box.rect[2] - box.rect[0]
   var h = box.rect[3] - box.rect[1]
 
-  // Background fill so the ring sits on the inboil cream rather than Live's
-  // default device gray. Patcher-side bgcolor would also work; doing it
-  // here keeps the visual self-contained per [jsui].
+  // Background fill so the ring sits on the inboil cream rather than
+  // Live's default device gray.
   mgraphics.set_source_rgba(COL_BG[0], COL_BG[1], COL_BG[2], 1)
   mgraphics.rectangle(0, 0, w, h)
   mgraphics.fill()
 
-  if (bits.length === 0) return
+  // Empty state: draw an outlined ring at DEFAULT_LENGTH so the device
+  // looks alive on first load. The bridge replaces this with the real
+  // register on `ready` (see TmBridge constructor) within one event
+  // loop tick; this is a fallback for the in-between frame.
+  var len = bits.length > 0 ? bits.length : DEFAULT_LENGTH
+  var g = computeGeometry(w, h, len)
 
-  var g = computeGeometry(w, h, bits.length)
-
-  for (var i = 0; i < g.length; i++) {
+  for (var i = 0; i < len; i++) {
     var p = bitPosition(i, g)
-    var isHead = (i === readHead)
-    var isOn = (bits[i] === 1)
+    var isHead = (bits.length > 0 && i === readHead)
+    var isOn = (bits.length > 0 && bits[i] === 1)
 
     if (isHead) {
-      // Highlight read-head as a filled coral dot regardless of bit value
-      // -- the read-head's job is to show "where", and bit value is read
-      // separately from the surrounding outlined/filled dots. Matches
-      // inboil bit-reading style (filled accent).
+      // Read-head: filled salmon disk regardless of bit value. The
+      // read-head's job is to show "where"; bit value is read from
+      // the surrounding ring. Matches inboil `.bit-reading` style.
       fillCircle(p.x, p.y, g.bitRadius, COL_HIGHLIGHT)
     } else if (isOn) {
       fillCircle(p.x, p.y, g.bitRadius, COL_ACTIVE_FILL)
     } else {
-      // Inactive: hollow with taupe outline. 1.5px line matches inboil's
-      // bit-circle stroke-width.
-      strokeCircle(p.x, p.y, g.bitRadius, COL_OUTLINE, 1.5)
+      // Inactive: hollow olive at low alpha. 1.5px line matches inboil
+      // `.bit-circle { stroke-width: 1.5 }`.
+      strokeCircle(p.x, p.y, g.bitRadius, COL_OUTLINE, OUTLINE_ALPHA, 1.5)
     }
   }
+
+  // DIAGNOSTIC: center text rendering temporarily disabled to test
+  // whether mgraphics.select_font_face / set_font_size / show_text is
+  // what causes the canvas to drift after the first paint.
+  // Hypothesis correlation: drift happens only when bits.length > 0,
+  // which is exactly when this text block runs.
+  // if (bits.length > 0) {
+  //   mgraphics.set_source_rgba(COL_FG[0], COL_FG[1], COL_FG[2], 1)
+  //   mgraphics.select_font_face('Andale Mono')
+  //   mgraphics.set_font_size(16)
+  //   var label = formatFraction(registerFraction(bits))
+  //   var tm = mgraphics.text_measure(label)
+  //   mgraphics.move_to(g.cx - tm[0] / 2, g.cy + tm[1] / 2)
+  //   mgraphics.show_text(label)
+  // }
 }
 
 // --- Mouse interaction ---

@@ -2,3 +2,4 @@ packages:
   - 'engine'
   - 'host-tm'
   - 'host-qt'
+  - 'scripts'

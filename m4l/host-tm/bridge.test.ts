@@ -63,7 +63,7 @@ test("construction — emits ready, initial register, initial position", () => {
   assert.equal(regs[0].args.length, 8, "8 bits for length=8");
   for (const b of regs[0].args) assert.ok(b === 0 || b === 1, "bit must be 0/1");
   // position: 0 at construction
-  const pos = outletsByName(rec, "position");
+  const pos = outletsByName(rec, "ringHead");
   assert.equal(pos.length, 1);
   assert.deepEqual(pos[0].args, [0]);
 });
@@ -164,7 +164,7 @@ test("step — emits register + position outlets", () => {
   rec.outlets.length = 0;
   bridge.step(0);
   const regs = outletsByName(rec, "register");
-  const pos = outletsByName(rec, "position");
+  const pos = outletsByName(rec, "ringHead");
   assert.equal(regs.length, 1, "exactly one register emit per step");
   assert.equal(regs[0].args.length, 8);
   assert.equal(pos.length, 1);
@@ -280,7 +280,7 @@ test("transportStart — emits register (re-init) and position 0", () => {
   bridge.step(1);
   rec.outlets.length = 0;
   bridge.transportStart();
-  const pos = outletsByName(rec, "position");
+  const pos = outletsByName(rec, "ringHead");
   const regs = outletsByName(rec, "register");
   assert.equal(pos.length, 1);
   assert.deepEqual(pos[0].args, [0]);
@@ -292,7 +292,7 @@ test("transportStop — emits position 0, register preserved (no re-emit)", () =
   bridge.step(0);
   rec.outlets.length = 0;
   bridge.transportStop();
-  const pos = outletsByName(rec, "position");
+  const pos = outletsByName(rec, "ringHead");
   assert.equal(pos.length, 1);
   assert.deepEqual(pos[0].args, [0]);
   // Register preserved across stop (host invariant); no need to re-emit.
@@ -336,5 +336,5 @@ test("panic — flushes via host, emits no spurious register/position", () => {
   rec.outlets.length = 0;
   bridge.panic();
   assert.equal(outletsByName(rec, "register").length, 0);
-  assert.equal(outletsByName(rec, "position").length, 0);
+  assert.equal(outletsByName(rec, "ringHead").length, 0);
 });

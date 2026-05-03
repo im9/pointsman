@@ -7,7 +7,13 @@
   "scripts": {
     "build": "pnpm -r build",
     "test": "pnpm -r test",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "bake:tm": "node scripts/maxpat-to-amxd.mjs TM",
+    "bake:qt": "node scripts/maxpat-to-amxd.mjs QT",
+    "bake": "pnpm bake:tm && pnpm bake:qt",
+    "bake:check:tm": "node scripts/maxpat-to-amxd.mjs TM --check",
+    "bake:check:qt": "node scripts/maxpat-to-amxd.mjs QT --check",
+    "bake:check": "pnpm bake:check:tm && pnpm bake:check:qt"
   },
   "devDependencies": {
     "typescript": "^5.7.0",

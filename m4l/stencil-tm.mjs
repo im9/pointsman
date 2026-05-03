@@ -1,19 +1,33 @@
-// n4m entry for the Stencil TM device. Thin wrapper over TmBridge — wires
-// the Max API (Max.outlet, Max.addHandler, Date.now, setTimeout) into the
-// bridge's injected deps. No musical logic lives here.
+// Stencil TM n4m entry. Thin wrapper over TmBridge — wires the Max API
+// (Max.outlet, Max.addHandler, Date.now, setTimeout) into the bridge's
+// injected deps. No musical logic lives here.
 //
-// `.mjs` (not `.js`) is load-bearing for distribution: when the .amxd is
-// baked / frozen, [node.script] extracts the script to a tempdir with no
-// sibling package.json. `.js` would default to CJS there and the
-// `import Max from "max-api"` line below would fail to parse, leaving
-// [node.script] permanently in "Node script not ready" state. `.mjs` is
-// unconditionally ESM. (Convention ported from oedipa, validated 2026-05-01
-// against dev/dist Max console comparison.)
+// Path conventions (flat, m4l/ root):
+// - This file MUST live at `m4l/stencil-tm.mjs` (NOT under host-tm/),
+//   because Max [node.script]'s `filename` attribute does not reliably
+//   resolve subdirectory paths in M4L presentation view. Observed
+//   empirically: a [node.script] with `host-tm/index.mjs` as filename
+//   reports "No such file or directory" in Max log even when the file
+//   exists. Same constraint as Max [jsui], which is why
+//   `registerRing.jsui.js` is also at the m4l/ root.
+//   (See ADR 004 §Patcher path conventions.)
+// - The compiled bridge dist still lives under `host-tm/dist/host-tm/`,
+//   imported relatively from this entry — `import "./..."` paths
+//   inside the .mjs are resolved by Node, not by Max, so subdirs work.
+//
+// `.mjs` (not `.js`) is load-bearing for distribution: when the .amxd
+// is baked / frozen, [node.script] extracts the script to a tempdir
+// with no sibling package.json. `.js` would default to CJS there and
+// the `import Max from "max-api"` line below would fail to parse,
+// leaving [node.script] permanently in "Node script not ready" state.
+// `.mjs` is unconditionally ESM. (Convention ported from oedipa,
+// validated 2026-05-01 against dev/dist Max console comparison.)
 //
 // `max-api` is provided by Max at runtime; it MUST NOT appear in
-// package.json dependencies — the npm version conflicts with the injected
-// one. Running this file under plain Node fails to resolve 'max-api'; the
-// bridge logic is fully tested in bridge.test.ts and doesn't touch it.
+// package.json dependencies — the npm version conflicts with the
+// injected one. Running this file under plain Node fails to resolve
+// 'max-api'; the bridge logic is fully tested in bridge.test.ts and
+// doesn't touch it.
 //
 // Protocol (see ADR 002 §Host ↔ Max protocol):
 //
@@ -35,9 +49,9 @@
 //     position <n>                         current step index
 
 import Max from "max-api";
-import { TmBridge } from "./dist/host-tm/bridge.js";
+import { TmBridge } from "./host-tm/dist/host-tm/bridge.js";
 
-Max.post("stencil tm: index.mjs loaded");
+Max.post("stencil tm: stencil-tm.mjs loaded");
 
 const bridge = new TmBridge({
   emitNote: (pitch, velocity, channel) =>

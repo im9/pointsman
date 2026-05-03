@@ -28,7 +28,13 @@ import {
 } from "./registerRing.logic.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const RENDERER_PATH = join(__dirname, "registerRing.jsui.js");
+// Renderer lives at m4l/registerRing.jsui.js (flat, not under
+// host-tm/ui/) because Max [jsui]'s `filename` resolution does not
+// reliably handle subdirectory paths in M4L presentation view —
+// observed empirically when subdirectory-pathed jsui rendered as a
+// generic placeholder instead of the renderer's output. See ADR 004
+// §Patcher path conventions.
+const RENDERER_PATH = join(__dirname, "..", "..", "registerRing.jsui.js");
 const RENDERER_SRC = readFileSync(RENDERER_PATH, "utf8");
 
 function findVarDecl(name: string): number {
@@ -81,12 +87,19 @@ test("renderer is ASCII-only (Max classic JS parser constraint)", () => {
 });
 
 test("renderer declares the message handlers the bridge emits", () => {
-  // The bridge (bridge.ts) emits `register` and `position` outlets via
+  // The bridge (bridge.ts) emits `register` and `ringHead` outlets via
   // emitOutlet. The renderer must dispatch those names. Cheap text check:
   // a typo on either side breaks the link silently in Live, so catch it
   // here before manual verification time.
+  //
+  // The outlet name is `ringHead` (NOT `position`): `position` is a
+  // Max box-level attribute name and a [jsui] inlet receiving such a
+  // message gets repositioned by Max's attribute parser, causing a
+  // 1px-per-message creep visible in M4L locked view (verified
+  // empirically 2026-05-03 via wire-cut isolation). See bridge.ts
+  // emitOutlet ringHead call site for full context.
   assert.match(RENDERER_SRC, /msg === ['"]register['"]/);
-  assert.match(RENDERER_SRC, /msg === ['"]position['"]/);
+  assert.match(RENDERER_SRC, /msg === ['"]ringHead['"]/);
 });
 
 test("renderer emits the setBit message the bridge handles", () => {

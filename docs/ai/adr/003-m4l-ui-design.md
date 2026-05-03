@@ -74,31 +74,56 @@ and breaks the m4l idiom (devices are wide strips, not panels).
 
 ### Visual identity (inboil-derived)
 
-The following carry over from inboil and apply to both devices:
+The following carry over from inboil and apply to both devices.
 
-- **Color palette**, named tokens (exact hex sampled from inboil at
-  patcher build time):
-  - `color.bg` — cream / oat background
-  - `color.text` — near-black, primary text
-  - `color.textMuted` — olive-gray, captions and inactive labels
-  - `color.outline` — pale taupe, panel borders and inactive bit dots
-  - `color.activeFill` — olive / sage, filled bits and slider thumbs
-  - `color.activeHighlight` — warm peach / coral, current read-head /
-    just-played key (the eye-catcher accent)
-- **Typography** — monospace font, uppercase parameter labels. Set via
-  Max patcher's `fontname` / `fontsize` properties on `live.*` and
-  text objects. inboil's exact font is geometric mono (resembles IBM
-  Plex Mono); patcher build picks the closest Max-available equivalent.
-- **Panel pattern** — thin-bordered groups with a corner label tab
-  (matches inboil's fieldset-style). Implemented in Max via `panel` +
-  short `comment` object, or `live.banner` where suitable.
-- **Header band** — top of device: device name (`STENCIL TM` /
-  `STENCIL QT`) left, author (`im9`) right, brand accent line below.
-  Same treatment on both devices for family consistency.
+**Color palette** — sampled directly from
+[inboil's `src/app.css`](~/src/front/inboil/src/app.css):
 
-Reference screenshots of inboil TM and QT will be embedded under
-`docs/ai/ui/` when the patcher work begins (captured fresh at that time;
-not included in the ADR draft commit).
+| Token              | Hex       | RGB           | Role                               |
+|--------------------|-----------|---------------|------------------------------------|
+| `color.bg`         | `#EDE8DC` | 237, 232, 220 | warm cream — device background     |
+| `color.fg`         | `#1E2028` | 30, 32, 40    | dark navy — primary text           |
+| `color.olive`      | `#787845` | 120, 120, 69  | olive — active fill, group legends |
+| `color.salmon`     | `#E8A090` | 232, 160, 144 | salmon — read-head, key pulse      |
+| `color.borderFaint`| navy@10%  | 30,32,40 / .10| panel borders                      |
+| `color.outline`    | olive@35% | 120,120,69/.35| inactive bit-dot stroke            |
+
+(Inboil uses `--color-blue` `#4472B4` for its global playhead. Stencil
+deliberately omits blue: the m4l device has no separate playhead concept
+— transport sync is implicit from Live's clock — so the salmon read-head
+on the bit ring is the single eye-catcher accent.)
+
+**Typography** — monospace, uppercase parameter labels. Inboil ships
+JetBrains Mono / Fira Code as `--font-data`; Max ships `Andale Mono`
+which is the closest pre-installed equivalent and what we use as the
+patcher's `default_fontname`. Sizes mirror inboil's `--fs-*` scale:
+`fs-sm 9px` for parameter labels, `fs-min 8px` for group legends.
+
+**Panel pattern** — thin-bordered groups (`color.borderFaint`) with a
+corner label tab matching inboil's fieldset-with-legend pattern.
+Implemented in Max as a `panel` (border) + small `comment` (label) +
+a same-`color.bg` panel cap behind the label so the label punches a
+gap in the border (the visual fieldset effect).
+
+**Device chrome** — the device name (`Stencil-TM` / `Stencil-QT`) is
+shown by Live's own device-strip header. We do NOT add a duplicate
+`STENCIL TM`-style banner inside the presentation strip, and no `im9`
+byline — Live shows both the device name and author in its own
+metadata; in-strip duplicates clutter at small sizes. The three
+column-group legends (`GENERATE` / `REGISTER` / `I/O`) are sufficient
+in-strip identification of which Stencil device this is.
+
+**Per-control idiom**:
+- floats (lock, density, gate) use `live.slider` horizontal — matches
+  inboil's `.ctl-slider` row layout (label · slider · value)
+- ints use `live.numbox`
+- enums use `live.menu`
+
+(ADR 002's parameter table says `live.dial float` for floats — that
+spec captures *parameter type*, not the visual widget. Both `live.dial`
+and `live.slider` expose the same float parameter to Live; the choice
+is presentational. Stencil picks `live.slider` for inboil parity. See
+ADR 002 §live.* parameter surface.)
 
 ### TM register ring (jsui)
 
@@ -274,7 +299,9 @@ Per CLAUDE.md §GUI components, both jsui widgets follow the split:
   - `m4l/host-qt/ui/scaleKeyboard.logic.ts`
   - `m4l/host-qt/ui/scaleKeyboard.logic.test.ts`
 - **Renderer**: jsui-specific drawing + event glue. Lives at:
-  - `m4l/host-tm/ui/registerRing.jsui.js` (loaded by `[jsui]` in patcher)
+  - `m4l/registerRing.jsui.js` (loaded by `[jsui]` in patcher; flat path
+    per ADR 004 §Patcher path conventions — Max [jsui] does not reliably
+    resolve subdirectory paths in M4L presentation view)
   - `m4l/host-qt/ui/scaleKeyboard.jsui.js`
 - Renderer reads logic state and draws. No business logic in renderer.
   Manually verified in Live; not unit-tested.
@@ -292,7 +319,7 @@ The renderer queries geometry to decide where to draw.
       `advanceReadHead`
 - [x] `host-tm/ui/registerRing.logic.test.ts` — `node:test`:
       hit-test boundary cases, toggle determinism, read-head advance
-- [x] `host-tm/ui/registerRing.jsui.js` — renderer + Max event glue:
+- [x] `registerRing.jsui.js` (m4l/ root, flat path) — renderer + Max event glue:
       `register` / `position` inlets, `setBit` outlet on click
 
 ### QT scale keyboard
@@ -306,23 +333,34 @@ The renderer queries geometry to decide where to draw.
 
 ### Stencil-TM patcher (`Stencil-TM.maxpat`)
 
-- [ ] `devicewidth = 1000`, presentation height ~180 (oedipa-matched)
-- [ ] Header band: `STENCIL TM` + `im9` + brand accent line
-- [ ] `[jsui]` instance loading `host-tm/ui/registerRing.jsui.js`
-- [ ] All 12 `live.*` widgets per ADR 002 §live.* parameter surface (TM)
-- [ ] `live.*` long-name / short-name set; range / increment per ADR 002
-- [ ] `live.*` initial values match defaults
-- [ ] `[node.script host-tm/index.js]` instance present
-- [ ] `[transport]` driving `step` messages
-- [ ] `[midiin]` → channel filter → `noteIn` / `noteOff` routing
-- [ ] `Max.outlet` → `[noteout]` for outgoing notes
-- [ ] Each `live.*` change fires `setParam` to the host
-- [ ] `register` / `position` outlets routed from `[node.script]` to
+- [x] `devicewidth = 1000`, presentation height ~180 (oedipa-matched)
+- [x] No in-strip header banner (Live's device-strip already labels
+      the device; no `im9` byline; no accent band)
+- [x] Three column groups (`GENERATE` / `REGISTER` / `I/O`) with
+      `color.borderFaint` panels and floating mono legends
+- [x] `[jsui]` instance loading `registerRing.jsui.js` (flat path)
+- [x] All 12 `live.*` widgets per ADR 002 §live.* parameter surface (TM)
+- [x] `live.*` long-name / short-name set; range / increment per ADR 002
+- [x] `live.*` initial values match defaults
+- [x] `[node.script stencil-tm.mjs]` instance present (flat path; Max
+      [node.script] does not reliably resolve subdirectory filenames in
+      M4L — see ADR 004 §Patcher path conventions)
+- [x] `[transport]` driving `step` messages
+- [x] `[midiin]` → channel filter → `noteIn` / `noteOff` routing
+- [x] `Max.outlet` → `[noteout]` for outgoing notes
+- [x] Each `live.*` change fires `setParam` to the host
+- [x] `register` / `position` outlets routed from `[node.script]` to
       `[jsui]` for ring updates
-- [ ] `[jsui]` `setBit` outlet routed to `[node.script]` setBit handler
-- [ ] Palette tokens applied to all panel objects, comments, and live.*
-      widgets
-- [ ] Monospace font + uppercase labels
+- [x] `[jsui]` `setBit` outlet routed to `[node.script]` setBit handler
+- [x] Palette tokens applied to panel objects, comments, group legends
+      (live.* widgets pick up Live's automation-track color theming;
+      explicit per-widget palette overrides only where Max exposes them)
+- [x] Monospace font (`Andale Mono`) + uppercase labels
+- [ ] Initial `live.*` parameter values reach the host bridge after
+      `[node.script]` is ready (currently 12 `setParam` messages drop
+      on device load with `Node script not ready`; ADR-002-spec'd
+      `getvalueof` mechanism does not work with `live.numbox` /
+      `live.slider` / `live.menu`, alternative trigger needed)
 
 ### Stencil-QT patcher (`Stencil-QT.maxpat`)
 
@@ -340,12 +378,11 @@ The renderer queries geometry to decide where to draw.
 
 ### Visual identity
 
-- [ ] Sample exact hex values from inboil reference (TM + QT screenshots);
-      record in `docs/ai/ui/palette.md` (or inline in this ADR's
-      §Visual identity once values are picked)
-- [ ] Pick monospace font available in Max; record choice
-- [ ] Brand accent color (single hex) chosen and applied identically on
-      both devices
+- [x] Sample exact hex values from inboil reference; recorded inline in
+      §Visual identity above (sourced from `inboil src/app.css`)
+- [x] Pick monospace font available in Max; recorded as `Andale Mono`
+- [x] Brand accent color: `color.salmon #E8A090` (used on TM read-head
+      and QT key pulse — single accent, consistent across devices)
 - [ ] Capture fresh screenshots of `Stencil-TM.amxd` and
       `Stencil-QT.amxd` in Live; commit to `docs/ai/ui/` and embed in
       this ADR's §Visual identity

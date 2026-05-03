@@ -269,6 +269,15 @@ export class TmBridge {
   }
 
   private emitPosition(): void {
-    this.deps.emitOutlet("position", this.host.getPosition());
+    // Outlet symbol is `ringHead` (NOT `position`): when a [jsui]
+    // receives an inlet message whose first symbol matches a Max
+    // box-level attribute name (`position` is one such reserved word),
+    // Max interprets it as a setter and shifts the box's screen
+    // position — observed empirically as a 1px-per-message creep in
+    // M4L locked view. `ringHead` is a domain-specific non-colliding
+    // name. Keep this name in sync with registerRing.jsui.js's
+    // anything() dispatch and the patcher's [route ... ringHead] /
+    // [prepend ringHead] objects.
+    this.deps.emitOutlet("ringHead", this.host.getPosition());
   }
 }
