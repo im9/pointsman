@@ -30,7 +30,13 @@ import {
 import { SCALE_INTERVALS } from "../../engine/quantizer.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const RENDERER_PATH = join(__dirname, "scaleKeyboard.jsui.js");
+// Renderer lives at m4l/scaleKeyboard.jsui.js (flat, not under
+// host-qt/ui/) because Max [jsui]'s `filename` resolution does not
+// reliably handle subdirectory paths in M4L presentation view —
+// observed empirically on TM where a subdirectory-pathed jsui rendered
+// as a generic placeholder instead of the renderer's output. See ADR
+// 004 §Patcher path conventions.
+const RENDERER_PATH = join(__dirname, "..", "..", "scaleKeyboard.jsui.js");
 const RENDERER_SRC = readFileSync(RENDERER_PATH, "utf8");
 
 function findVarDecl(name: string): number {

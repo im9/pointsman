@@ -113,9 +113,20 @@ metadata; in-strip duplicates clutter at small sizes. The three
 column-group legends (`GENERATE` / `REGISTER` / `I/O`) are sufficient
 in-strip identification of which Stencil device this is.
 
-**Per-control idiom**:
-- floats (lock, density, gate) use `live.slider` horizontal — matches
-  inboil's `.ctl-slider` row layout (label · slider · value)
+**Per-control idiom** — per-device, not per-param:
+- **TM** uses `live.slider` horizontal for floats (lock, density, gate)
+  — matches inboil's `.ctl-slider` row layout (label · slider · value)
+  and TM's params each occupy a dedicated row.
+- **QT** uses `live.dial` knobs for ALL floats (humanize vel/gate/time/
+  drift + outputLevel) — sliders eat too much vertical space when
+  stacked, and a horizontal slider's `parameter_shortname` rendering
+  overlays the value digits in the narrow strip width Stencil ships
+  (observed 2026-05-04 in Live: "Lvl" text covered the value display).
+  Knob row is also the conventional idiom for humanize / randomize
+  parameter clusters in DAW devices. The dial's built-in shortname
+  overlay (above the arc) doubles as the user-facing label, so
+  knob params do NOT carry an adjacent comment-label box (one label
+  per value, not two).
 - ints use `live.numbox`
 - enums use `live.menu`
 
@@ -258,22 +269,29 @@ Three columns, same structure:
 ```
 ┌─── STENCIL QT ───────────────────────────────────────── im9 ───┐
 │ ┌─ SCALE / I/O ────┐ ┌─ KEYBOARD ──────────────┐ ┌─ HUMAN ──┐ │
-│ │ SCL  [major   ] │ │ ┌─┐┌─┐  ┌─┐┌─┐┌─┐         │ │ VEL  ●━─ │ │
-│ │ ROOT [C       ] │ │ │ ││ │  │ ││ ││ │         │ │ GATE ●━─ │ │
-│ │ MODE [scale   ] │ │ ├─┴┴─┴┬─┴─┴┴─┴┴─┴─┴─┐    │ │ TIME ●─  │ │
-│ │ LVL  ●━━━       │ │ │•│◌│•│◌│•│•│◌│•│◌│•│   │ │ DRIFT ●─ │ │
-│ │ TRG  [psthru  ] │ │ │C│D│E│F│G│A│B│ │ │ │   │ │           │ │
-│ │ IN   [0       ] │ │ └─┴─┴─┴─┴─┴─┴─┴─┴─┴─┘   │ │ SEED [42] │ │
-│ │ CTL  [16      ] │ │                          │ │           │ │
+│ │ SCL [major    ] │ │ ┌─┐┌─┐  ┌─┐┌─┐┌─┐         │ │ ◌  ◌  ◌  ◌│ │
+│ │ ROOT[ 0] IN[0] CTL[16]│ │ ││  │ ││ ││ │         │ │ V  G  T  D│ │
+│ │ TRG [psthru   ] │ │ ├─┴┴─┴┬─┴─┴┴─┴┴─┴─┴─┐    │ │           │ │
+│ │     ◌            │ │ │•│◌│•│◌│•│•│◌│•│◌│•│   │ │ SEED [42] │ │
+│ │     LVL          │ │ │C│D│E│F│G│A│B│ │ │ │   │ │           │ │
+│ │                  │ │ └─┴─┴─┴─┴─┴─┴─┴─┴─┴─┘   │ │           │ │
 │ └─────────────────┘ └──────────────────────────┘ └──────────┘ │
 └────────────────────────────────────────────────────────────────┘
-  ~280w                ~440w                       ~240w
-  7 live.* widgets     1 jsui (scaleKeyboard)      5 live.* widgets
+  ~280w                ~440w                       ~248w
+  6 live.* widgets     1 jsui (scaleKeyboard)      5 live.* widgets
+  (qt.mode deferred to v2)
 ```
 
 Column allocation:
-- **SCALE / I/O** (left, ~280w, 7 items): scale, root, mode, outputLevel,
-  triggerMode, inputChannel, controlChannel.
+- **SCALE / I/O** (left, ~280w, 6 items in v1): scale, root,
+  triggerMode, inputChannel, controlChannel, outputLevel. ROOT/IN/CTL
+  share one row (numeric trio); TRG / SCL / outputLevel knob own
+  their rows. `qt.mode` is **deferred to v2** — Max's `live.menu`
+  does not enter enum-display mode with a single-element
+  `parameter_enum` (renders the raw int instead of the string), so
+  the v1 menu would be a non-functional placeholder. The bridge
+  silently no-ops `setParam mode <v>` until v2 brings chord / harmony
+  to a 3-element enum.
 - **KEYBOARD** (center, ~440w, jsui): one-octave (12-key) piano with
   in-scale dots and pulse animation. Wider than TM's ring because the
   keyboard layout is inherently horizontal. The keyboard is
@@ -404,17 +422,37 @@ The renderer queries geometry to decide where to draw.
 
 ### Stencil-QT patcher (`Stencil-QT.maxpat`)
 
-- [ ] `devicewidth = 1000`, presentation height ~180 (oedipa-matched)
-- [ ] Header band: `STENCIL QT` + `im9` + brand accent
-- [ ] `[jsui]` instance loading `host-qt/ui/scaleKeyboard.jsui.js`
-- [ ] All 12 `live.*` widgets per ADR 002 §live.* parameter surface (QT)
-- [ ] `live.*` long-name / short-name; range / increment / defaults
-- [ ] `[node.script host-qt/index.js]` instance
-- [ ] `[midiin]` → input/control channel split → `noteIn` (quantize path)
-      and `setParam root` (control path) per `triggerMode`
-- [ ] `Max.outlet` → `[noteout]`
-- [ ] `scaleChanged` / `notePulse` outlets routed to `[jsui]`
-- [ ] Palette + typography applied
+- [x] `devicewidth = 1000`, presentation height ~180 (oedipa-matched)
+- [x] No in-strip header banner (Live's device-strip already labels the
+      device; no `im9` byline; no accent band — same rule as TM)
+- [x] Three column groups (`SCALE / I/O` / `KEYBOARD` / `HUMAN`) with
+      `color.borderFaint` panels and floating mono legends
+- [x] `[jsui]` instance loading `scaleKeyboard.jsui.js` (m4l/ root,
+      flat path; logic + tests stay under `host-qt/ui/`)
+- [x] All `live.*` widgets per ADR 002 §live.* parameter surface (QT)
+      — v1 ships 11 of 12 (`qt.mode` deferred to v2; see
+      §Layout sketch — Stencil QT for rationale)
+- [x] `live.*` long-name / short-name; range / increment / defaults
+- [x] `live.*` initial values match defaults
+- [x] `[node.script stencil-qt.mjs]` instance (flat path, `.mjs` —
+      same filename-resolution + ESM-tempdir constraints as TM; see
+      ADR 004 §Patcher path conventions)
+- [x] `[midiin]` → input/control channel split → `noteIn` (quantize path)
+      and `setParam root` (control path) per `triggerMode` (patcher
+      forwards every parsed note to `noteIn`; the channel split + root
+      mode are decided in the bridge against `triggerMode` /
+      `controlChannel` per ADR 002)
+- [x] `Max.outlet` → `[noteout]` for outgoing notes
+- [x] Each `live.*` change fires `setParam` to the host
+- [x] `scaleChanged` / `notePulse` outlets routed to `[jsui]`
+- [x] Palette tokens applied to panel objects, comments, group legends
+- [x] Monospace font (`Andale Mono`) + uppercase labels
+- [x] Initial `live.*` parameter values reach the host bridge after
+      `[node.script]` is ready (`stencil-qt.mjs` emits `Max.outlet('ready')`
+      after all `addHandler` installs; patcher's `[route ... ready ...]`
+      outlet → `[t b]` → bangs each of the 12 live.* widgets so they
+      re-emit current value through the existing prep → nodescript chain.
+      Same handshake as TM; `QtBridge` constructor MUST NOT emit `ready`)
 
 ### Visual identity
 

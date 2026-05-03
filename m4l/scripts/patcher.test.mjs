@@ -158,24 +158,39 @@ const TM_LIVE_ENUMS = [
 const QT_LIVE_PARAMS = [
   // longname,                   shortname, bridgeKey,           type, mmin, mmax, initial
   ['StencilQtRoot',              'Root',    'root',              1, 0,    11,         0],
-  ['StencilQtHumanizeVelocity',  'HuVel',   'humanizeVelocity',  0, 0,    1,          0],
-  ['StencilQtHumanizeGate',      'HuGt',    'humanizeGate',      0, 0,    1,          0],
-  ['StencilQtHumanizeTiming',    'HuTm',    'humanizeTiming',    0, 0,    1,          0],
-  ['StencilQtHumanizeDrift',     'HuDr',    'humanizeDrift',     0, 0,    1,          0],
-  ['StencilQtOutputLevel',       'Lvl',     'outputLevel',       0, 0,    1,          1.0],
+  // Humanize shortnames are bare (VEL/GATE/TIME/DRIFT) — these are
+  // rendered by live.dial as the knob's built-in label, so a separate
+  // comment label is unnecessary. The "Hu" prefix from the original
+  // draft duplicated the dial label with an adjacent comment ("HuVel"
+  // above the knob, "VEL" below it — 2 labels for 1 value). Per ADR
+  // 003 §Per-control idiom the dial's own shortname is the canonical
+  // label for grouped float clusters.
+  ['StencilQtHumanizeVelocity',  'VEL',     'humanizeVelocity',  0, 0,    1,          0],
+  ['StencilQtHumanizeGate',      'GATE',    'humanizeGate',      0, 0,    1,          0],
+  ['StencilQtHumanizeTiming',    'TIME',    'humanizeTiming',    0, 0,    1,          0],
+  ['StencilQtHumanizeDrift',     'DRIFT',   'humanizeDrift',     0, 0,    1,          0],
+  ['StencilQtOutputLevel',       'LVL',     'outputLevel',       0, 0,    1,          1.0],
   ['StencilQtInputChannel',      'InCh',    'inputChannel',      1, 0,    16,         0],
   ['StencilQtControlChannel',    'CtlCh',   'controlChannel',    1, 1,    16,         16],
   ['StencilQtSeed',              'Seed',    'seed',              1, 0,    2147483647, 42],
 ]
 // QT enum strings mirror m4l/host-qt/bridge.ts SCALE_NAMES and
 // TRIGGER_MODES exactly. Drift in either list is what this test catches.
+//
+// `qt.mode` is intentionally NOT exposed in the v1 patcher: Max's
+// `live.menu` does not enter enum-display mode with a single-element
+// `parameter_enum` (renders raw int 0 instead of the string "scale"
+// — observed 2026-05-04 in Live). Since v1 has only one mode, the
+// widget would be a non-functional placeholder. v2 will reintroduce
+// MODE when chord / harmony enum values arrive (3 elements → enum
+// display works). The bridge silently no-ops `setParam mode <v>` in
+// the meantime, so dropping the widget has no functional impact.
 const QT_LIVE_ENUMS = [
   // longname,              shortname, bridgeKey,     enumStrings, initialIdx
   ['StencilQtScale',        'Scl',     'scale',
     ['major', 'minor', 'dorian', 'phrygian', 'lydian', 'mixolydian',
      'locrian', 'pentatonic', 'minor-pentatonic', 'blues', 'harmonic',
      'melodic', 'whole', 'chromatic', 'chromatic-half'], 0],
-  ['StencilQtMode',         'Mode',    'mode',        ['scale'], 0],
   ['StencilQtTriggerMode',  'Trig',    'triggerMode', ['passthrough', 'root'], 0],
 ]
 
@@ -664,7 +679,7 @@ if (existsSync(QT_MAXPAT)) {
     })
   }
 
-  test('QT — all 12 live.* parameters are present (no extras, no missing)', () => {
+  test('QT — all live.* parameters present per QT_LIVE_PARAMS + QT_LIVE_ENUMS (v1 = 11; mode deferred to v2)', () => {
     const { boxes } = loadPatcher(QT_MAXPAT)
     const liveWidgets = boxes.filter((b) => {
       const cls = b.box?.maxclass

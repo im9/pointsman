@@ -57,13 +57,17 @@ function makeFakeDeps(): {
 
 // ---------- construction ----------
 
-test("constructor — emits ready and initial scaleChanged", () => {
+test("constructor — does NOT emit ready (entry-script responsibility); emits initial scaleChanged", () => {
   const f = makeFakeDeps();
   new QtBridge(f.deps);
-  // ADR 002: 'ready' on host construction; 'scaleChanged' for jsui keyboard
-  // initial state. Defaults major / 0.
+  // ADR 003 §Ready handshake: 'ready' MUST be emitted by stencil-qt.mjs
+  // AFTER every Max.addHandler() install. Emitting from the bridge
+  // constructor races handler installation and the patcher's setParam
+  // dispatches drop with "Node script not ready". The constructor still
+  // emits 'scaleChanged' to seed the jsui keyboard's initial state.
+  // Defaults major / 0.
   const channels = f.outlets.map((o) => o.channel);
-  assert.ok(channels.includes("ready"));
+  assert.ok(!channels.includes("ready"), "ready must NOT be emitted from constructor");
   const sc = f.outlets.find((o) => o.channel === "scaleChanged");
   assert.ok(sc, "scaleChanged must be emitted on init");
   assert.deepEqual(sc!.args, ["major", 0]);
@@ -180,7 +184,7 @@ test("setParam root — validates 0..11 integer range", () => {
   b.setParam("root", 12);  // out of range, ignored
   b.setParam("root", 1.5); // not integer, ignored
   // Verify by checking that none triggered a scaleChanged emit.
-  const initialOutletCount = 2; // ready + scaleChanged from constructor
+  const initialOutletCount = 1; // scaleChanged from constructor (ready emits from entry script, not bridge)
   // Allow the 2 init outlets, no more.
   const postInit = f.outlets.length;
   assert.equal(postInit, initialOutletCount);

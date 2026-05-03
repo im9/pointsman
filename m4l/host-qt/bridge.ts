@@ -62,7 +62,13 @@ export class QtBridge {
   constructor(deps: BridgeDeps, options: BridgeOptions = {}) {
     this.deps = deps;
     this.host = new QtHost({ ...DEFAULT_PARAMS, ...options.initialParams });
-    this.deps.emitOutlet("ready");
+    // Seed initial UI state for the jsui keyboard. The "node.script ready"
+    // handshake is NOT emitted here — that signal must fire only after
+    // every Max.addHandler() in the entry script (stencil-qt.mjs),
+    // otherwise the patcher's setParam cascade races handler installation
+    // and dispatches drop with "Node script not ready". Mirrors TM:
+    // see m4l/host-tm/bridge.ts constructor and stencil-qt.mjs's
+    // end-of-script Max.outlet('ready', 1).
     this.emitScaleChanged();
   }
 
