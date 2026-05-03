@@ -276,7 +276,13 @@ Column allocation:
   triggerMode, inputChannel, controlChannel.
 - **KEYBOARD** (center, ~440w, jsui): one-octave (12-key) piano with
   in-scale dots and pulse animation. Wider than TM's ring because the
-  keyboard layout is inherently horizontal.
+  keyboard layout is inherently horizontal. The keyboard is
+  **octave-invariant**: it draws a single octave (C–B) as the pitch-class
+  legend; pulses fire by pitch class regardless of which MIDI octave the
+  outgoing note lands in. Ableton/MIDI exposes the full 0..127 range —
+  Stencil QT does not constrain output to a 3–5 oct band the way inboil's
+  reference UI did. (inboil's `octaveRange[3..5]` was an inboil-specific
+  display constraint, not a musical decision; not ported.)
 - **HUMAN** (right, ~240w, 5 items): humanizeVelocity, humanizeGate,
   humanizeTiming, humanizeDrift, seed.
 

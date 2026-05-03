@@ -138,6 +138,47 @@ const TM_LIVE_ENUMS = [
   ['StencilTmTriggerMode',  'Trig',    'triggerMode', ['auto', 'gate', 'seed'],             0],
 ]
 
+// ---- ADR 002 §live.* parameter surface (QT) ------------------------------
+
+// Source of truth: ADR 002 §Stencil QT live.* parameter table + the
+// switch in m4l/host-qt/bridge.ts setParam. 12 params total: 9 numeric
+// + 3 enum. Bridge keys mirror the QtParams field names exactly.
+//
+// QT-vs-TM differences encoded here:
+// - No `length` / `lock` / `density` (TM-only register controls).
+// - `outputLevel` (0..1 float, default 1.0) instead of TM's
+//   `outputVelocity` (1..127 int, default 100) — QT scales an existing
+//   incoming velocity rather than authoring one from scratch.
+// - `controlChannel` (1..16) added for `triggerMode = root`.
+// - Four humanize axes (Vel/Gate/Time/Drift), all 0..1 floats.
+// - `mode` is a single-value enum in v1 (`scale`); future-proof slot
+//   for `chord`/`harmony` per ADR 002.  The bridge currently no-ops
+//   `setParam mode <v>` because v1 has no alternative — wiring still
+//   exists so v2 can flip the enum without patcher surgery.
+const QT_LIVE_PARAMS = [
+  // longname,                   shortname, bridgeKey,           type, mmin, mmax, initial
+  ['StencilQtRoot',              'Root',    'root',              1, 0,    11,         0],
+  ['StencilQtHumanizeVelocity',  'HuVel',   'humanizeVelocity',  0, 0,    1,          0],
+  ['StencilQtHumanizeGate',      'HuGt',    'humanizeGate',      0, 0,    1,          0],
+  ['StencilQtHumanizeTiming',    'HuTm',    'humanizeTiming',    0, 0,    1,          0],
+  ['StencilQtHumanizeDrift',     'HuDr',    'humanizeDrift',     0, 0,    1,          0],
+  ['StencilQtOutputLevel',       'Lvl',     'outputLevel',       0, 0,    1,          1.0],
+  ['StencilQtInputChannel',      'InCh',    'inputChannel',      1, 0,    16,         0],
+  ['StencilQtControlChannel',    'CtlCh',   'controlChannel',    1, 1,    16,         16],
+  ['StencilQtSeed',              'Seed',    'seed',              1, 0,    2147483647, 42],
+]
+// QT enum strings mirror m4l/host-qt/bridge.ts SCALE_NAMES and
+// TRIGGER_MODES exactly. Drift in either list is what this test catches.
+const QT_LIVE_ENUMS = [
+  // longname,              shortname, bridgeKey,     enumStrings, initialIdx
+  ['StencilQtScale',        'Scl',     'scale',
+    ['major', 'minor', 'dorian', 'phrygian', 'lydian', 'mixolydian',
+     'locrian', 'pentatonic', 'minor-pentatonic', 'blues', 'harmonic',
+     'melodic', 'whole', 'chromatic', 'chromatic-half'], 0],
+  ['StencilQtMode',         'Mode',    'mode',        ['scale'], 0],
+  ['StencilQtTriggerMode',  'Trig',    'triggerMode', ['passthrough', 'root'], 0],
+]
+
 // ---- ADR 004 §Guard tests (apply to every present .maxpat) --------------
 
 const PATCHERS = [
@@ -471,6 +512,220 @@ if (existsSync(TM_MAXPAT)) {
     // For each live.* widget, the ready signal must reach its inlet so
     // the widget re-emits its value through the existing setParam chain.
     for (const [longname] of [...TM_LIVE_PARAMS, ...TM_LIVE_ENUMS]) {
+      const w = findLiveWidget(boxes, longname)
+      const ok = readyConsumers.some((id) => reachable(lines, id, w.box.id))
+      assert.ok(ok, `ready -> ${longname} (${w.box.id}) chain missing`)
+    }
+  })
+}
+
+// ---- ADR 003 §Stencil-QT patcher --------------------------------------
+
+// Mirrors the TM block above, adapted for QT's structural differences:
+// - Direct [jsui] (no bpatcher wrap) referencing scaleKeyboard.jsui.js
+//   per ADR 004 §Patcher path conventions (flat sibling at m4l/ root).
+//   ADR 003 §Stencil-QT patcher checklist still references the legacy
+//   `host-qt/ui/scaleKeyboard.jsui.js` subdir path; ADR 004 supersedes
+//   on path convention. Test asserts the flat path.
+// - No transport/metro/counter/step (QT is MIDI-driven, not step-driven).
+// - No setBit (v1 keyboard is display-only).
+// - Side-channel outlets are `scaleChanged` and `notePulse` instead of
+//   TM's `register` / `position`.
+// - Group legends are `SCALE / I/O`, `KEYBOARD`, `HUMAN` per ADR 003
+//   §Layout sketch — Stencil QT.
+
+if (existsSync(QT_MAXPAT)) {
+  test('QT — devicewidth = 1000 and openinpresentation = 1', () => {
+    const { parsed } = loadPatcher(QT_MAXPAT)
+    assert.equal(parsed.patcher.devicewidth, 1000)
+    assert.equal(parsed.patcher.openinpresentation, 1)
+  })
+
+  test('QT — no "STENCIL QT" duplicate header + no "im9" byline', () => {
+    // ADR 003 §Visual identity §Device chrome — same rule as TM. Live's
+    // device-strip header already labels the device; in-strip duplicate
+    // banners clutter at small sizes.
+    const { boxes } = loadPatcher(QT_MAXPAT)
+    const comments = boxesByMaxclass(boxes, 'comment').map((b) => b.box.text)
+    assert.ok(!comments.some((t) => /STENCIL\s*QT/.test(t)), 'no STENCIL QT banner')
+    assert.ok(!comments.some((t) => /\bim9\b/.test(t)), 'no im9 byline')
+  })
+
+  test('QT — has SCALE / I\\/O, KEYBOARD, HUMAN group legends', () => {
+    // ADR 003 §Layout sketch — Stencil QT. Three-column layout legends.
+    // The first legend literally contains a slash (`SCALE / I/O`) per
+    // the sketch. Match flexibly on whitespace.
+    const { boxes } = loadPatcher(QT_MAXPAT)
+    const comments = boxesByMaxclass(boxes, 'comment').map((b) => b.box.text)
+    assert.ok(
+      comments.some((t) => /^SCALE\s*\/\s*I\/O$/.test(t)),
+      'SCALE / I/O legend',
+    )
+    assert.ok(comments.some((t) => /^KEYBOARD$/.test(t)), 'KEYBOARD legend')
+    assert.ok(comments.some((t) => /^HUMAN$/.test(t)), 'HUMAN legend')
+  })
+
+  test('QT — [jsui] references scaleKeyboard.jsui.js (flat path, m4l/ root)', () => {
+    // ADR 004 §Patcher path conventions: [jsui] filename MUST be a flat
+    // sibling at m4l/ root. Subdirectory paths render as a generic gray
+    // placeholder in Live (observed for TM ring before the move). The
+    // existing renderer at m4l/host-qt/ui/scaleKeyboard.jsui.js needs
+    // to be relocated (or symlinked / duplicated) to m4l/ root for the
+    // patcher to load it.  Logic + tests stay under host-qt/ui/.
+    const { boxes } = loadPatcher(QT_MAXPAT)
+    const jsuis = boxesByMaxclass(boxes, 'jsui')
+    assert.ok(
+      jsuis.some((b) => b.box.filename === 'scaleKeyboard.jsui.js'),
+      'expected jsui referencing scaleKeyboard.jsui.js (flat path)',
+    )
+  })
+
+  test('QT — [node.script] references stencil-qt.mjs (flat path)', () => {
+    // ADR 004 §Patcher path conventions: same flat-root rule as [jsui].
+    // The current entry at m4l/host-qt/index.mjs needs a flat sibling
+    // at m4l/stencil-qt.mjs (mirroring m4l/stencil-tm.mjs). `.mjs` is
+    // load-bearing — see comment at top of stencil-tm.mjs.
+    const { boxes } = loadPatcher(QT_MAXPAT)
+    const newobjs = boxesByMaxclass(boxes, 'newobj')
+    assert.ok(
+      newobjs.some((b) => /^node\.script\s+stencil-qt\.mjs\b/.test(b.box.text)),
+      'expected node.script referencing stencil-qt.mjs',
+    )
+  })
+
+  test('QT — has midiin / midiparse / noteout for MIDI I/O', () => {
+    // ADR 003 §Stencil-QT patcher: midiin -> noteIn/noteOff path,
+    // Max.outlet "note" -> noteout. Same shape as TM (QT differs from
+    // TM on the *driver* side — no transport/metro/step — not on the
+    // MIDI-out side).
+    const { boxes } = loadPatcher(QT_MAXPAT)
+    const newobjs = boxesByMaxclass(boxes, 'newobj').map((b) => b.box.text)
+    assert.ok(newobjs.some((t) => /^midiin\b/.test(t)), 'midiin')
+    assert.ok(newobjs.some((t) => /^midiparse\b/.test(t)), 'midiparse')
+    assert.ok(newobjs.some((t) => /^(noteout|midiout)\b/.test(t)), 'noteout/midiout')
+  })
+
+  for (const [longname, shortname, bridgeKey, type, mmin, mmax, initial] of QT_LIVE_PARAMS) {
+    test(`QT — live.* widget ${longname} matches ADR 002 spec`, () => {
+      const { boxes } = loadPatcher(QT_MAXPAT)
+      const w = findLiveWidget(boxes, longname)
+      assert.ok(w, `widget ${longname} missing`)
+      const attrs = widgetParamAttrs(w)
+      assert.equal(attrs.parameter_shortname, shortname, 'shortname')
+      assert.equal(attrs.parameter_type, type, 'parameter_type')
+      assert.equal(attrs.parameter_mmin, mmin, 'mmin')
+      assert.equal(attrs.parameter_mmax, mmax, 'mmax')
+      assert.equal(attrs.parameter_initial[0], initial, 'initial')
+    })
+
+    test(`QT — ${longname} change fires setParam ${bridgeKey} to node.script`, () => {
+      const { boxes, lines } = loadPatcher(QT_MAXPAT)
+      const w = findLiveWidget(boxes, longname)
+      const prep = findPrependBox(boxes, `setParam ${bridgeKey}`)
+      assert.ok(prep, `missing [prepend setParam ${bridgeKey}]`)
+      assert.ok(
+        followsLineFromTo(lines, w.box.id, prep.box.id),
+        `${w.box.id} -> ${prep.box.id} wire missing`,
+      )
+      const nodescript = boxesByMaxclass(boxes, 'newobj').find((b) =>
+        /^node\.script\s+stencil-qt\.mjs\b/.test(b.box.text),
+      )
+      assert.ok(
+        followsLineFromTo(lines, prep.box.id, nodescript.box.id),
+        `${prep.box.id} -> node.script wire missing`,
+      )
+    })
+  }
+
+  for (const [longname, shortname, bridgeKey, enumValues, initialIdx] of QT_LIVE_ENUMS) {
+    test(`QT — enum widget ${longname} matches ADR 002 spec`, () => {
+      const { boxes } = loadPatcher(QT_MAXPAT)
+      const w = findLiveWidget(boxes, longname)
+      assert.ok(w, `widget ${longname} missing`)
+      const attrs = widgetParamAttrs(w)
+      assert.equal(attrs.parameter_shortname, shortname, 'shortname')
+      assert.equal(attrs.parameter_type, 2, 'parameter_type=2 (enum)')
+      assert.deepEqual(attrs.parameter_enum, enumValues, 'enum values')
+      assert.equal(attrs.parameter_initial[0], initialIdx, 'initial index')
+    })
+
+    test(`QT — ${longname} dispatches one [message setParam ${bridgeKey} <enum>] per value`, () => {
+      // Single-value enums (qt.mode) still get one message; the wiring
+      // is in place even when the bridge no-ops the dispatch in v1.
+      const { boxes } = loadPatcher(QT_MAXPAT)
+      const messages = boxesByMaxclass(boxes, 'message').map((b) => b.box.text)
+      for (const v of enumValues) {
+        const expected = `setParam ${bridgeKey} ${v}`
+        assert.ok(
+          messages.includes(expected),
+          `missing message: "${expected}"`,
+        )
+      }
+    })
+  }
+
+  test('QT — all 12 live.* parameters are present (no extras, no missing)', () => {
+    const { boxes } = loadPatcher(QT_MAXPAT)
+    const liveWidgets = boxes.filter((b) => {
+      const cls = b.box?.maxclass
+      return (cls === 'live.numbox' || cls === 'live.dial' || cls === 'live.slider' || cls === 'live.menu')
+        && b.box?.saved_attribute_attributes?.valueof?.parameter_longname?.startsWith('StencilQt')
+    })
+    const expected = QT_LIVE_PARAMS.length + QT_LIVE_ENUMS.length
+    assert.equal(liveWidgets.length, expected, `expected ${expected} QT live.* widgets`)
+  })
+
+  test('QT — scaleChanged / notePulse outlets route from node.script to jsui', () => {
+    // Bridge emits Max.outlet("scaleChanged", scale, root) on scale or
+    // root change, and Max.outlet("notePulse", pitch, velocity) per
+    // quantized noteOn. Routing chain: [node.script] -> [route note
+    // ready scaleChanged notePulse] -> [prepend scaleChanged] /
+    // [prepend notePulse] -> [jsui scaleKeyboard.jsui.js]. Reachability
+    // check rather than exact intermediate nodes (mirrors TM's
+    // register/position routing test).
+    const { boxes, lines } = loadPatcher(QT_MAXPAT)
+    const nodescript = boxesByMaxclass(boxes, 'newobj').find((b) =>
+      /^node\.script\s+stencil-qt\.mjs\b/.test(b.box.text),
+    )
+    const jsui = boxesByMaxclass(boxes, 'jsui').find(
+      (b) => b.box.filename === 'scaleKeyboard.jsui.js',
+    )
+    assert.ok(nodescript, 'node.script stencil-qt.mjs missing')
+    assert.ok(jsui, 'jsui scaleKeyboard.jsui.js missing')
+    assert.ok(
+      reachable(lines, nodescript.box.id, jsui.box.id),
+      'node.script -> ... -> jsui chain missing',
+    )
+  })
+
+  test('QT — node.script "ready" outlet bangs each live.* widget for initial value bootstrap', () => {
+    // Same pattern as TM (see TM equivalent for full rationale).
+    // stencil-qt.mjs MUST emit Max.outlet('ready') AFTER all
+    // Max.addHandler() installs — emitting from the QtBridge constructor
+    // (as host-qt/bridge.ts currently does) races the patcher's setParam
+    // dispatches because handlers aren't yet installed at that point.
+    // This test verifies the patcher-side handshake; the entry-script
+    // emit-position is enforced by code review of stencil-qt.mjs.
+    const { boxes, lines } = loadPatcher(QT_MAXPAT)
+    const route = boxesByMaxclass(boxes, 'newobj').find((b) =>
+      /^route\b.*\bready\b/.test(b.box.text),
+    )
+    assert.ok(route, 'expected [route ... ready ...] consuming node.script outlet')
+    const tokens = route.box.text.split(/\s+/).slice(1)
+    const readyOutletIdx = tokens.indexOf('ready')
+    assert.ok(readyOutletIdx >= 0, 'route must include "ready" token')
+    const readyConsumers = lines
+      .filter(
+        (l) =>
+          l.patchline?.source?.[0] === route.box.id &&
+          l.patchline?.source?.[1] === readyOutletIdx,
+      )
+      .map((l) => l.patchline.destination[0])
+    assert.ok(
+      readyConsumers.length >= 1,
+      `[route ${tokens.join(' ')}] outlet ${readyOutletIdx} (ready) has no consumer`,
+    )
+    for (const [longname] of [...QT_LIVE_PARAMS, ...QT_LIVE_ENUMS]) {
       const w = findLiveWidget(boxes, longname)
       const ok = readyConsumers.some((id) => reachable(lines, id, w.box.id))
       assert.ok(ok, `ready -> ${longname} (${w.box.id}) chain missing`)
