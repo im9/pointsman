@@ -297,11 +297,11 @@ The renderer queries geometry to decide where to draw.
 
 ### QT scale keyboard
 
-- [ ] `host-qt/ui/scaleKeyboard.logic.ts` — `KeyboardModel`, `Pulse`,
+- [x] `host-qt/ui/scaleKeyboard.logic.ts` — `KeyboardModel`, `Pulse`,
       `updatePulses`, `addPulse`, `recomputeInScale`
-- [ ] `host-qt/ui/scaleKeyboard.logic.test.ts` — pulse decay math,
+- [x] `host-qt/ui/scaleKeyboard.logic.test.ts` — pulse decay math,
       in-scale recompute for all 15 scales, multi-pulse stacking
-- [ ] `host-qt/ui/scaleKeyboard.jsui.js` — renderer:
+- [x] `host-qt/ui/scaleKeyboard.jsui.js` — renderer:
       `scaleChanged` / `notePulse` inlets
 
 ### Stencil-TM patcher (`Stencil-TM.maxpat`)
