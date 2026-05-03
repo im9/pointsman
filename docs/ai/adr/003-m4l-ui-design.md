@@ -287,12 +287,12 @@ The renderer queries geometry to decide where to draw.
 
 ### TM register ring
 
-- [ ] `host-tm/ui/registerRing.logic.ts` — pure types and functions:
+- [x] `host-tm/ui/registerRing.logic.ts` — pure types and functions:
       `RingModel`, `RingGeometry`, `hitTest`, `toggleBitAt`,
       `advanceReadHead`
-- [ ] `host-tm/ui/registerRing.logic.test.ts` — `node:test`:
+- [x] `host-tm/ui/registerRing.logic.test.ts` — `node:test`:
       hit-test boundary cases, toggle determinism, read-head advance
-- [ ] `host-tm/ui/registerRing.jsui.js` — renderer + Max event glue:
+- [x] `host-tm/ui/registerRing.jsui.js` — renderer + Max event glue:
       `register` / `position` inlets, `setBit` outlet on click
 
 ### QT scale keyboard
