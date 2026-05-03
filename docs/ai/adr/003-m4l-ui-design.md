@@ -294,9 +294,6 @@ The renderer queries geometry to decide where to draw.
       hit-test boundary cases, toggle determinism, read-head advance
 - [ ] `host-tm/ui/registerRing.jsui.js` — renderer + Max event glue:
       `register` / `position` inlets, `setBit` outlet on click
-- [ ] Manual verification in Live: ring renders correctly for
-      `length ∈ {2, 8, 16, 32}`; click toggles the right bit; read-head
-      advances visibly per step
 
 ### QT scale keyboard
 
@@ -306,8 +303,6 @@ The renderer queries geometry to decide where to draw.
       in-scale recompute for all 15 scales, multi-pulse stacking
 - [ ] `host-qt/ui/scaleKeyboard.jsui.js` — renderer:
       `scaleChanged` / `notePulse` inlets
-- [ ] Manual verification: in-scale dots correct per scale; pulse glows
-      and decays smoothly; multi-note pulses don't flicker
 
 ### Stencil-TM patcher (`Stencil-TM.maxpat`)
 
