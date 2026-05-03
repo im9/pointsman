@@ -288,6 +288,38 @@ precise vertical placement of each `live.*` are decided at patcher build
 time against Live's actual rendering. The sketches commit the *column
 structure, grouping, and ordering*, not pixel precision.
 
+### Ready handshake (TM and QT)
+
+Both patchers need to push their initial `live.*` parameter values into
+the host bridge on device load — but `[node.script]` boots
+asynchronously and any `setParam` dispatched before its `addHandler`s
+are registered drops silently with `Node script not ready`. The fix is
+a one-shot handshake:
+
+1. The entry script (`stencil-{tm,qt}.mjs`) emits
+   `Max.outlet("ready", 1)` **after** every `Max.addHandler()` call.
+   Emitting from the bridge constructor is wrong — handlers are added
+   later in the same tick, and the patcher would race them.
+2. The patcher routes that outlet via `[route … ready …]` into a
+   `[t b]` that bangs each `live.*` widget. The bang causes the widget
+   to re-emit its current value through outlet 0, and the existing
+   `[prepend setParam <key>] → [node.script]` chain carries it.
+
+Banging the widget directly is the alternative to the `getvalueof`
+message: empirically `getvalueof` only works for `live.toggle` —
+`live.numbox`, `live.slider`, and `live.menu` ignore it. Bang on the
+inlet is the universal trigger that re-emits the current value across
+all four widget types. (Pattern lifted from oedipa: see
+`Oedipa.maxpat` `obj-trig-hostready` and `oedipa-host.entry.mjs`'s
+`Max.outlet('hostReady', 1)` at end-of-script.)
+
+Both `Stencil-TM.maxpat` and `Stencil-QT.maxpat` MUST follow this
+pattern. `m4l/scripts/patcher.test.mjs` carries a `TM — node.script
+"ready" outlet bangs each live.* widget` assertion that catches drift
+at test time; the QT patcher work should add the analogous QT
+assertion so a missing patchline fails the suite rather than dropping
+silently in Live.
+
 ## Logic-layer-vs-renderer compliance
 
 Per CLAUDE.md §GUI components, both jsui widgets follow the split:
