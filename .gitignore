@@ -10,5 +10,6 @@ m4l/engine/dist/
 m4l/host-tm/dist/
 m4l/host-qt/dist/
 
-# Ableton Live project folder (auto-created when m4l/ is added as a Live Project)
-m4l/Stencil Project/
+# Ableton Live project folder (auto-created on first device load, named
+# after the .amxd: Stencil-TM Project/, Stencil-QT Project/, etc.)
+m4l/Stencil-* Project/
