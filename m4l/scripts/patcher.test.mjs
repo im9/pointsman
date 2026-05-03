@@ -432,4 +432,48 @@ if (existsSync(TM_MAXPAT)) {
       'bpatcher -> ... -> node.script chain missing',
     )
   })
+
+  test('TM — node.script "ready" outlet bangs each live.* widget for initial value bootstrap', () => {
+    // ADR 003 §Stencil-TM patcher line 359-363: on device load the 12
+    // setParam messages race against [node.script] startup; without a
+    // handshake they drop with "Node script not ready". Fix: stencil-tm.mjs
+    // emits Max.outlet('ready') after all addHandler calls; the patcher's
+    // [route ... ready ...] outlet bangs each live.* widget so it re-emits
+    // its current value through the existing prep -> nodescript chain.
+    // Pattern lifted from oedipa's [route hostReady -> t b] handshake.
+    //
+    // ADR-002 spec'd `getvalueof` mechanism does not work with
+    // live.numbox / live.slider / live.menu (only live.toggle). Banging
+    // the widget directly is the alternative — a bang to live.numbox /
+    // live.slider / live.menu causes the widget to emit its current
+    // value through outlet 0, which the existing wiring carries.
+    const { boxes, lines } = loadPatcher(TM_MAXPAT)
+    const route = boxesByMaxclass(boxes, 'newobj').find((b) =>
+      /^route\b.*\bready\b/.test(b.box.text),
+    )
+    assert.ok(route, 'expected [route ... ready ...] consuming node.script outlet')
+    // Find which outlet index corresponds to the `ready` token.
+    // [route a b c] outlets: 0=a, 1=b, 2=c, 3=catchall.
+    const tokens = route.box.text.split(/\s+/).slice(1)
+    const readyOutletIdx = tokens.indexOf('ready')
+    assert.ok(readyOutletIdx >= 0, 'route must include "ready" token')
+    const readyConsumers = lines
+      .filter(
+        (l) =>
+          l.patchline?.source?.[0] === route.box.id &&
+          l.patchline?.source?.[1] === readyOutletIdx,
+      )
+      .map((l) => l.patchline.destination[0])
+    assert.ok(
+      readyConsumers.length >= 1,
+      `[route ${tokens.join(' ')}] outlet ${readyOutletIdx} (ready) has no consumer`,
+    )
+    // For each live.* widget, the ready signal must reach its inlet so
+    // the widget re-emits its value through the existing setParam chain.
+    for (const [longname] of [...TM_LIVE_PARAMS, ...TM_LIVE_ENUMS]) {
+      const w = findLiveWidget(boxes, longname)
+      const ok = readyConsumers.some((id) => reachable(lines, id, w.box.id))
+      assert.ok(ok, `ready -> ${longname} (${w.box.id}) chain missing`)
+    }
+  })
 }

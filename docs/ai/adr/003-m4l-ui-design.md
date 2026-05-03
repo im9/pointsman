@@ -356,11 +356,13 @@ The renderer queries geometry to decide where to draw.
       (live.* widgets pick up Live's automation-track color theming;
       explicit per-widget palette overrides only where Max exposes them)
 - [x] Monospace font (`Andale Mono`) + uppercase labels
-- [ ] Initial `live.*` parameter values reach the host bridge after
-      `[node.script]` is ready (currently 12 `setParam` messages drop
-      on device load with `Node script not ready`; ADR-002-spec'd
-      `getvalueof` mechanism does not work with `live.numbox` /
-      `live.slider` / `live.menu`, alternative trigger needed)
+- [x] Initial `live.*` parameter values reach the host bridge after
+      `[node.script]` is ready (`stencil-tm.mjs` emits `Max.outlet('ready')`
+      after all `addHandler` installs; patcher's `[route ... ready ...]`
+      outlet 1 → `[t b]` → bangs each of the 12 live.* widgets so they
+      re-emit current value through the existing prep → nodescript chain.
+      Bang on widget inlet is the alternative to `getvalueof` for
+      live.numbox / live.slider / live.menu — pattern lifted from oedipa)
 
 ### Stencil-QT patcher (`Stencil-QT.maxpat`)
 

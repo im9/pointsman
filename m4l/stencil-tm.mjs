@@ -44,9 +44,12 @@
 //
 //   here → Max (via Max.outlet):
 //     note <pitch> <velocity> <channel>    velocity=0 = note-off
-//     ready                                signaled once on construction
+//     ready                                fired once after all handlers
+//                                          are installed; the patcher gates
+//                                          its initial live.* dump on this
+//                                          (ADR 003 §Stencil-TM patcher)
 //     register <bit0> <bit1> … <bitN>      current register, bit-unpacked
-//     position <n>                         current step index
+//     ringHead <n>                         current step index (for jsui ring)
 
 import Max from "max-api";
 import { TmBridge } from "./host-tm/dist/host-tm/bridge.js";
@@ -73,3 +76,9 @@ Max.addHandler("noteOff", (pitch, channel) =>
   bridge.noteOff(Number(pitch), Number(channel)));
 Max.addHandler("transportStart", () => bridge.transportStart());
 Max.addHandler("transportStop", () => bridge.transportStop());
+
+// Signal the patcher that node.script is up and every handler is wired.
+// The patcher's [route ... ready ...] outlet bangs each live.* widget on
+// this so the 12 setParam dispatches arrive AFTER addHandler installation,
+// not before (which would drop them with "Node script not ready").
+Max.outlet("ready", 1);

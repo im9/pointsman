@@ -70,9 +70,12 @@ export class TmBridge {
   constructor(deps: BridgeDeps, options: BridgeOptions = {}) {
     this.deps = deps;
     this.host = new TmHost({ ...DEFAULT_PARAMS, ...options.initialParams });
-    // Signal the patcher that node.script is up + push initial UI state
-    // (jsui ring needs initial register; position widget needs the 0).
-    this.deps.emitOutlet("ready");
+    // Push initial UI state (jsui ring needs initial register; position
+    // widget needs the 0). The "node.script ready" handshake is NOT emitted
+    // here — that signal must fire only after every Max.addHandler() in
+    // the entry script, otherwise the patcher's setParam cascade races
+    // handler installation. Mirrors oedipa: see oedipa-host.entry.mjs's
+    // Max.outlet('hostReady', 1) at end-of-script.
     this.emitRegister();
     this.emitPosition();
   }

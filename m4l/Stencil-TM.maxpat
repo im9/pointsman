@@ -59,6 +59,7 @@
             {"box": {"id": "obj-print-from-node", "maxclass": "newobj", "text": "print stencil-tm-from-node", "numinlets": 1, "numoutlets": 0, "patching_rect": [40.0, 390.0, 200.0, 22.0]}},
 
             {"box": {"id": "obj-route-out", "maxclass": "newobj", "text": "route note ready register ringHead", "numinlets": 1, "numoutlets": 5, "outlettype": ["", "", "", "", ""], "patching_rect": [240.0, 390.0, 240.0, 22.0]}},
+            {"box": {"id": "obj-trig-ready", "maxclass": "newobj", "text": "t b", "numinlets": 1, "numoutlets": 1, "outlettype": ["bang"], "patching_rect": [340.0, 450.0, 40.0, 22.0]}},
             {"box": {"id": "obj-unpack-note", "maxclass": "newobj", "text": "unpack 0 0 0", "numinlets": 1, "numoutlets": 3, "outlettype": ["int", "int", "int"], "patching_rect": [240.0, 420.0, 100.0, 22.0]}},
             {"box": {"id": "obj-noteout", "maxclass": "newobj", "text": "noteout", "numinlets": 3, "numoutlets": 0, "patching_rect": [240.0, 480.0, 60.0, 22.0]}},
             {"box": {"id": "obj-defer-reg", "maxclass": "newobj", "text": "deferlow", "numinlets": 1, "numoutlets": 1, "outlettype": [""], "patching_rect": [400.0, 390.0, 80.0, 22.0]}},
@@ -223,7 +224,21 @@
             {"patchline": {"source": ["obj-prep-outputGate", 0], "destination": ["obj-nodescript", 0]}},
 
             {"patchline": {"source": ["obj-w-outputChannel", 0], "destination": ["obj-prep-outputChannel", 0]}},
-            {"patchline": {"source": ["obj-prep-outputChannel", 0], "destination": ["obj-nodescript", 0]}}
+            {"patchline": {"source": ["obj-prep-outputChannel", 0], "destination": ["obj-nodescript", 0]}},
+
+            {"patchline": {"source": ["obj-route-out", 1], "destination": ["obj-trig-ready", 0]}},
+            {"patchline": {"source": ["obj-trig-ready", 0], "destination": ["obj-w-length", 0]}},
+            {"patchline": {"source": ["obj-trig-ready", 0], "destination": ["obj-w-lock", 0]}},
+            {"patchline": {"source": ["obj-trig-ready", 0], "destination": ["obj-w-density", 0]}},
+            {"patchline": {"source": ["obj-trig-ready", 0], "destination": ["obj-w-rangeLo", 0]}},
+            {"patchline": {"source": ["obj-trig-ready", 0], "destination": ["obj-w-rangeHi", 0]}},
+            {"patchline": {"source": ["obj-trig-ready", 0], "destination": ["obj-w-subdivision", 0]}},
+            {"patchline": {"source": ["obj-trig-ready", 0], "destination": ["obj-w-triggerMode", 0]}},
+            {"patchline": {"source": ["obj-trig-ready", 0], "destination": ["obj-w-inputChannel", 0]}},
+            {"patchline": {"source": ["obj-trig-ready", 0], "destination": ["obj-w-outputVelocity", 0]}},
+            {"patchline": {"source": ["obj-trig-ready", 0], "destination": ["obj-w-outputGate", 0]}},
+            {"patchline": {"source": ["obj-trig-ready", 0], "destination": ["obj-w-outputChannel", 0]}},
+            {"patchline": {"source": ["obj-trig-ready", 0], "destination": ["obj-w-seed", 0]}}
 
         ]
     }
