@@ -4,11 +4,21 @@
 
 **Created**: 2026-05-02
 
-This ADR specifies the v1 UI for both m4l devices: device canvas size,
+This ADR specifies the UI for both m4l devices: device canvas size,
 the boundary between live.* widgets and custom drawing (jsui), the two
-custom widgets that ship in v1 (TM register-bit ring, QT scale keyboard),
-the visual identity carried over from inboil, and the logic-layer / renderer
-split each jsui widget follows.
+custom widgets (TM register-bit ring, QT scale keyboard), the visual
+identity carried over from inboil, the QT quantize-mode surface
+(scale / chord / harmony) and how chord context is absorbed from MIDI
+input, and the logic-layer / renderer split each jsui widget follows.
+
+**Scope rule** (2026-05-04): Stencil tracks inboil-equivalent core
+functionality. Extensions beyond inboil are allowed when they fit a DAW
+MIDI-effect context (humanize layer, MIDI-driven root, input-channel
+routing) but are gated by flags so the inboil baseline still works. No
+"v1 / v2" phasing — anything inboil's Quantizer or TuringMachine does
+that the user can name as a core musical capability ships, period. Items
+that are deferred carry an explicit, defensible reason (e.g. requires
+another device, see chord-source coupling via oedipa).
 
 ## Context
 
@@ -200,9 +210,30 @@ note leaving the device), the corresponding key glows briefly in
 `color.activeHighlight` and decays back over ~250 ms. Pulses stack
 visually (the most recent dominates).
 
-**Interaction:** keyboard is **display-only** in v1 (no click-to-snap,
-no scale editing). Scale is set via `live.menu` for `qt.scale` and
-`qt.root` per ADR 002. Click-to-edit-scale is a v2 candidate.
+**Interaction (click-to-set-root):** clicking any key on the keyboard
+sets `qt.root` to that key's pitch class. The jsui hit-tests the click
+against current key bounds and emits `setRoot <pc>` on its outlet; the
+patcher routes that into the `qt.root` `live.menu` so Live's parameter
+state stays the single source of truth (the live.menu's `parameter`
+change fires the existing `[prepend setParam root] -> [node.script]`
+chain, which updates the host and re-emits `scaleChanged` for the
+keyboard). This matches inboil's `tapKey` UX
+([QuantizerSheet.svelte:165-167](../../front/inboil/src/lib/components/QuantizerSheet.svelte#L165-L167)):
+the keyboard isn't decoration, it's a root selector.
+
+ROOT can also be set by:
+- The `qt.root` `live.menu` directly (note-name dropdown C..B, see
+  §SCALE / I/O column).
+- MIDI on `qt.controlChannel` when `qt.triggerMode = root`
+  (single-note → root). All three paths converge on `setParam root <pc>`
+  through the same bridge handler, so the keyboard, the menu, and the
+  MIDI control stay in sync via the existing `scaleChanged` re-emit.
+
+Click-to-edit-**scale** (selecting which pitch classes are in the
+scale by toggling individual key dots, like inboil's chord-mode chord
+edit) is **out of scope**: scale is a preset name (`qt.scale` enum),
+not a free-form pitch-class set, so per-key toggling has no parameter
+to land in.
 
 **Logic layer (pure TS, tested):**
 ```
@@ -222,20 +253,134 @@ recomputeInScale(scale, root): boolean[12]
   `notePulse <pitch> <velocity>` (added in ADR 002).
 - Drawing only — no business logic.
 
-### What is intentionally out of v1
+### QT quantize mode (scale / chord / harmony)
 
-- **Output history bar chart** (TM bottom histogram in inboil) — informative
-  but takes vertical space and is musically secondary.
-- **Revolver continuous rotation animation** — the bit ring snaps; it
-  does not spin. v2 candidate.
-- **Scale-snap preview overlay** (showing which scale degree TM's chromatic
-  output will snap to when chained through QT) — requires cross-device
-  awareness, post-v1.
-- **FREEZE / ROLL custom buttons** — `lock = 1` is a `live.dial` value;
-  `roll` (new seed) is `live.numbox` increment. Custom buttons are a
-  nice-to-have, defer.
-- **Click-to-edit-scale on QT keyboard** — v2.
-- **Per-bit hover preview / drag-write on the ring** — v2.
+Inboil's quantizer has 3 substantively different modes
+([generative.ts:257-360](../../front/inboil/src/lib/generative.ts#L257-L360)):
+
+- **scale** — snap each input note to nearest scale degree.
+- **chord** — snap to chord-tone within 2 semitones, scale fallback
+  outside that. Chord context comes from a step-indexed `chords[]`
+  array OR from a referenced Tonnetz node's chord walk
+  (`chordSource: { nodeId }`).
+- **harmony** — input 1 note → output 1 input + N parallel diatonic
+  voices (`harmonyVoices[]`, max 3, each `interval + 'above' | 'below'`).
+
+Stencil-QT ships all three. Mode is exposed as `qt.mode`
+(`live.menu`, 3-enum: `scale | chord | harmony`).
+
+**Chord context — system-level absorption from MIDI:**
+
+inboil's offline `chords[]` (step-indexed manual progression) and
+`chordSource` (Tonnetz coupling) are both replaced by a single
+real-time mechanism: when `qt.mode = chord`, the held notes on
+`qt.controlChannel` form the **current chord context**. Each `noteIn`
+on controlChannel adds the pitch class to the held set; each `noteOff`
+removes it. Both inboil paths land naturally on this:
+
+- inboil's manual `chords[]` ↔ playing the chord progression on a Live
+  MIDI clip routed to controlChannel.
+- inboil's `chordSource` (Tonnetz coupling) ↔ routing oedipa's MIDI
+  output to controlChannel — oedipa is the m4l-equivalent of inboil's
+  Tonnetz node, so cross-device chord coupling falls out of the
+  generic "any chord on controlChannel" route. No special data field
+  in `QtParams`, no per-step assignment UI.
+
+This collapses the two inboil chord-context sources into one MIDI
+input contract that any chord generator (clip, oedipa, manually
+played) can drive.
+
+**Interaction with `triggerMode = root`:** `qt.triggerMode` and
+`qt.mode` together decide what controlChannel input means.
+
+| `qt.mode` | `qt.triggerMode` | controlChannel behaviour |
+|-----------|------------------|--------------------------|
+| `scale`   | `passthrough`    | ignored (channel filter passes only) |
+| `scale`   | `root`           | single note → set `qt.root` (legacy) |
+| `harmony` | `passthrough`    | ignored |
+| `harmony` | `root`           | single note → set `qt.root` |
+| `chord`   | any              | held notes → chord context (overrides root behaviour) |
+
+When `mode = chord`, controlChannel is dedicated to chord context;
+`triggerMode = root` is suppressed for that channel because the same
+notes can't be both "single = root" and "held = chord context"
+unambiguously. The user sets root via the menu or keyboard click in
+chord mode.
+
+**Engine logic spec:**
+
+```
+type QuantizeMode = 'scale' | 'chord' | 'harmony'
+
+type HarmonyVoice = {
+  interval: 3 | 4 | 5 | 6  // diatonic 3rd/4th/5th/6th
+  direction: 'above' | 'below'
+}
+
+interface QtParams {
+  // ... existing ...
+  mode: QuantizeMode
+  harmonyVoices: HarmonyVoice[]   // length 0..3
+}
+
+interface QtHostState {
+  // ... existing ...
+  chordContext: number[]  // pitch classes currently held on controlChannel
+}
+
+quantizeIn(pitch, velocity, channel, mode, scalePcs, chordContext, voices):
+  if mode === 'chord' && chordContext.length > 0:
+    snapped = snapToChordTones(pitch, chordContext) within 2 semitones,
+                else scale fallback
+  else:
+    snapped = snapToNearest(pitch, scalePcs)
+
+  outputs = [snapped]
+
+  if mode === 'harmony':
+    for v in voices:
+      outputs.push(diatonicShift(snapped, v.interval, v.direction, scalePcs))
+
+  return outputs
+```
+
+The engine helpers `snapToNearest`, `snapToChordTones`,
+`diatonicShift` are pure functions, mirrored test-side from inboil's
+`generative.ts`. Lives in `m4l/engine/quantizer.ts` (already exists for
+scale; chord/harmony helpers added).
+
+**Out of scope (with reason):**
+
+- **Step-indexed chord progression** (`chords[]` in inboil) — replaced
+  by real-time controlChannel input (clips or live playing).
+- **Tonnetz chord coupling field** (`chordSource` in inboil) — replaced
+  by routing oedipa's output to controlChannel; no in-device field
+  needed.
+
+### What is intentionally out of scope
+
+Each item below names the inboil feature being skipped and the
+defensible reason. "User hasn't asked yet" is **not** acceptable; this
+list is small on purpose.
+
+- **Output history bar chart** (TM bottom histogram in inboil) —
+  informative but takes vertical space; the m4l strip is 180 px max
+  and the bit ring already occupies the central column. Reason:
+  spatial budget.
+- **Revolver continuous rotation animation** — bit ring snaps to the
+  next dot per step rather than spinning. Reason: animation plumbing
+  cost vs marginal musical value; revisit if a user complains about
+  legibility at fast subdivisions.
+- **Scale-snap preview overlay** (showing which scale degree TM's
+  chromatic output will snap to when chained through QT) — requires
+  cross-device awareness across two patchers. Reason: would need a
+  TM↔QT shared-state channel that doesn't exist yet.
+- **FREEZE / ROLL custom buttons** — `lock = 1` is a `live.dial` value
+  the user can MIDI-map; `roll` (new seed) is a `live.numbox` increment.
+  Reason: feature is reachable through existing widgets.
+- **Per-bit drag-paint on the ring** — single-click toggle is the
+  spec; hold-and-sweep is open in §Open questions (ships with v1 if
+  trivially mergeable into the click handler).
 
 ### Layout sketch — Stencil TM (1000 × 180)
 
@@ -274,39 +419,50 @@ Three columns, same structure:
 
 ```
 ┌─── STENCIL QT ───────────────────────────────────────── im9 ───┐
-│ ┌─ SCALE / I/O ────┐ ┌─ KEYBOARD ──────────────┐ ┌─ HUMAN ──┐ │
-│ │ SCL [major    ] │ │ ┌─┐┌─┐  ┌─┐┌─┐┌─┐         │ │ ◌  ◌  ◌  ◌│ │
-│ │ ROOT[ 0] IN[0] CTL[16]│ │ ││  │ ││ ││ │         │ │ V  G  T  D│ │
-│ │ TRG [psthru   ] │ │ ├─┴┴─┴┬─┴─┴┴─┴┴─┴─┴─┐    │ │           │ │
-│ │     ◌            │ │ │•│ │•│ │•│•│ │•│ │•│   │ │ SEED [42] │ │
-│ │     LVL          │ │ │C│D│E│F│G│A│B│ │ │ │   │ │           │ │
-│ │                  │ │ └─┴─┴─┴─┴─┴─┴─┴─┴─┴─┘   │ │           │ │
-│ └─────────────────┘ └──────────────────────────┘ └──────────┘ │
+│ ┌─ SCALE / I/O ─────┐ ┌─ KEYBOARD ────────────┐ ┌─ HUMAN ────┐ │
+│ │ SCL [major     ] │ │ ┌─┐┌─┐  ┌─┐┌─┐┌─┐       │ │◌  ◌  ◌  ◌ │ │
+│ │ ROOT [C ] IN[0] │ │ │ ││  │ ││ ││ │       │ │V  G  T  D │ │
+│ │ MODE [scale   ] │ │ ├─┴┴─┴┬─┴─┴┴─┴┴─┴─┴─┐    │ │           │ │
+│ │ TRG [psthru  ] CTL[16] │ │•│ │•│ │•│•│ │•│ │•│   │ │SEED [42]  │ │
+│ │     ◌            │ │ │C│D│E│F│G│A│B│ │ │ │   │ │           │ │
+│ │     LVL          │ │ └─┴─┴─┴─┴─┴─┴─┴─┴─┴─┘   │ └───────────┘ │
+│ │                   │ ├─ HARMONY VOICES ─────┐  │               │
+│ │                   │ │ V1 [3rd  ] [above]   │  │               │
+│ │                   │ │ V2 [—    ] [—    ]   │  │               │
+│ │                   │ │ V3 [—    ] [—    ]   │  │               │
+│ └──────────────────┘ └────────────────────────┘                  │
 └────────────────────────────────────────────────────────────────┘
-  ~280w                ~440w                       ~248w
-  6 live.* widgets     1 jsui (scaleKeyboard)      5 live.* widgets
-  (qt.mode deferred to v2)
+  ~280w                  ~440w                    ~248w
+  7 live.* widgets       1 jsui (scaleKeyboard)   5 live.* widgets
+                         + 6 live.* (harmony cluster, hidden when
+                         mode != harmony)
 ```
 
 Column allocation:
-- **SCALE / I/O** (left, ~280w, 6 items in v1): scale, root,
-  triggerMode, inputChannel, controlChannel, outputLevel. ROOT/IN/CTL
-  share one row (numeric trio); TRG / SCL / outputLevel knob own
-  their rows. `qt.mode` is **deferred to v2** — Max's `live.menu`
-  does not enter enum-display mode with a single-element
-  `parameter_enum` (renders the raw int instead of the string), so
-  the v1 menu would be a non-functional placeholder. The bridge
-  silently no-ops `setParam mode <v>` until v2 brings chord / harmony
-  to a 3-element enum.
-- **KEYBOARD** (center, ~440w, jsui): one-octave (12-key) piano with
-  in-scale dots and pulse animation. Wider than TM's ring because the
-  keyboard layout is inherently horizontal. The keyboard is
-  **octave-invariant**: it draws a single octave (C–B) as the pitch-class
-  legend; pulses fire by pitch class regardless of which MIDI octave the
-  outgoing note lands in. Ableton/MIDI exposes the full 0..127 range —
-  Stencil QT does not constrain output to a 3–5 oct band the way inboil's
-  reference UI did. (inboil's `octaveRange[3..5]` was an inboil-specific
-  display constraint, not a musical decision; not ported.)
+- **SCALE / I/O** (left, ~280w): scale, root, mode, triggerMode,
+  inputChannel, controlChannel, outputLevel. ROOT (note-name menu)
+  and IN share a row; MODE owns its row (3-enum, the row Max's
+  enum-display rendering needs ≥ 2 enum elements to work — chord and
+  harmony bring it to 3 so this is no longer a deferred slot). TRG +
+  CTL share a row (TRG governs whether CTL routes to root, chord
+  context, or is ignored — see §QT quantize mode table). LVL knob
+  owns its own line at the bottom of the column.
+- **KEYBOARD + HARMONY VOICES** (center, ~440w): top half is the
+  one-octave (12-key) piano with in-scale dots, pulse animation, and
+  click-to-set-root hit-testing. Bottom half (visually below the
+  keyboard) is the harmony voice config cluster: 3 rows of
+  `[interval-menu] [direction-menu]` that drive the engine's
+  `harmonyVoices[]`. Empty rows mean fewer voices. Cluster is
+  always present in the patcher (live.* widgets need to exist for
+  Live to round-trip preset values), but visually fades when
+  `qt.mode != harmony` per the patcher's standard show/hide
+  pattern. The keyboard is **octave-invariant**: it draws a single
+  octave (C–B) as the pitch-class legend; pulses fire by pitch class
+  regardless of which MIDI octave the outgoing note lands in.
+  Ableton/MIDI exposes the full 0..127 range — Stencil QT does not
+  constrain output to a 3–5 oct band the way inboil's reference UI
+  did. (inboil's `octaveRange[3..5]` was an inboil-specific display
+  constraint, not a musical decision; not ported.)
 - **HUMAN** (right, ~240w, 5 items): humanizeVelocity, humanizeGate,
   humanizeTiming, humanizeDrift, seed.
 
@@ -392,6 +548,38 @@ The renderer queries geometry to decide where to draw.
       in-scale recompute for all 15 scales, multi-pulse stacking
 - [x] `host-qt/ui/scaleKeyboard.jsui.js` — renderer:
       `scaleChanged` / `notePulse` inlets
+- [ ] `host-qt/ui/scaleKeyboard.logic.ts` — `hitTest(x, y, geometry)`
+      returning the pitch class clicked or `-1`. Mirrors inboil
+      `tapKey` semantics (any click anywhere on a key surface counts)
+- [ ] `host-qt/ui/scaleKeyboard.logic.test.ts` — `hitTest` boundary
+      cases (between keys, on black-key overlap, outside canvas)
+- [ ] `host-qt/ui/scaleKeyboard.jsui.js` — `onclick` reads pointer,
+      calls `hitTest`, emits `setRoot <pc>` outlet on hit
+
+### QT quantize mode + chord/harmony engine
+
+- [ ] `m4l/engine/quantizer.ts` — chord/harmony helpers:
+      `snapToChordTones(pitch, chordPcs, scalePcs, semitoneTolerance=2)`,
+      `diatonicShift(pitch, interval, direction, scalePcs)`,
+      mirroring inboil `generative.ts:200-254` semantics. Pure
+      functions, ASCII-only.
+- [ ] `m4l/engine/quantizer.test.ts` — vectors for each helper
+      across the 14 scale/root combinations sourced from inboil's
+      reference outputs (regression discipline)
+- [ ] `m4l/host-qt/host.ts` — extend `QtParams` with `mode`,
+      `harmonyVoices`. Track `chordContext: number[]` (PCs) on
+      controlChannel held notes. Route `noteIn(pitch, vel, channel)`
+      through chord/harmony quantize when `mode != scale`. `noteOff`
+      removes from chordContext. `panic` and `transportStop` clear
+      it.
+- [ ] `m4l/host-qt/host.test.ts` — chord-mode in/out vectors,
+      harmony-mode in/out vectors, controlChannel held-set
+      build/release across `noteIn` / `noteOff` / `panic`
+- [ ] `m4l/host-qt/bridge.ts` — `setParam mode <name>` validates
+      against the 3-enum, `setParam harmonyVoices <json>` accepts a
+      bridge-flattened representation (3 voices × 2 fields). Emits
+      `chordChanged <pcs...>` outlet so the keyboard can highlight
+      held PCs (see §QT scale keyboard interaction).
 
 ### Stencil-TM patcher (`Stencil-TM.maxpat`)
 
@@ -436,8 +624,29 @@ The renderer queries geometry to decide where to draw.
 - [x] `[jsui]` instance loading `scaleKeyboard.jsui.js` (m4l/ root,
       flat path; logic + tests stay under `host-qt/ui/`)
 - [x] All `live.*` widgets per ADR 002 §live.* parameter surface (QT)
-      — v1 ships 11 of 12 (`qt.mode` deferred to v2; see
-      §Layout sketch — Stencil QT for rationale)
+      — currently 11; 12th is `qt.mode` (3-enum scale/chord/harmony)
+- [ ] `qt.mode` `live.menu` (3-enum: scale | chord | harmony) wired to
+      `setParam mode <name>` via the standard `[sel] -> [message]`
+      fanout (same pattern as `qt.scale`)
+- [ ] `qt.root` is a `live.menu` (note-name enum: C, C#, D, D#, E, F,
+      F#, G, G#, A, A#, B) emitting the int index 0..11 directly into
+      `[prepend setParam root]`. Note: this is a `live.menu` whose
+      bridge-side payload is the int index (no `[sel]` fanout
+      needed — bridge accepts int for `root`), distinct from the
+      string-emitting menus for `qt.scale` / `qt.triggerMode` /
+      `qt.mode`.
+- [ ] Harmony voices widget cluster: 3 rows of
+      `[interval-menu (3rd|4th|5th|6th)] [direction-menu (above|below)]`
+      with `parameter_longname` = `StencilQtHarmonyV{1,2,3}Interval` /
+      `StencilQtHarmonyV{1,2,3}Direction`. Bridge collects them into
+      `harmonyVoices: HarmonyVoice[]` (length-flattened: voices with
+      direction = "off" or interval = 0 sentinel are filtered out)
+- [ ] `[jsui]` `setRoot` outlet routed into the `qt.root` `live.menu`
+      inlet (so a keyboard click updates the menu, which then fires
+      `setParam root` through the existing chain)
+- [ ] `chordChanged` outlet routed from `[node.script]` to `[jsui]`
+      so the keyboard can highlight currently-held chord PCs (rendered
+      with a third tier between in-scale dot and pulse glow)
 - [x] `live.*` long-name / short-name; range / increment / defaults
 - [x] `live.*` initial values match defaults
 - [x] `[node.script stencil-qt.mjs]` instance (flat path, `.mjs` —
@@ -489,6 +698,22 @@ The renderer queries geometry to decide where to draw.
       transport, register change reflects in jsui within one step
 - [ ] QT scale keyboard: in-scale dots correct, pulse animation visible
       and decays, multi-pulse stacks readable
+- [ ] QT keyboard click: clicking any key sets `qt.root` to that PC,
+      `qt.root` `live.menu` reflects the change, in-scale dot pattern
+      shifts immediately
+- [ ] QT mode = scale: input quantized to scale-snap (existing path),
+      no chord context, no harmony voicing
+- [ ] QT mode = chord: held notes on `qt.controlChannel` form chord
+      context (visible on keyboard as a third highlight tier between
+      in-scale and pulse), input notes snap to chord tones with scale
+      fallback. Releasing all controlChannel notes clears context.
+- [ ] QT mode = harmony: each input note produces input + N voiced
+      notes per `harmonyVoices[]`. Empty `harmonyVoices` reverts to
+      scale-snap behaviour.
+- [ ] QT controlChannel: in `mode = chord`, controlChannel notes are
+      consumed (do NOT appear in noteOut). In `mode = scale | harmony`
+      with `triggerMode = root`, controlChannel single notes set root
+      and are also consumed.
 
 ## Open questions
 
@@ -509,17 +734,37 @@ The renderer queries geometry to decide where to draw.
   the keyboard is implemented; record the chosen value here once
   picked.
 
-## Out of scope (v2 or later)
+## Out of scope
 
-- **Output history bar chart (TM)** — informative but eats vertical
-  space; deferred.
-- **Revolver continuous rotation animation** — bit ring snaps in v1;
-  spinning is v2.
-- **Scale-snap preview overlay** — cross-device awareness, post-v1.
-- **FREEZE / ROLL custom buttons** — `lock = 1` and seed bump achievable
-  via `live.*`; custom buttons are nice-to-have.
-- **Click-to-edit-scale on QT keyboard** — v2.
-- **Drag-paint on the bit ring** — see Open questions; if trivial, v1;
-  else v2.
+Each item carries an explicit reason. "Deferred" without justification
+is not allowed (no v1/v2 phasing — see §Context Scope rule).
+
+- **Output history bar chart (TM)** — eats vertical space, the strip
+  is at the 180 px ceiling, the bit ring already occupies the central
+  column. Spatial budget.
+- **Revolver continuous rotation animation** — animation plumbing
+  cost vs marginal musical value; the bit ring snaps to the next dot
+  per step rather than spinning. Revisit only if a user complains
+  about legibility at fast subdivisions.
+- **Scale-snap preview overlay** — would need a TM↔QT shared-state
+  channel that doesn't exist between two patchers. Architecturally
+  blocked, not deferred.
+- **FREEZE / ROLL custom buttons** — `lock = 1` and seed bump are
+  reachable via existing `live.dial` / `live.numbox` widgets; custom
+  buttons would be redundant.
+- **Click-to-edit-scale on QT keyboard** — `qt.scale` is an enum of
+  preset names, not a free pitch-class set; per-key toggling has no
+  parameter to land in. (Click-to-set-**root** is in scope and ships
+  per §QT scale keyboard.)
+- **Drag-paint on the bit ring** — open in §Open questions; ships if
+  trivially mergeable into the click handler.
 - **Dual theme (light + dark) palette tuning** — see Open questions.
+- **`chords[]` step-indexed chord progression UI (inboil)** —
+  replaced by real-time controlChannel input; user plays the
+  progression on a clip or via oedipa. No data structure to author
+  in-device.
+- **`chordSource: { nodeId }` Tonnetz coupling field (inboil)** —
+  replaced by routing oedipa's MIDI output to controlChannel. oedipa
+  is the m4l Tonnetz device; the cross-device chord progression
+  flows through MIDI rather than a scene-graph reference.
 - **vst UI** — separate target, separate ADR series.

@@ -343,16 +343,18 @@ notePulse <pitch> <velocity>         // emitted on each quantized noteOn,
 | `live.*` name             | Type               | Range / values                         | Default        | Notes                                  |
 |---------------------------|--------------------|----------------------------------------|----------------|----------------------------------------|
 | `qt.scale`                | live.menu          | 15 names                               | `major`        | scale preset                           |
-| `qt.root`                 | live.numbox int    | `0..11`                                | `0` (C)        | root pitch class                       |
-| `qt.mode`                 | live.menu          | `scale` (v1)                           | `scale`        | snap strategy; `chord`/`harmony` v2    |
+| `qt.root`                 | live.menu (int)    | `0..11` displayed as `C..B`            | `0` (C)        | root pitch class; live.menu emits int index, bridge accepts as integer (no `[sel]` fanout needed) |
+| `qt.mode`                 | live.menu          | `scale \| chord \| harmony`            | `scale`        | quantize strategy: scale-snap, chord-tone snap, or input + diatonic voicing (ADR 003 §QT quantize mode) |
 | `qt.humanizeVelocity`     | live.dial float    | `0..1`                                 | `0`            | signed-noise amplitude                 |
 | `qt.humanizeGate`         | live.dial float    | `0..1`                                 | `0`            | signed-noise amplitude                 |
 | `qt.humanizeTiming`       | live.dial float    | `0..1`                                 | `0`            | signed-noise amplitude                 |
 | `qt.humanizeDrift`        | live.dial float    | `0..1`                                 | `0`            | EMA smoothing across humanize axes     |
 | `qt.outputLevel`          | live.dial float    | `0..1`                                 | `1.0`          | global output velocity multiplier      |
-| `qt.triggerMode`          | live.menu          | `passthrough \| root`                  | `passthrough`  | input handling                         |
+| `qt.triggerMode`          | live.menu          | `passthrough \| root`                  | `passthrough`  | controlChannel handling when `mode != chord` (in `mode = chord`, controlChannel is dedicated to chord context regardless of triggerMode) |
 | `qt.inputChannel`         | live.numbox int    | `0..16` (`0` = omni)                   | `0`            | MIDI input channel (quantize path)     |
-| `qt.controlChannel`       | live.numbox int    | `1..16`                                | `16`           | root-update channel; used when `triggerMode = root` |
+| `qt.controlChannel`       | live.numbox int    | `1..16`                                | `16`           | per `mode` × `triggerMode`: single-note → root, OR held-notes → chord context (ADR 003 §QT quantize mode) |
+| `qt.harmonyV{1,2,3}Interval` | live.menu       | `3rd \| 4th \| 5th \| 6th`             | `3rd`          | diatonic interval for harmony voice N; ignored unless `mode = harmony` and direction != `off` |
+| `qt.harmonyV{1,2,3}Direction` | live.menu      | `off \| above \| below`                | `off` (V1..V3) | direction for harmony voice N; `off` removes the voice from the active list (no voice slot reordering — V1..V3 are always 3 widgets, just empties) |
 | `qt.seed`                 | live.numbox int    | `0..2^31-1`                            | `42`           | humanize PRNG seed                     |
 
 All `live.*` parameters are exposed for host automation. Range and timing
