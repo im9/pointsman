@@ -4,13 +4,15 @@ import assert from "node:assert/strict";
 import {
   BLACK_KEY_HEIGHT_RATIO,
   BLACK_KEY_WIDTH_RATIO,
-  DOT_AREA_RATIO,
+  DOT_INSET_RATIO,
+  DOT_RADIUS_RATIO,
   NUM_PITCH_CLASSES,
   PULSE_DECAY_MS,
   WHITE_KEYS_PER_OCTAVE,
   addPulse,
   computeGeometry,
   createModel,
+  dotCenterAt,
   isBlackKey,
   keyBoundsAt,
   recomputeInScale,
@@ -355,13 +357,29 @@ test("computeGeometry — black key height is BLACK_KEY_HEIGHT_RATIO of white-ar
   assert.ok(Math.abs(g.blackKeyHeight - g.whiteKeyAreaHeight * BLACK_KEY_HEIGHT_RATIO) < 1e-9);
 });
 
-test("computeGeometry — dot area is at the bottom of the canvas", () => {
-  // Layout: white-key area on top, dot strip at the bottom. dotAreaHeight
-  // is DOT_AREA_RATIO of canvas height; whiteKeyAreaHeight + dotAreaHeight
-  // covers the full canvas.
+test("computeGeometry — white-key area spans the full canvas height", () => {
+  // Inboil-style layout: dots are drawn INSIDE each in-scale key, so there
+  // is no dedicated bottom strip. White keys take the full canvas height;
+  // black keys are still BLACK_KEY_HEIGHT_RATIO of that.
   const g = computeGeometry(700, 100);
-  assert.ok(Math.abs(g.dotAreaHeight - 100 * DOT_AREA_RATIO) < 1e-9);
-  assert.ok(Math.abs(g.whiteKeyAreaHeight + g.dotAreaHeight - 100) < 1e-9);
+  assert.equal(g.whiteKeyAreaHeight, 100);
+});
+
+test("computeGeometry — dotRadius is DOT_RADIUS_RATIO of white-key width", () => {
+  // Dot radius scales with key width so dots feel proportional at any
+  // canvas size. Tied to whiteKeyWidth (not key height) so white and
+  // black dots end up the same physical size.
+  const g = computeGeometry(700, 100);
+  // whiteKeyWidth = 700/7 = 100 → expected radius = 100 * DOT_RADIUS_RATIO.
+  assert.ok(Math.abs(g.dotRadius - g.whiteKeyWidth * DOT_RADIUS_RATIO) < 1e-9);
+});
+
+test("computeGeometry — dotRadius enforces a minimum so the dot stays visible", () => {
+  // For very narrow keyboards (small canvas in a host that resizes the
+  // jsui), DOT_RADIUS_RATIO * whiteKeyWidth can fall below 1.5 px and
+  // mgraphics will render it as a dot or disappear. Floor at 1.5.
+  const g = computeGeometry(70, 20); // whiteKeyWidth=10 → 10*0.08=0.8, clamped to 1.5
+  assert.equal(g.dotRadius, 1.5);
 });
 
 // ---- keyBoundsAt ----------------------------------------------------------
@@ -427,6 +445,65 @@ test("keyBoundsAt — black keys occupy only the top blackKeyHeight portion", ()
   }
 });
 
+// ---- dotCenterAt ----------------------------------------------------------
+
+test("dotCenterAt — white-key dot is centered horizontally on the white key", () => {
+  // Each in-scale white key gets a single dot at its horizontal center.
+  // Verifies all 7 white pitch classes — covers the full octave layout.
+  const g = computeGeometry(700, 100);
+  for (const pc of [0, 2, 4, 5, 7, 9, 11]) {
+    const b = keyBoundsAt(pc, g);
+    const d = dotCenterAt(pc, g);
+    assert.ok(Math.abs(d.cx - (b.x + b.w / 2)) < 1e-9, `pc=${pc}`);
+  }
+});
+
+test("dotCenterAt — white-key dot sits DOT_INSET_RATIO above the key bottom", () => {
+  // Position formula: cy = key.h * (1 - DOT_INSET_RATIO). Inboil's
+  // QuantizerSheet.svelte places the dot 12 px above the bottom of a
+  // 100 px white key (~12% inset); we use a single ratio for both colors.
+  const g = computeGeometry(700, 100);
+  const b = keyBoundsAt(0, g);
+  const d = dotCenterAt(0, g);
+  assert.ok(Math.abs(d.cy - b.h * (1 - DOT_INSET_RATIO)) < 1e-9);
+});
+
+test("dotCenterAt — black-key dot is centered on the black key (not the white-key boundary)", () => {
+  // The black-key dot must sit at the center of the black KEY, which is
+  // offset by half blackKeyWidth from the white-key boundary. A naive
+  // implementation that uses BLACK_BOUNDARY_INDEX directly without the
+  // half-width correction would put the dot in the gap between two whites.
+  const g = computeGeometry(700, 100);
+  for (const pc of [1, 3, 6, 8, 10]) {
+    const b = keyBoundsAt(pc, g);
+    const d = dotCenterAt(pc, g);
+    assert.ok(Math.abs(d.cx - (b.x + b.w / 2)) < 1e-9, `pc=${pc}`);
+  }
+});
+
+test("dotCenterAt — black-key dot is inside the (shorter) black key", () => {
+  // Black keys end at blackKeyHeight; the dot's cy must fall within that
+  // height, not below where the black key ends. Equivalent: dot is inset
+  // above the black-key bottom by DOT_INSET_RATIO * blackKeyHeight.
+  const g = computeGeometry(700, 100);
+  const b = keyBoundsAt(1, g);
+  const d = dotCenterAt(1, g);
+  assert.ok(d.cy < b.h, `expected ${d.cy} < ${b.h}`);
+  assert.ok(Math.abs(d.cy - b.h * (1 - DOT_INSET_RATIO)) < 1e-9);
+});
+
+test("dotCenterAt — black-key dots sit higher on canvas than white-key dots", () => {
+  // The two-row visual separation (the whole point of moving dots into
+  // the keys) relies on this: black dots are inside the SHORTER black
+  // key, white dots inside the FULL-HEIGHT white key, so the black dots
+  // automatically end up higher. If this ever fails, the visual cue
+  // collapses and the keyboard becomes ambiguous again.
+  const g = computeGeometry(700, 100);
+  const dWhite = dotCenterAt(0, g);
+  const dBlack = dotCenterAt(1, g);
+  assert.ok(dBlack.cy < dWhite.cy, `expected black ${dBlack.cy} < white ${dWhite.cy}`);
+});
+
 // ---- constants exposed for the mirror drift test --------------------------
 
 test("constants exported for mirror drift check", () => {
@@ -439,5 +516,6 @@ test("constants exported for mirror drift check", () => {
   assert.equal(typeof WHITE_KEYS_PER_OCTAVE, "number");
   assert.equal(typeof BLACK_KEY_WIDTH_RATIO, "number");
   assert.equal(typeof BLACK_KEY_HEIGHT_RATIO, "number");
-  assert.equal(typeof DOT_AREA_RATIO, "number");
+  assert.equal(typeof DOT_INSET_RATIO, "number");
+  assert.equal(typeof DOT_RADIUS_RATIO, "number");
 });

@@ -23,9 +23,21 @@ export const PULSE_DECAY_MS = 250;
 export const BLACK_KEY_WIDTH_RATIO = 0.6;
 export const BLACK_KEY_HEIGHT_RATIO = 0.6;
 
-// Bottom strip below the keyboard reserved for in-scale dots. Renderer
-// draws a dot per pitch class at the horizontal center of that key.
-export const DOT_AREA_RATIO = 0.2;
+// In-scale dot is drawn INSIDE each in-scale key (no dedicated bottom
+// strip — that arrangement made it ambiguous which dot belongs to which
+// key, see ADR 003 §QT scale keyboard).
+//
+// DOT_INSET_RATIO: vertical inset from the key's bottom, as a fraction
+//   of that key's own height. Same ratio for both white and black keys
+//   — black keys end up visually higher because their bounding height
+//   is shorter (BLACK_KEY_HEIGHT_RATIO), giving the inboil-style
+//   two-row visual for free.
+// DOT_RADIUS_RATIO: dot radius as a fraction of whiteKeyWidth. Tied to
+//   width (not key height) so white and black dots are the same physical
+//   size and the dot reads as a single visual token across the keyboard.
+export const DOT_INSET_RATIO = 0.15;
+export const DOT_RADIUS_RATIO = 0.08;
+const DOT_RADIUS_MIN_PX = 1.5;
 
 // Pitch classes that are black keys on a piano (C# D# F# G# A#).
 const BLACK_PITCH_CLASSES = new Set<number>([1, 3, 6, 8, 10]);
@@ -59,7 +71,7 @@ export interface KeyboardGeometry {
   blackKeyWidth: number;
   whiteKeyAreaHeight: number;
   blackKeyHeight: number;
-  dotAreaHeight: number;
+  dotRadius: number;
 }
 
 export interface KeyBounds {
@@ -146,9 +158,12 @@ export function computeGeometry(
 ): KeyboardGeometry {
   const whiteKeyWidth = canvasWidth / WHITE_KEYS_PER_OCTAVE;
   const blackKeyWidth = whiteKeyWidth * BLACK_KEY_WIDTH_RATIO;
-  const dotAreaHeight = canvasHeight * DOT_AREA_RATIO;
-  const whiteKeyAreaHeight = canvasHeight - dotAreaHeight;
+  const whiteKeyAreaHeight = canvasHeight;
   const blackKeyHeight = whiteKeyAreaHeight * BLACK_KEY_HEIGHT_RATIO;
+  const dotRadius = Math.max(
+    DOT_RADIUS_MIN_PX,
+    whiteKeyWidth * DOT_RADIUS_RATIO,
+  );
   return {
     canvasWidth,
     canvasHeight,
@@ -156,7 +171,7 @@ export function computeGeometry(
     blackKeyWidth,
     whiteKeyAreaHeight,
     blackKeyHeight,
-    dotAreaHeight,
+    dotRadius,
   };
 }
 
@@ -182,5 +197,16 @@ export function keyBoundsAt(
     w: geometry.whiteKeyWidth,
     h: geometry.whiteKeyAreaHeight,
     isBlack: false,
+  };
+}
+
+export function dotCenterAt(
+  pitchClass: number,
+  geometry: KeyboardGeometry,
+): { cx: number; cy: number } {
+  const b = keyBoundsAt(pitchClass, geometry);
+  return {
+    cx: b.x + b.w / 2,
+    cy: b.h * (1 - DOT_INSET_RATIO),
   };
 }

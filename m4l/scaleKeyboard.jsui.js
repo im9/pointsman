@@ -3,10 +3,13 @@
 // Reference: inboil's QuantizerSheet.svelte one-octave keyboard.
 //
 // One-octave (12-key) piano keyboard. White keys flat, black keys raised
-// (BLACK_KEY_HEIGHT_RATIO of the white-key area). A row of dots below the
-// keys indicates in-scale membership for the current (scale, root). On a
-// notePulse from the bridge the corresponding key glows briefly and decays
-// back over PULSE_DECAY_MS. Keyboard is display-only in v1 (no
+// (BLACK_KEY_HEIGHT_RATIO of the white-key area). Each in-scale key
+// carries a dot drawn INSIDE the key near its bottom edge; out-of-scale
+// keys carry no dot. Black keys are shorter, so their dots end up
+// visually higher than white-key dots -- gives an inboil-style two-row
+// separation between black and white in-scale membership for free. On a
+// notePulse from the bridge the corresponding key glows briefly and
+// decays back over PULSE_DECAY_MS. Keyboard is display-only in v1 (no
 // click-to-edit-scale -- ADR 003 "QT scale keyboard").
 //
 // Pure layout, scale-membership, and pulse-decay logic live in
@@ -14,11 +17,11 @@
 // runs Max's bundled JS engine (no module system), so the formulas are
 // re-implemented here as plain JS rather than imported. Keep
 // NUM_PITCH_CLASSES / PULSE_DECAY_MS / WHITE_KEYS_PER_OCTAVE /
-// BLACK_KEY_WIDTH_RATIO / BLACK_KEY_HEIGHT_RATIO / DOT_AREA_RATIO and the
-// SCALE_INTERVALS table in sync with scaleKeyboard.logic.ts (and with
-// m4l/engine/quantizer.ts for the intervals). A drift test
-// (scaleKeyboard.mirror.test.ts) asserts the constants and intervals
-// line up.
+// BLACK_KEY_WIDTH_RATIO / BLACK_KEY_HEIGHT_RATIO / DOT_INSET_RATIO /
+// DOT_RADIUS_RATIO and the SCALE_INTERVALS table in sync with
+// scaleKeyboard.logic.ts (and with m4l/engine/quantizer.ts for the
+// intervals). A drift test (scaleKeyboard.mirror.test.ts) asserts the
+// constants and intervals line up.
 //
 // Comments and string literals are ASCII; non-ASCII glyphs are written as
 // \uXXXX escapes -- Max's classic JS parser has been observed to choke on
@@ -31,7 +34,7 @@ mgraphics.init()
 mgraphics.relative_coords = 0
 mgraphics.autofill = 0
 
-post('scaleKeyboard.jsui.js loaded build=2026-05-03\n')
+post('scaleKeyboard.jsui.js loaded build=2026-05-04\n')
 
 // --- Constants (mirror m4l/host-qt/ui/scaleKeyboard.logic.ts) ---
 
@@ -40,7 +43,9 @@ var WHITE_KEYS_PER_OCTAVE = 7
 var PULSE_DECAY_MS = 250
 var BLACK_KEY_WIDTH_RATIO = 0.6
 var BLACK_KEY_HEIGHT_RATIO = 0.6
-var DOT_AREA_RATIO = 0.2
+var DOT_INSET_RATIO = 0.15
+var DOT_RADIUS_RATIO = 0.08
+var DOT_RADIUS_MIN_PX = 1.5
 
 // Pitch-class intervals per scale, root-relative. Mirror of
 // SCALE_INTERVALS in m4l/engine/quantizer.ts. The drift test
@@ -188,9 +193,10 @@ function tick() {
 function computeGeometry(boxW, boxH) {
   var whiteKeyWidth = boxW / WHITE_KEYS_PER_OCTAVE
   var blackKeyWidth = whiteKeyWidth * BLACK_KEY_WIDTH_RATIO
-  var dotAreaHeight = boxH * DOT_AREA_RATIO
-  var whiteKeyAreaHeight = boxH - dotAreaHeight
+  var whiteKeyAreaHeight = boxH
   var blackKeyHeight = whiteKeyAreaHeight * BLACK_KEY_HEIGHT_RATIO
+  var dotRadius = whiteKeyWidth * DOT_RADIUS_RATIO
+  if (dotRadius < DOT_RADIUS_MIN_PX) dotRadius = DOT_RADIUS_MIN_PX
   return {
     canvasWidth: boxW,
     canvasHeight: boxH,
@@ -198,7 +204,7 @@ function computeGeometry(boxW, boxH) {
     blackKeyWidth: blackKeyWidth,
     whiteKeyAreaHeight: whiteKeyAreaHeight,
     blackKeyHeight: blackKeyHeight,
-    dotAreaHeight: dotAreaHeight
+    dotRadius: dotRadius
   }
 }
 
@@ -223,6 +229,14 @@ function keyBoundsAt(pc, g) {
   }
 }
 
+function dotCenterAt(pc, g) {
+  var b = keyBoundsAt(pc, g)
+  return {
+    cx: b.x + b.w / 2,
+    cy: b.h * (1 - DOT_INSET_RATIO)
+  }
+}
+
 // --- Drawing ---
 
 function setRgb(c) { mgraphics.set_source_rgba(c[0], c[1], c[2], 1) }
@@ -242,12 +256,6 @@ function strokeRect(x, y, w, h, lineW) {
 function fillCircle(cx, cy, r) {
   mgraphics.ellipse(cx - r, cy - r, r * 2, r * 2)
   mgraphics.fill()
-}
-
-function strokeCircle(cx, cy, r, lineW) {
-  mgraphics.set_line_width(lineW)
-  mgraphics.ellipse(cx - r, cy - r, r * 2, r * 2)
-  mgraphics.stroke()
 }
 
 // Sum overlapping pulses on the same pitch class, capped at 1. Lets a
@@ -297,21 +305,19 @@ function paint() {
     }
   }
 
-  // In-scale dot row at the bottom. Dot centered horizontally on each
-  // pitch class: white-key dots sit on the white-key center, black-key
-  // dots sit on the boundary above the black key.
-  var dotY = g.whiteKeyAreaHeight + g.dotAreaHeight / 2
-  var dotR = g.dotAreaHeight * 0.25
-  if (dotR < 1.5) dotR = 1.5
+  // In-scale dots, drawn INSIDE each in-scale key (no out-of-scale dots
+  // -- ADR 003 §QT scale keyboard). Black-key dots are cream so they
+  // read against the near-black fill; white-key dots are olive
+  // (COL_ACTIVE_FILL) for contrast against the cream background.
+  // Drawn last so the dots stay visible on top of any pulse glow.
   for (var pc3 = 0; pc3 < NUM_PITCH_CLASSES; pc3++) {
-    var b3 = keyBoundsAt(pc3, g)
-    var cx = b3.x + b3.w / 2
-    if (inScale[pc3]) {
-      setRgb(COL_ACTIVE_FILL)
-      fillCircle(cx, dotY, dotR)
+    if (!inScale[pc3]) continue
+    var d = dotCenterAt(pc3, g)
+    if (isBlackKey(pc3)) {
+      setRgb(COL_BG)
     } else {
-      setRgb(COL_OUTLINE)
-      strokeCircle(cx, dotY, dotR, 1)
+      setRgb(COL_ACTIVE_FILL)
     }
+    fillCircle(d.cx, d.cy, g.dotRadius)
   }
 }

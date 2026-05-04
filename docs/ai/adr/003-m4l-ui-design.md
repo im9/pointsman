@@ -185,9 +185,15 @@ advanceReadHead(model): RingModel
 `m4l/host-qt/ui/scaleKeyboard.{logic,jsui}.ts/.js`.
 
 **Visual:** one-octave (12-key) piano keyboard, layout matches inboil
-(black keys raised, white keys flat). Each key has a small dot below
-indicating in-scale membership for the current `(scale, root)`. Dot
-filled with `color.activeFill` if in-scale, hollow if out-of-scale.
+(black keys raised, white keys flat). Each in-scale key carries a small
+dot drawn **inside** the key near its bottom edge — `color.activeFill`
+on white keys, `color.bg` (cream) on black keys for legibility against
+the near-black fill. Out-of-scale keys carry no dot. Because black keys
+are shorter (`BLACK_KEY_HEIGHT_RATIO`), black-key dots automatically
+sit higher on the canvas than white-key dots, giving a two-row visual
+that separates black-vs-white in-scale membership without an explicit
+divider. (Reference: inboil `QuantizerSheet.svelte` — same in-key-dot
++ no-out-of-scale-dot pattern, ported by visual rule rather than code.)
 
 **Pulse animation:** when the host emits a `noteOut` event (a quantized
 note leaving the device), the corresponding key glows briefly in
@@ -272,7 +278,7 @@ Three columns, same structure:
 │ │ SCL [major    ] │ │ ┌─┐┌─┐  ┌─┐┌─┐┌─┐         │ │ ◌  ◌  ◌  ◌│ │
 │ │ ROOT[ 0] IN[0] CTL[16]│ │ ││  │ ││ ││ │         │ │ V  G  T  D│ │
 │ │ TRG [psthru   ] │ │ ├─┴┴─┴┬─┴─┴┴─┴┴─┴─┴─┐    │ │           │ │
-│ │     ◌            │ │ │•│◌│•│◌│•│•│◌│•│◌│•│   │ │ SEED [42] │ │
+│ │     ◌            │ │ │•│ │•│ │•│•│ │•│ │•│   │ │ SEED [42] │ │
 │ │     LVL          │ │ │C│D│E│F│G│A│B│ │ │ │   │ │           │ │
 │ │                  │ │ └─┴─┴─┴─┴─┴─┴─┴─┴─┴─┘   │ │           │ │
 │ └─────────────────┘ └──────────────────────────┘ └──────────┘ │
@@ -304,8 +310,8 @@ Column allocation:
 - **HUMAN** (right, ~240w, 5 items): humanizeVelocity, humanizeGate,
   humanizeTiming, humanizeDrift, seed.
 
-In-scale dot = `•`, out-of-scale = `◌`. Active key during pulse glows
-in `color.activeHighlight`.
+In-scale key carries a dot inside (`•`); out-of-scale keys carry no
+dot. Active key during pulse glows in `color.activeHighlight`.
 
 Both layouts are sketches — exact pixel widths, label sizes, and the
 precise vertical placement of each `live.*` are decided at patcher build

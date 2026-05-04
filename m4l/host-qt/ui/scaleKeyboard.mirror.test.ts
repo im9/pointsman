@@ -22,7 +22,8 @@ import { dirname, join } from "node:path";
 import {
   BLACK_KEY_HEIGHT_RATIO,
   BLACK_KEY_WIDTH_RATIO,
-  DOT_AREA_RATIO,
+  DOT_INSET_RATIO,
+  DOT_RADIUS_RATIO,
   NUM_PITCH_CLASSES,
   PULSE_DECAY_MS,
   WHITE_KEYS_PER_OCTAVE,
@@ -84,8 +85,12 @@ test("renderer mirrors BLACK_KEY_HEIGHT_RATIO", () => {
   assert.equal(findVarDecl("BLACK_KEY_HEIGHT_RATIO"), BLACK_KEY_HEIGHT_RATIO);
 });
 
-test("renderer mirrors DOT_AREA_RATIO", () => {
-  assert.equal(findVarDecl("DOT_AREA_RATIO"), DOT_AREA_RATIO);
+test("renderer mirrors DOT_INSET_RATIO", () => {
+  assert.equal(findVarDecl("DOT_INSET_RATIO"), DOT_INSET_RATIO);
+});
+
+test("renderer mirrors DOT_RADIUS_RATIO", () => {
+  assert.equal(findVarDecl("DOT_RADIUS_RATIO"), DOT_RADIUS_RATIO);
 });
 
 test("renderer SCALE_INTERVALS matches engine for every scale name", () => {
