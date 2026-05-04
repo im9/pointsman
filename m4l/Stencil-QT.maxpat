@@ -24,7 +24,7 @@
         "toolbarvisible": 1,
         "boxes": [
 
-            {"box": {"id": "obj-grp-scale", "maxclass": "panel", "bgcolor": [0, 0, 0, 0], "bordercolor": [0.929, 0.910, 0.863, 0.18], "border": 1, "rounded": 0, "numinlets": 1, "numoutlets": 0, "patching_rect": [40.0, 60.0, 200.0, 12.0], "presentation": 1, "presentation_rect": [8.0, 8.0, 280.0, 164.0]}},
+            {"box": {"id": "obj-grp-scale", "maxclass": "panel", "bgcolor": [0, 0, 0, 0], "bordercolor": [0.929, 0.910, 0.863, 0.18], "border": 1, "rounded": 0, "numinlets": 1, "numoutlets": 0, "patching_rect": [40.0, 60.0, 200.0, 12.0], "presentation": 1, "presentation_rect": [8.0, 8.0, 280.0, 184.0]}},
             {"box": {"id": "obj-grp-keyboard", "maxclass": "panel", "bgcolor": [0, 0, 0, 0], "bordercolor": [0.929, 0.910, 0.863, 0.18], "border": 1, "rounded": 0, "numinlets": 1, "numoutlets": 0, "patching_rect": [240.0, 60.0, 200.0, 12.0], "presentation": 1, "presentation_rect": [296.0, 8.0, 440.0, 164.0]}},
             {"box": {"id": "obj-grp-human", "maxclass": "panel", "bgcolor": [0, 0, 0, 0], "bordercolor": [0.929, 0.910, 0.863, 0.18], "border": 1, "rounded": 0, "numinlets": 1, "numoutlets": 0, "patching_rect": [440.0, 60.0, 200.0, 12.0], "presentation": 1, "presentation_rect": [744.0, 8.0, 248.0, 164.0]}},
 
@@ -54,14 +54,16 @@
             {"box": {"id": "obj-nodescript", "maxclass": "newobj", "text": "node.script stencil-qt.mjs @autostart 1", "numinlets": 1, "numoutlets": 2, "outlettype": ["", ""], "patching_rect": [40.0, 360.0, 420.0, 22.0]}},
             {"box": {"id": "obj-print-from-node", "maxclass": "newobj", "text": "print stencil-qt-from-node", "numinlets": 1, "numoutlets": 0, "patching_rect": [40.0, 390.0, 200.0, 22.0]}},
 
-            {"box": {"id": "obj-route-out", "maxclass": "newobj", "text": "route note ready scaleChanged notePulse", "numinlets": 1, "numoutlets": 5, "outlettype": ["", "", "", "", ""], "patching_rect": [240.0, 390.0, 280.0, 22.0]}},
+            {"box": {"id": "obj-route-out", "maxclass": "newobj", "text": "route note ready scaleChanged notePulse chordChanged", "numinlets": 1, "numoutlets": 6, "outlettype": ["", "", "", "", "", ""], "patching_rect": [240.0, 390.0, 360.0, 22.0]}},
             {"box": {"id": "obj-trig-ready", "maxclass": "newobj", "text": "t b", "numinlets": 1, "numoutlets": 1, "outlettype": ["bang"], "patching_rect": [340.0, 450.0, 40.0, 22.0]}},
             {"box": {"id": "obj-unpack-note", "maxclass": "newobj", "text": "unpack 0 0 0", "numinlets": 1, "numoutlets": 3, "outlettype": ["int", "int", "int"], "patching_rect": [240.0, 420.0, 100.0, 22.0]}},
             {"box": {"id": "obj-noteout", "maxclass": "newobj", "text": "noteout", "numinlets": 3, "numoutlets": 0, "patching_rect": [240.0, 480.0, 60.0, 22.0]}},
             {"box": {"id": "obj-defer-sc", "maxclass": "newobj", "text": "deferlow", "numinlets": 1, "numoutlets": 1, "outlettype": [""], "patching_rect": [400.0, 420.0, 80.0, 22.0]}},
             {"box": {"id": "obj-defer-np", "maxclass": "newobj", "text": "deferlow", "numinlets": 1, "numoutlets": 1, "outlettype": [""], "patching_rect": [520.0, 420.0, 80.0, 22.0]}},
+            {"box": {"id": "obj-defer-cc", "maxclass": "newobj", "text": "deferlow", "numinlets": 1, "numoutlets": 1, "outlettype": [""], "patching_rect": [640.0, 420.0, 80.0, 22.0]}},
             {"box": {"id": "obj-prep-sc", "maxclass": "newobj", "text": "prepend scaleChanged", "numinlets": 1, "numoutlets": 1, "outlettype": [""], "patching_rect": [400.0, 450.0, 140.0, 22.0]}},
             {"box": {"id": "obj-prep-np", "maxclass": "newobj", "text": "prepend notePulse", "numinlets": 1, "numoutlets": 1, "outlettype": [""], "patching_rect": [520.0, 450.0, 120.0, 22.0]}},
+            {"box": {"id": "obj-prep-cc", "maxclass": "newobj", "text": "prepend chordChanged", "numinlets": 1, "numoutlets": 1, "outlettype": [""], "patching_rect": [640.0, 450.0, 140.0, 22.0]}},
 
             {"box": {"id": "obj-jsui", "maxclass": "jsui", "filename": "scaleKeyboard.jsui.js", "numinlets": 1, "numoutlets": 1, "outlettype": [""], "parameter_enable": 0, "patching_rect": [344.0, 32.0, 416.0, 132.0], "presentation": 1, "presentation_rect": [308.0, 32.0, 416.0, 132.0]}},
 
@@ -89,7 +91,7 @@
             {"box": {"id": "obj-w-root", "maxclass": "live.menu", "numinlets": 1, "numoutlets": 3, "outlettype": ["", "", "float"], "parameter_enable": 1, "patching_rect": [970.0, 90.0, 60.0, 22.0], "presentation": 1, "presentation_rect": [56.0, 56.0, 56.0, 16.0], "saved_attribute_attributes": {"valueof": {"parameter_enum": ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"], "parameter_initial": [0], "parameter_initial_enable": 1, "parameter_longname": "StencilQtRoot", "parameter_shortname": "Root", "parameter_type": 2}}}},
             {"box": {"id": "obj-prep-root", "maxclass": "newobj", "text": "prepend setParam root", "numinlets": 1, "numoutlets": 1, "outlettype": [""], "patching_rect": [1100.0, 90.0, 180.0, 22.0]}},
 
-            {"box": {"id": "obj-w-outputLevel", "maxclass": "live.dial", "numinlets": 1, "numoutlets": 2, "outlettype": ["", "float"], "parameter_enable": 1, "patching_rect": [970.0, 150.0, 36.0, 52.0], "presentation": 1, "presentation_rect": [122.0, 110.0, 36.0, 52.0], "saved_attribute_attributes": {"valueof": {"parameter_initial": [1.0], "parameter_initial_enable": 1, "parameter_longname": "StencilQtOutputLevel", "parameter_mmax": 1.0, "parameter_mmin": 0.0, "parameter_shortname": "LVL", "parameter_type": 0, "parameter_unitstyle": 1}}}},
+            {"box": {"id": "obj-w-outputLevel", "maxclass": "live.dial", "numinlets": 1, "numoutlets": 2, "outlettype": ["", "float"], "parameter_enable": 1, "patching_rect": [970.0, 150.0, 36.0, 52.0], "presentation": 1, "presentation_rect": [122.0, 130.0, 36.0, 52.0], "saved_attribute_attributes": {"valueof": {"parameter_initial": [1.0], "parameter_initial_enable": 1, "parameter_longname": "StencilQtOutputLevel", "parameter_mmax": 1.0, "parameter_mmin": 0.0, "parameter_shortname": "LVL", "parameter_type": 0, "parameter_unitstyle": 1}}}},
             {"box": {"id": "obj-prep-outputLevel", "maxclass": "newobj", "text": "prepend setParam outputLevel", "numinlets": 1, "numoutlets": 1, "outlettype": [""], "patching_rect": [1100.0, 150.0, 200.0, 22.0]}},
 
             {"box": {"id": "obj-lbl-triggerMode", "maxclass": "comment", "text": "TRG", "numinlets": 1, "numoutlets": 0, "fontname": "Andale Mono", "fontsize": 9.0, "textcolor": [0.929, 0.910, 0.863, 0.85], "patching_rect": [970.0, 180.0, 60.0, 14.0], "presentation": 1, "presentation_rect": [20.0, 84.0, 40.0, 14.0]}},
@@ -97,6 +99,13 @@
             {"box": {"id": "obj-sel-triggerMode", "maxclass": "newobj", "text": "sel 0 1", "numinlets": 1, "numoutlets": 3, "outlettype": ["bang", "bang", ""], "patching_rect": [1180.0, 180.0, 60.0, 22.0]}},
             {"box": {"id": "obj-msg-triggerMode-passthrough", "maxclass": "message", "text": "setParam triggerMode passthrough", "numinlets": 2, "numoutlets": 1, "outlettype": [""], "patching_rect": [1180.0, 210.0, 220.0, 22.0]}},
             {"box": {"id": "obj-msg-triggerMode-root", "maxclass": "message", "text": "setParam triggerMode root", "numinlets": 2, "numoutlets": 1, "outlettype": [""], "patching_rect": [1180.0, 240.0, 200.0, 22.0]}},
+
+            {"box": {"id": "obj-lbl-mode", "maxclass": "comment", "text": "MODE", "numinlets": 1, "numoutlets": 0, "fontname": "Andale Mono", "fontsize": 9.0, "textcolor": [0.929, 0.910, 0.863, 0.85], "patching_rect": [970.0, 540.0, 60.0, 14.0], "presentation": 1, "presentation_rect": [20.0, 106.0, 40.0, 14.0]}},
+            {"box": {"id": "obj-w-mode", "maxclass": "live.menu", "numinlets": 1, "numoutlets": 3, "outlettype": ["", "", "float"], "parameter_enable": 1, "patching_rect": [970.0, 540.0, 200.0, 22.0], "presentation": 1, "presentation_rect": [72.0, 104.0, 200.0, 16.0], "saved_attribute_attributes": {"valueof": {"parameter_enum": ["scale", "chord", "harmony"], "parameter_initial": [0], "parameter_initial_enable": 1, "parameter_longname": "StencilQtMode", "parameter_shortname": "Mode", "parameter_type": 2}}}},
+            {"box": {"id": "obj-sel-mode", "maxclass": "newobj", "text": "sel 0 1 2", "numinlets": 1, "numoutlets": 4, "outlettype": ["bang", "bang", "bang", ""], "patching_rect": [1180.0, 540.0, 80.0, 22.0]}},
+            {"box": {"id": "obj-msg-mode-scale", "maxclass": "message", "text": "setParam mode scale", "numinlets": 2, "numoutlets": 1, "outlettype": [""], "patching_rect": [1180.0, 570.0, 200.0, 22.0]}},
+            {"box": {"id": "obj-msg-mode-chord", "maxclass": "message", "text": "setParam mode chord", "numinlets": 2, "numoutlets": 1, "outlettype": [""], "patching_rect": [1180.0, 600.0, 200.0, 22.0]}},
+            {"box": {"id": "obj-msg-mode-harmony", "maxclass": "message", "text": "setParam mode harmony", "numinlets": 2, "numoutlets": 1, "outlettype": [""], "patching_rect": [1180.0, 630.0, 200.0, 22.0]}},
 
             {"box": {"id": "obj-lbl-inputChannel", "maxclass": "comment", "text": "IN", "numinlets": 1, "numoutlets": 0, "fontname": "Andale Mono", "fontsize": 9.0, "textcolor": [0.929, 0.910, 0.863, 0.85], "patching_rect": [970.0, 210.0, 60.0, 14.0], "presentation": 1, "presentation_rect": [116.0, 58.0, 16.0, 14.0]}},
             {"box": {"id": "obj-w-inputChannel", "maxclass": "live.numbox", "numinlets": 1, "numoutlets": 2, "outlettype": ["", "float"], "parameter_enable": 1, "patching_rect": [970.0, 210.0, 60.0, 22.0], "presentation": 1, "presentation_rect": [136.0, 56.0, 48.0, 16.0], "saved_attribute_attributes": {"valueof": {"parameter_initial": [0], "parameter_initial_enable": 1, "parameter_longname": "StencilQtInputChannel", "parameter_mmax": 16.0, "parameter_mmin": 0.0, "parameter_shortname": "InCh", "parameter_type": 1, "parameter_unitstyle": 0}}}},
@@ -161,6 +170,9 @@
             {"patchline": {"source": ["obj-route-out", 3], "destination": ["obj-defer-np", 0]}},
             {"patchline": {"source": ["obj-defer-np", 0], "destination": ["obj-prep-np", 0]}},
             {"patchline": {"source": ["obj-prep-np", 0], "destination": ["obj-jsui", 0]}},
+            {"patchline": {"source": ["obj-route-out", 4], "destination": ["obj-defer-cc", 0]}},
+            {"patchline": {"source": ["obj-defer-cc", 0], "destination": ["obj-prep-cc", 0]}},
+            {"patchline": {"source": ["obj-prep-cc", 0], "destination": ["obj-jsui", 0]}},
 
             {"patchline": {"source": ["obj-w-scale", 0], "destination": ["obj-sel-scale", 0]}},
             {"patchline": {"source": ["obj-sel-scale", 0], "destination": ["obj-msg-scale-major", 0]}},
@@ -206,6 +218,14 @@
             {"patchline": {"source": ["obj-msg-triggerMode-passthrough", 0], "destination": ["obj-nodescript", 0]}},
             {"patchline": {"source": ["obj-msg-triggerMode-root", 0], "destination": ["obj-nodescript", 0]}},
 
+            {"patchline": {"source": ["obj-w-mode", 0], "destination": ["obj-sel-mode", 0]}},
+            {"patchline": {"source": ["obj-sel-mode", 0], "destination": ["obj-msg-mode-scale", 0]}},
+            {"patchline": {"source": ["obj-sel-mode", 1], "destination": ["obj-msg-mode-chord", 0]}},
+            {"patchline": {"source": ["obj-sel-mode", 2], "destination": ["obj-msg-mode-harmony", 0]}},
+            {"patchline": {"source": ["obj-msg-mode-scale", 0], "destination": ["obj-nodescript", 0]}},
+            {"patchline": {"source": ["obj-msg-mode-chord", 0], "destination": ["obj-nodescript", 0]}},
+            {"patchline": {"source": ["obj-msg-mode-harmony", 0], "destination": ["obj-nodescript", 0]}},
+
             {"patchline": {"source": ["obj-w-inputChannel", 0], "destination": ["obj-prep-inputChannel", 0]}},
             {"patchline": {"source": ["obj-prep-inputChannel", 0], "destination": ["obj-nodescript", 0]}},
 
@@ -232,6 +252,7 @@
             {"patchline": {"source": ["obj-trig-ready", 0], "destination": ["obj-w-root", 0]}},
             {"patchline": {"source": ["obj-trig-ready", 0], "destination": ["obj-w-outputLevel", 0]}},
             {"patchline": {"source": ["obj-trig-ready", 0], "destination": ["obj-w-triggerMode", 0]}},
+            {"patchline": {"source": ["obj-trig-ready", 0], "destination": ["obj-w-mode", 0]}},
             {"patchline": {"source": ["obj-trig-ready", 0], "destination": ["obj-w-inputChannel", 0]}},
             {"patchline": {"source": ["obj-trig-ready", 0], "destination": ["obj-w-controlChannel", 0]}},
             {"patchline": {"source": ["obj-trig-ready", 0], "destination": ["obj-w-humanizeVelocity", 0]}},

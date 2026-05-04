@@ -173,8 +173,9 @@ const QT_LIVE_PARAMS = [
   ['StencilQtControlChannel',    'CtlCh',   'controlChannel',    1, 1,    16,         16],
   ['StencilQtSeed',              'Seed',    'seed',              1, 0,    2147483647, 42],
 ]
-// QT enum strings mirror m4l/host-qt/bridge.ts SCALE_NAMES and
-// TRIGGER_MODES exactly. Drift in either list is what this test catches.
+// QT enum strings mirror m4l/host-qt/bridge.ts SCALE_NAMES /
+// TRIGGER_MODES / QT_MODES exactly. Drift in either list is what this
+// test catches.
 const QT_LIVE_ENUMS = [
   // longname,              shortname, bridgeKey,     enumStrings, initialIdx
   ['StencilQtScale',        'Scl',     'scale',
@@ -182,6 +183,12 @@ const QT_LIVE_ENUMS = [
      'locrian', 'pentatonic', 'minor-pentatonic', 'blues', 'harmonic',
      'melodic', 'whole', 'chromatic', 'chromatic-half'], 0],
   ['StencilQtTriggerMode',  'Trig',    'triggerMode', ['passthrough', 'root'], 0],
+  // qt.mode is the 3-enum (scale | chord | harmony) per ADR 003 §QT
+  // quantize mode. Bridge dispatches per-value setParam messages
+  // through the standard [sel]+[message] fanout, same shape as scale /
+  // triggerMode. controlChannel held notes form the chord context in
+  // chord mode (see ADR 003 §QT scale keyboard interaction).
+  ['StencilQtMode',         'Mode',    'mode',        ['scale', 'chord', 'harmony'], 0],
 ]
 // QT int-enum widgets: live.menu showing labels but emitting the int
 // index 0..N-1 directly. Bridge accepts the int (no [sel] -> [message]
@@ -728,6 +735,43 @@ if (existsSync(QT_MAXPAT)) {
     })
     const expected = QT_LIVE_PARAMS.length + QT_LIVE_ENUMS.length + QT_LIVE_INT_ENUMS.length
     assert.equal(liveWidgets.length, expected, `expected ${expected} QT live.* widgets`)
+  })
+
+  test('QT — chordChanged outlet routes from node.script to jsui', () => {
+    // ADR 003 §Stencil-QT patcher checklist: the bridge emits
+    // Max.outlet('chordChanged', ...pcs) when controlChannel-held notes
+    // mutate the chord context. The patcher must split that off the
+    // [route ... chordChanged ...] outlet (NEW token in the existing
+    // [route note ready scaleChanged notePulse] object) and forward to
+    // [jsui scaleKeyboard.jsui.js], so the renderer can highlight held
+    // PCs as a third tier between in-scale dot and pulse glow. Sharper
+    // than the generic scaleChanged/notePulse reachability test below
+    // because the new token is the failure mode this test catches.
+    const { boxes, lines } = loadPatcher(QT_MAXPAT)
+    const route = boxesByMaxclass(boxes, 'newobj').find((b) =>
+      /^route\b.*\bchordChanged\b/.test(b.box.text),
+    )
+    assert.ok(route, 'expected [route ... chordChanged ...] consuming node.script outlet')
+    const tokens = route.box.text.split(/\s+/).slice(1)
+    const ccIdx = tokens.indexOf('chordChanged')
+    assert.ok(ccIdx >= 0, 'route must include "chordChanged" token')
+    const jsui = boxesByMaxclass(boxes, 'jsui').find(
+      (b) => b.box.filename === 'scaleKeyboard.jsui.js',
+    )
+    assert.ok(jsui, 'jsui scaleKeyboard.jsui.js missing')
+    const ccConsumers = lines
+      .filter(
+        (l) =>
+          l.patchline?.source?.[0] === route.box.id &&
+          l.patchline?.source?.[1] === ccIdx,
+      )
+      .map((l) => l.patchline.destination[0])
+    assert.ok(
+      ccConsumers.length >= 1,
+      `[route ${tokens.join(' ')}] outlet ${ccIdx} (chordChanged) has no consumer`,
+    )
+    const reaches = ccConsumers.some((id) => reachable(lines, id, jsui.box.id))
+    assert.ok(reaches, 'chordChanged -> ... -> jsui chain missing')
   })
 
   test('QT — scaleChanged / notePulse outlets route from node.script to jsui', () => {

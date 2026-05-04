@@ -20,6 +20,7 @@ import {
   DEFAULT_PARAMS,
   QtHost,
   type NoteEvent,
+  type QtMode,
   type QtParams,
   type TriggerMode,
 } from "./host.ts";
@@ -55,9 +56,16 @@ const SCALE_NAMES: readonly ScaleName[] = [
 
 const TRIGGER_MODES: readonly TriggerMode[] = ["passthrough", "root"];
 
+const QT_MODES: readonly QtMode[] = ["scale", "chord", "harmony"];
+
 export class QtBridge {
   private host: QtHost;
   private deps: BridgeDeps;
+  // Last emitted chord-context signature ("0,4,7" form). Dedups
+  // chordChanged so unchanged sets don't trigger redundant jsui
+  // redraws. "" matches the default (empty) chord context, so a fresh
+  // bridge in non-chord mode never spurious-emits.
+  private lastChordSig: string = "";
 
   constructor(deps: BridgeDeps, options: BridgeOptions = {}) {
     this.deps = deps;
@@ -91,27 +99,33 @@ export class QtBridge {
     // refreshes. The host returns [] in that path, so we detect via the
     // pre-call mode check.
     if (wasRoot) this.emitScaleChanged();
+    this.maybeEmitChordChanged();
   }
 
   noteOff(pitch: number, channel: number): void {
     if (!Number.isFinite(pitch) || !Number.isFinite(channel)) return;
     for (const ev of this.host.noteOff(pitch, channel)) this.dispatch(ev);
+    this.maybeEmitChordChanged();
   }
 
   panic(): void {
     for (const ev of this.host.panic()) this.dispatch(ev);
+    this.maybeEmitChordChanged();
   }
 
   transportStart(): void {
     for (const ev of this.host.transportStart()) this.dispatch(ev);
+    this.maybeEmitChordChanged();
   }
 
   transportStop(): void {
     for (const ev of this.host.transportStop()) this.dispatch(ev);
+    this.maybeEmitChordChanged();
   }
 
   setParam(key: string, value: unknown): void {
     let scaleChanged = false;
+    let modeChanged = false;
     let events: NoteEvent[] | null = null;
 
     switch (key) {
@@ -127,6 +141,16 @@ export class QtBridge {
         if (!Number.isInteger(v) || v < 0 || v > 11) return;
         events = this.host.setParam("root", v);
         scaleChanged = true;
+        break;
+      }
+      case "mode": {
+        // ADR 003 §QT quantize mode — 3-enum (scale | chord | harmony).
+        // Host clears controlHeldPitches when switching away from chord;
+        // the chordChanged emit below mirrors that to the renderer.
+        const v = String(value);
+        if (!QT_MODES.includes(v as QtMode)) return;
+        events = this.host.setParam("mode", v as QtMode);
+        modeChanged = true;
         break;
       }
       case "humanizeVelocity":
@@ -170,6 +194,7 @@ export class QtBridge {
 
     if (events !== null) for (const ev of events) this.dispatch(ev);
     if (scaleChanged) this.emitScaleChanged();
+    if (modeChanged) this.maybeEmitChordChanged();
   }
 
   // ---- internal ---------------------------------------------------------
@@ -201,6 +226,21 @@ export class QtBridge {
   private emitScaleChanged(): void {
     const p = this.host.getParams();
     this.deps.emitOutlet("scaleChanged", p.scale, p.root);
+  }
+
+  // Emit `chordChanged <pcs...>` when the controlChannel-held pitch-class
+  // set changes (ADR 003 §QT scale keyboard interaction). Sorted ascending
+  // for determinism. Dedups on the joined-string signature to avoid
+  // redundant jsui redraws when the underlying held pitches change but
+  // their pitch-class projection does not (e.g., re-trigger of a held
+  // pitch, or release of one octave while the same pc is still held in
+  // another octave).
+  private maybeEmitChordChanged(): void {
+    const sorted = [...this.host.getChordContext()].sort((a, b) => a - b);
+    const sig = sorted.join(",");
+    if (sig === this.lastChordSig) return;
+    this.lastChordSig = sig;
+    this.deps.emitOutlet("chordChanged", ...sorted);
   }
 }
 

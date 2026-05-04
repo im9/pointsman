@@ -252,6 +252,192 @@ test("setParam unknown key — silent no-op", () => {
   assert.equal(f.notes.length, 1);
 });
 
+// ---------- setParam mode + chord context ----------
+
+test("setParam mode — accepts scale/chord/harmony and rejects unknown", () => {
+  // ADR 002 §QT live.* parameter surface: mode is a 3-enum
+  // (scale | chord | harmony). Bridge validates via a whitelist; an
+  // unknown value is a silent no-op so a typo'd patcher message can't
+  // poison host state. Default mode is `scale`, so after a rejected
+  // mode update, controlChannel notes (with default
+  // triggerMode=passthrough) still route to the quantize path.
+  const f = makeFakeDeps();
+  const b = new QtBridge(f.deps);
+  b.setParam("mode", "polyrhythm"); // not in 3-enum
+  b.noteIn(60, 100, 16); // controlChannel default = 16
+  // Default mode=scale + triggerMode=passthrough → controlChannel
+  // routes to quantize, emits one noteOn.
+  assert.equal(f.notes.length, 1, "rejected mode update keeps default `scale` behavior");
+
+  // Accepts each valid name without throwing.
+  b.setParam("mode", "chord");
+  b.setParam("mode", "harmony");
+  b.setParam("mode", "scale");
+});
+
+test("chord mode — controlChannel noteIn consumes the note (no MIDI emit)", () => {
+  // ADR 003 §QT quantize mode: in chord mode, controlChannel notes
+  // form the chord context — they are NOT forwarded to the quantize
+  // path (no MIDI out, no notePulse) and triggerMode=root is
+  // overridden. Verifies the chord-mode short-circuit in host.noteIn.
+  const f = makeFakeDeps();
+  const b = new QtBridge(f.deps);
+  b.setParam("mode", "chord");
+  const beforeNotes = f.notes.length;
+  const beforePulses = f.outlets.filter((o) => o.channel === "notePulse").length;
+  b.noteIn(60, 100, 16);
+  assert.equal(f.notes.length, beforeNotes, "no MIDI out from chord-context note");
+  const afterPulses = f.outlets.filter((o) => o.channel === "notePulse").length;
+  assert.equal(afterPulses, beforePulses, "no notePulse from chord-context note");
+});
+
+test("chord mode — controlChannel noteIn emits chordChanged with the new pc set", () => {
+  // ADR 003 §QT scale keyboard interaction: bridge emits
+  // `chordChanged <pcs...>` so the keyboard renderer can highlight
+  // currently-held chord PCs (third tier between in-scale dot and
+  // pulse glow). PC = pitch % 12; arg list is the sorted PC set.
+  const f = makeFakeDeps();
+  const b = new QtBridge(f.deps);
+  b.setParam("mode", "chord");
+  const before = f.outlets.length;
+  b.noteIn(60, 100, 16); // C → pc 0
+  const cc = f.outlets.slice(before).find((o) => o.channel === "chordChanged");
+  assert.ok(cc, "chordChanged outlet must fire when chord context grows");
+  assert.deepEqual(cc!.args, [0]);
+});
+
+test("chord mode — multi-octave holds dedupe by pitch class", () => {
+  // ADR 003 §QT quantize mode: chord context is the pitch-class
+  // projection of the held set. Holding C3 (60) and C4 (72)
+  // contributes pc=0 once. Releasing C4 keeps pc=0 (C3 still held);
+  // releasing C3 empties the set.
+  const f = makeFakeDeps();
+  const b = new QtBridge(f.deps);
+  b.setParam("mode", "chord");
+  b.noteIn(60, 100, 16);
+  b.noteIn(72, 100, 16);
+  let cc = f.outlets.filter((o) => o.channel === "chordChanged");
+  // Last emission must be a single pc=0 (deduped).
+  assert.deepEqual(cc[cc.length - 1].args, [0]);
+
+  b.noteOff(72, 16); // C3 still held → pc=0 remains
+  cc = f.outlets.filter((o) => o.channel === "chordChanged");
+  // Set unchanged → bridge dedupes to avoid spamming the outlet:
+  // last emission may either be a fresh [0] from the noteOff OR
+  // unchanged from the previous emission. Both are correct.
+  // Strong assertion: the running last-emission set is [0].
+  assert.deepEqual(cc[cc.length - 1].args, [0]);
+
+  b.noteOff(60, 16); // last held C released
+  cc = f.outlets.filter((o) => o.channel === "chordChanged");
+  assert.deepEqual(cc[cc.length - 1].args, []);
+});
+
+test("chord mode — chordChanged is sorted ascending by pc", () => {
+  // Stable arg order makes the patcher route + jsui reducer
+  // deterministic regardless of the hold order. Hold E (pc=4) then
+  // C (pc=0) → emitted as [0, 4].
+  const f = makeFakeDeps();
+  const b = new QtBridge(f.deps);
+  b.setParam("mode", "chord");
+  b.noteIn(64, 100, 16); // E
+  b.noteIn(60, 100, 16); // C
+  const cc = f.outlets.filter((o) => o.channel === "chordChanged");
+  assert.deepEqual(cc[cc.length - 1].args, [0, 4]);
+});
+
+test("chord mode — dedup avoids re-emitting an unchanged pc set", () => {
+  // If the held PCs don't change, the bridge MUST NOT re-emit
+  // chordChanged. Holding C3 then C3 again (re-trigger without
+  // noteOff in between) is one entry in the held SET; pc set is
+  // unchanged across the second add. Spamming chordChanged would
+  // force redundant jsui redraws.
+  const f = makeFakeDeps();
+  const b = new QtBridge(f.deps);
+  b.setParam("mode", "chord");
+  b.noteIn(60, 100, 16);
+  const ccCountAfterFirst = f.outlets.filter((o) => o.channel === "chordChanged").length;
+  b.noteIn(60, 100, 16); // same pitch, same pc — set unchanged
+  const ccCountAfterSecond = f.outlets.filter((o) => o.channel === "chordChanged").length;
+  assert.equal(ccCountAfterSecond, ccCountAfterFirst,
+    "no extra chordChanged when pc set is unchanged");
+});
+
+test("switching mode away from chord clears the chord context", () => {
+  // ADR 003 §QT quantize mode: the chord-context held set is
+  // chord-mode-only state. Switching to scale or harmony MUST clear
+  // it (host already does this; bridge must emit chordChanged []).
+  // Otherwise re-entering chord mode would resurface stale PCs.
+  const f = makeFakeDeps();
+  const b = new QtBridge(f.deps);
+  b.setParam("mode", "chord");
+  b.noteIn(60, 100, 16);
+  b.noteIn(64, 100, 16);
+  const before = f.outlets.length;
+  b.setParam("mode", "scale");
+  const cc = f.outlets.slice(before).find((o) => o.channel === "chordChanged");
+  assert.ok(cc, "chordChanged must fire on mode switch away from chord");
+  assert.deepEqual(cc!.args, []);
+});
+
+test("panic in chord mode emits chordChanged []", () => {
+  // ADR 002 §panic: clears all chord-mode held state. Bridge must
+  // tell the keyboard renderer the highlight set is empty.
+  const f = makeFakeDeps();
+  const b = new QtBridge(f.deps);
+  b.setParam("mode", "chord");
+  b.noteIn(60, 100, 16);
+  b.noteIn(64, 100, 16);
+  const before = f.outlets.length;
+  b.panic();
+  const cc = f.outlets.slice(before).find((o) => o.channel === "chordChanged");
+  assert.ok(cc, "panic must emit chordChanged []");
+  assert.deepEqual(cc!.args, []);
+});
+
+test("transportStop in chord mode emits chordChanged []", () => {
+  // Same rationale as panic: transportStop clears chord state in
+  // host (ADR 002 §transport) and bridge must mirror to the renderer.
+  const f = makeFakeDeps();
+  const b = new QtBridge(f.deps);
+  b.setParam("mode", "chord");
+  b.noteIn(60, 100, 16);
+  const before = f.outlets.length;
+  b.transportStop();
+  const cc = f.outlets.slice(before).find((o) => o.channel === "chordChanged");
+  assert.ok(cc, "transportStop must emit chordChanged []");
+  assert.deepEqual(cc!.args, []);
+});
+
+test("transportStart in chord mode emits chordChanged []", () => {
+  // transportStart resets host RNG/drift/lastInput AND clears
+  // controlHeldPitches. Bridge must mirror the cleared chord set.
+  const f = makeFakeDeps();
+  const b = new QtBridge(f.deps);
+  b.setParam("mode", "chord");
+  b.noteIn(60, 100, 16);
+  const before = f.outlets.length;
+  b.transportStart();
+  const cc = f.outlets.slice(before).find((o) => o.channel === "chordChanged");
+  assert.ok(cc, "transportStart must emit chordChanged []");
+  assert.deepEqual(cc!.args, []);
+});
+
+test("non-chord mode — no chordChanged emission for input-channel notes", () => {
+  // mode='scale': controlChannel notes go through the quantize path
+  // (or update root in triggerMode=root). They never affect chord
+  // context, so chordChanged MUST stay silent.
+  const f = makeFakeDeps();
+  const b = new QtBridge(f.deps);
+  // Default mode='scale'. Drive several notes through both control
+  // and input channels.
+  b.noteIn(60, 100, 1);
+  b.noteIn(64, 100, 16);
+  b.noteOff(60, 1);
+  const ccCount = f.outlets.filter((o) => o.channel === "chordChanged").length;
+  assert.equal(ccCount, 0, "no chordChanged outside chord mode");
+});
+
 // ---------- transport / panic ----------
 
 test("panic — dispatches host panic events (no-op in mono v1)", () => {

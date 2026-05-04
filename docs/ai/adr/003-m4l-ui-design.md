@@ -625,7 +625,7 @@ The renderer queries geometry to decide where to draw.
       flat path; logic + tests stay under `host-qt/ui/`)
 - [x] All `live.*` widgets per ADR 002 §live.* parameter surface (QT)
       — currently 11; 12th is `qt.mode` (3-enum scale/chord/harmony)
-- [ ] `qt.mode` `live.menu` (3-enum: scale | chord | harmony) wired to
+- [x] `qt.mode` `live.menu` (3-enum: scale | chord | harmony) wired to
       `setParam mode <name>` via the standard `[sel] -> [message]`
       fanout (same pattern as `qt.scale`)
 - [ ] `qt.root` is a `live.menu` (note-name enum: C, C#, D, D#, E, F,
@@ -644,7 +644,7 @@ The renderer queries geometry to decide where to draw.
 - [ ] `[jsui]` `setRoot` outlet routed into the `qt.root` `live.menu`
       inlet (so a keyboard click updates the menu, which then fires
       `setParam root` through the existing chain)
-- [ ] `chordChanged` outlet routed from `[node.script]` to `[jsui]`
+- [x] `chordChanged` outlet routed from `[node.script]` to `[jsui]`
       so the keyboard can highlight currently-held chord PCs (rendered
       with a third tier between in-scale dot and pulse glow)
 - [x] `live.*` long-name / short-name; range / increment / defaults
