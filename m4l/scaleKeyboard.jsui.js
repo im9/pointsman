@@ -306,7 +306,7 @@ function paint() {
   }
 
   // In-scale dots, drawn INSIDE each in-scale key (no out-of-scale dots
-  // -- ADR 003 §QT scale keyboard). Black-key dots are cream so they
+  // -- ADR 003 sec QT scale keyboard). Black-key dots are cream so they
   // read against the near-black fill; white-key dots are olive
   // (COL_ACTIVE_FILL) for contrast against the cream background.
   // Drawn last so the dots stay visible on top of any pulse glow.
