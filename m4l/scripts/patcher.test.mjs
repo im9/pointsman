@@ -157,7 +157,6 @@ const TM_LIVE_ENUMS = [
 //   exists so v2 can flip the enum without patcher surgery.
 const QT_LIVE_PARAMS = [
   // longname,                   shortname, bridgeKey,           type, mmin, mmax, initial
-  ['StencilQtRoot',              'Root',    'root',              1, 0,    11,         0],
   // Humanize shortnames are bare (VEL/GATE/TIME/DRIFT) — these are
   // rendered by live.dial as the knob's built-in label, so a separate
   // comment label is unnecessary. The "Hu" prefix from the original
@@ -176,15 +175,6 @@ const QT_LIVE_PARAMS = [
 ]
 // QT enum strings mirror m4l/host-qt/bridge.ts SCALE_NAMES and
 // TRIGGER_MODES exactly. Drift in either list is what this test catches.
-//
-// `qt.mode` is intentionally NOT exposed in the v1 patcher: Max's
-// `live.menu` does not enter enum-display mode with a single-element
-// `parameter_enum` (renders raw int 0 instead of the string "scale"
-// — observed 2026-05-04 in Live). Since v1 has only one mode, the
-// widget would be a non-functional placeholder. v2 will reintroduce
-// MODE when chord / harmony enum values arrive (3 elements → enum
-// display works). The bridge silently no-ops `setParam mode <v>` in
-// the meantime, so dropping the widget has no functional impact.
 const QT_LIVE_ENUMS = [
   // longname,              shortname, bridgeKey,     enumStrings, initialIdx
   ['StencilQtScale',        'Scl',     'scale',
@@ -192,6 +182,18 @@ const QT_LIVE_ENUMS = [
      'locrian', 'pentatonic', 'minor-pentatonic', 'blues', 'harmonic',
      'melodic', 'whole', 'chromatic', 'chromatic-half'], 0],
   ['StencilQtTriggerMode',  'Trig',    'triggerMode', ['passthrough', 'root'], 0],
+]
+// QT int-enum widgets: live.menu showing labels but emitting the int
+// index 0..N-1 directly. Bridge accepts the int (no [sel] -> [message]
+// fanout). qt.root is note-name display (C..B); bridge `setParam root`
+// takes the int per ADR 002. Distinct from QT_LIVE_ENUMS because the
+// dispatch path is `[live.menu] -> [prepend setParam <key>]` (single
+// path, integer payload), not the [sel] fanout that emits one message
+// per string enum value.
+const QT_LIVE_INT_ENUMS = [
+  // longname,        shortname, bridgeKey, enumValues, initialIdx
+  ['StencilQtRoot',   'Root',    'root',
+    ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'], 0],
 ]
 
 // ---- ADR 004 §Guard tests (apply to every present .maxpat) --------------
@@ -679,14 +681,52 @@ if (existsSync(QT_MAXPAT)) {
     })
   }
 
-  test('QT — all live.* parameters present per QT_LIVE_PARAMS + QT_LIVE_ENUMS (v1 = 11; mode deferred to v2)', () => {
+  for (const [longname, shortname, bridgeKey, enumValues, initialIdx] of QT_LIVE_INT_ENUMS) {
+    test(`QT — int-enum widget ${longname} matches ADR 002 spec`, () => {
+      // live.menu with parameter_type=2 + parameter_enum, but emits the
+      // INT INDEX (not the enum string). Bridge accepts the int directly
+      // for `qt.root` per ADR 002 §QT live.* parameter surface.
+      const { boxes } = loadPatcher(QT_MAXPAT)
+      const w = findLiveWidget(boxes, longname)
+      assert.ok(w, `widget ${longname} missing`)
+      assert.equal(w.box.maxclass, 'live.menu', 'maxclass should be live.menu')
+      const attrs = widgetParamAttrs(w)
+      assert.equal(attrs.parameter_shortname, shortname, 'shortname')
+      assert.equal(attrs.parameter_type, 2, 'parameter_type=2 (enum)')
+      assert.deepEqual(attrs.parameter_enum, enumValues, 'enum values')
+      assert.equal(attrs.parameter_initial[0], initialIdx, 'initial index')
+    })
+
+    test(`QT — ${longname} change fires setParam ${bridgeKey} (int) to node.script`, () => {
+      // Wiring: [live.menu] -> [prepend setParam <key>] -> [node.script].
+      // Same as numeric-param wiring (no [sel]+[message] fanout, because
+      // the bridge takes int payload).
+      const { boxes, lines } = loadPatcher(QT_MAXPAT)
+      const w = findLiveWidget(boxes, longname)
+      const prep = findPrependBox(boxes, `setParam ${bridgeKey}`)
+      assert.ok(prep, `missing [prepend setParam ${bridgeKey}]`)
+      assert.ok(
+        followsLineFromTo(lines, w.box.id, prep.box.id),
+        `${w.box.id} -> ${prep.box.id} wire missing`,
+      )
+      const nodescript = boxesByMaxclass(boxes, 'newobj').find((b) =>
+        /^node\.script\s+stencil-qt\.mjs\b/.test(b.box.text),
+      )
+      assert.ok(
+        followsLineFromTo(lines, prep.box.id, nodescript.box.id),
+        `${prep.box.id} -> node.script wire missing`,
+      )
+    })
+  }
+
+  test('QT — all live.* parameters present per QT_LIVE_PARAMS + QT_LIVE_ENUMS + QT_LIVE_INT_ENUMS', () => {
     const { boxes } = loadPatcher(QT_MAXPAT)
     const liveWidgets = boxes.filter((b) => {
       const cls = b.box?.maxclass
       return (cls === 'live.numbox' || cls === 'live.dial' || cls === 'live.slider' || cls === 'live.menu')
         && b.box?.saved_attribute_attributes?.valueof?.parameter_longname?.startsWith('StencilQt')
     })
-    const expected = QT_LIVE_PARAMS.length + QT_LIVE_ENUMS.length
+    const expected = QT_LIVE_PARAMS.length + QT_LIVE_ENUMS.length + QT_LIVE_INT_ENUMS.length
     assert.equal(liveWidgets.length, expected, `expected ${expected} QT live.* widgets`)
   })
 
