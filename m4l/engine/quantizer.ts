@@ -76,3 +76,67 @@ export function snapToScale(note: MidiNote, pitches: MidiNote[]): MidiNote {
   const dDn = note - lower;
   return dDn <= dUp ? lower : upper; // tie → lower
 }
+
+// ---- Harmony types (used by host-qt mode == 'harmony') ------------------
+
+export type HarmonyDirection = "above" | "below";
+export type HarmonyInterval = 3 | 4 | 5 | 6;
+
+export interface HarmonyVoice {
+  interval: HarmonyInterval;
+  direction: HarmonyDirection;
+}
+
+// ---- Chord-mode helper --------------------------------------------------
+//
+// Snap `note` to the nearest pitch in `chordPcs` (across all MIDI octaves)
+// if within `tolerance` semitones; otherwise fall back to scale-snap.
+// Mirrors inboil generative.ts:285-338 chord-mode behaviour. Tolerance
+// default = 2 semitones (inboil hardcodes 2). Empty chordPcs → identical
+// to plain scale-snap.
+
+export function snapToChordTones(
+  note: MidiNote,
+  chordPcs: PitchClass[],
+  scalePitches: MidiNote[],
+  tolerance: number = 2,
+): MidiNote {
+  if (chordPcs.length === 0) return snapToScale(note, scalePitches);
+  // Build the full-MIDI-range list of chord tones, sorted (loop is
+  // already in ascending order).
+  const pcSet = new Set(chordPcs.map((pc) => ((pc % 12) + 12) % 12));
+  const chordMidi: MidiNote[] = [];
+  for (let n = 0; n <= 127; n++) {
+    if (pcSet.has(n % 12)) chordMidi.push(n);
+  }
+  const nearestChord = snapToScale(note, chordMidi);
+  if (Math.abs(nearestChord - note) <= tolerance) return nearestChord;
+  return snapToScale(note, scalePitches);
+}
+
+// ---- Harmony-mode helper ------------------------------------------------
+//
+// Diatonic Nth above/below `note` along `scalePitches`. Inboil semantics
+// (generative.ts:235-254): interval=N is N-1 scale steps (3rd = 2 steps,
+// 5th = 4 steps). Out-of-scale input snaps to nearest scale degree first
+// (matching snapToScale's tie-to-lower rule). Clamps at scale extremes
+// rather than wrapping.
+
+export function diatonicShift(
+  note: MidiNote,
+  interval: HarmonyInterval,
+  direction: HarmonyDirection,
+  scalePitches: MidiNote[],
+): MidiNote {
+  if (scalePitches.length === 0) return note;
+  // Find note's position in scale; if not exact, use nearest (tie-to-lower
+  // matches snapToScale and inboil's "find nearest scale position" loop).
+  const snapped = snapToScale(note, scalePitches);
+  const idx = scalePitches.indexOf(snapped);
+  // interval=N → N-1 scale steps. 3rd = 2 steps, 4th = 3, 5th = 4, 6th = 5.
+  const steps = interval - 1;
+  const targetIdx = direction === "above" ? idx + steps : idx - steps;
+  if (targetIdx < 0) return scalePitches[0];
+  if (targetIdx >= scalePitches.length) return scalePitches[scalePitches.length - 1];
+  return scalePitches[targetIdx];
+}

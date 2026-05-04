@@ -186,6 +186,192 @@ test("passthrough mode — controlChannel events ARE quantized (root mode only c
   assert.equal(host.getParams().root, 0);
 });
 
+// ---------- chord mode ----------
+//
+// ADR 003 §QT quantize mode: when mode='chord', held notes on
+// controlChannel form chord context. Each noteIn adds pitch%12; each
+// noteOff removes. Input notes get snapToChordTones (within 2 semis,
+// scale fallback). Replaces inboil's offline chords[] / chordSource —
+// any chord generator (clip, oedipa, manual play) drives the same path.
+
+test("chord mode — controlChannel noteIn adds pitch class to chordContext, returns no notes", () => {
+  const host = makeHost({
+    mode: "chord",
+    inputChannel: 1,
+    controlChannel: 16,
+  });
+  // pitch=64 (E4) on controlChannel=16 → chordContext gains pc 4.
+  const r = host.noteIn(64, 100, 16, 0);
+  assert.deepEqual(r, []);
+  assert.deepEqual(host.getChordContext(), [4]);
+});
+
+test("chord mode — multiple controlChannel notes build a multi-PC chord context", () => {
+  const host = makeHost({
+    mode: "chord",
+    inputChannel: 1,
+    controlChannel: 16,
+  });
+  // C-E-G triad: pcs 0, 4, 7. Held simultaneously, all should be present.
+  host.noteIn(60, 100, 16, 0);
+  host.noteIn(64, 100, 16, 0);
+  host.noteIn(67, 100, 16, 0);
+  // Order doesn't matter for chord context; sort for stable comparison.
+  assert.deepEqual([...host.getChordContext()].sort((a, b) => a - b), [0, 4, 7]);
+});
+
+test("chord mode — same pc held twice (different octaves) deduplicates", () => {
+  const host = makeHost({
+    mode: "chord",
+    inputChannel: 1,
+    controlChannel: 16,
+  });
+  // C4 (60) and C5 (72) both contribute pc=0; chord context is by PC.
+  host.noteIn(60, 100, 16, 0);
+  host.noteIn(72, 100, 16, 0);
+  assert.deepEqual(host.getChordContext(), [0]);
+});
+
+test("chord mode — controlChannel noteOff removes pc from chord context", () => {
+  const host = makeHost({
+    mode: "chord",
+    inputChannel: 1,
+    controlChannel: 16,
+  });
+  host.noteIn(60, 100, 16, 0);
+  host.noteIn(64, 100, 16, 0);
+  host.noteOff(64, 16);
+  // pc 4 released → context shrinks to [0].
+  assert.deepEqual(host.getChordContext(), [0]);
+});
+
+test("chord mode — overlapping octaves of same pc require all releases to remove", () => {
+  // C4 and C5 both contribute pc 0. Releasing C4 alone should NOT clear
+  // pc 0 from chord context — C5 is still held. (Matches MIDI hold-set
+  // semantics: pc 0 leaves only when no octave of it is held.)
+  const host = makeHost({
+    mode: "chord",
+    inputChannel: 1,
+    controlChannel: 16,
+  });
+  host.noteIn(60, 100, 16, 0);
+  host.noteIn(72, 100, 16, 0);
+  host.noteOff(60, 16);
+  assert.deepEqual(host.getChordContext(), [0]);
+  host.noteOff(72, 16);
+  assert.deepEqual(host.getChordContext(), []);
+});
+
+test("chord mode — input note snaps to chord tone when chord held", () => {
+  const host = makeHost({
+    mode: "chord",
+    inputChannel: 1,
+    controlChannel: 16,
+    scale: "major",
+    root: 0,
+  });
+  // Hold C+E+G chord on controlChannel.
+  host.noteIn(60, 100, 16, 0);
+  host.noteIn(64, 100, 16, 0);
+  host.noteIn(67, 100, 16, 0);
+  // Input C# (61) on inputChannel: nearest chord tone = C(60), distance 1
+  // <= 2 → snap to 60.
+  const r = partition(host.noteIn(61, 100, 1, 100));
+  assert.equal(r.noteOns[0].pitch, 60);
+});
+
+test("chord mode — input note beyond tolerance falls back to scale snap", () => {
+  const host = makeHost({
+    mode: "chord",
+    inputChannel: 1,
+    controlChannel: 16,
+    scale: "major",
+    root: 0,
+  });
+  // Hold single C as chord context. F (65) is 5 semitones from nearest C.
+  host.noteIn(60, 100, 16, 0);
+  // 5 > 2 (tolerance) → fall back. F is in C major → returns 65.
+  const r = partition(host.noteIn(65, 100, 1, 100));
+  assert.equal(r.noteOns[0].pitch, 65);
+});
+
+test("chord mode — empty chord context behaves like scale snap", () => {
+  const host = makeHost({
+    mode: "chord",
+    inputChannel: 1,
+    controlChannel: 16,
+    scale: "major",
+    root: 0,
+  });
+  // No controlChannel notes held → chord context is empty.
+  // Input C# (61) → falls back to scale snap. C major: 60 vs 62, tie-to-lower.
+  const r = partition(host.noteIn(61, 100, 1, 0));
+  assert.equal(r.noteOns[0].pitch, 60);
+});
+
+test("chord mode — controlChannel events do NOT update root (unlike triggerMode=root)", () => {
+  // mode=chord overrides triggerMode for controlChannel semantics:
+  // controlChannel notes form chord context; root is left alone.
+  const host = makeHost({
+    mode: "chord",
+    triggerMode: "root", // even with this set, mode=chord wins for controlChannel
+    inputChannel: 1,
+    controlChannel: 16,
+    root: 0,
+  });
+  host.noteIn(64, 100, 16, 0); // would set root=4 in mode=scale + triggerMode=root
+  assert.equal(host.getParams().root, 0); // unchanged in mode=chord
+  assert.deepEqual(host.getChordContext(), [4]); // went to chord context instead
+});
+
+test("chord mode — panic clears chord context", () => {
+  const host = makeHost({
+    mode: "chord",
+    inputChannel: 1,
+    controlChannel: 16,
+  });
+  host.noteIn(60, 100, 16, 0);
+  host.noteIn(64, 100, 16, 0);
+  host.panic();
+  assert.deepEqual(host.getChordContext(), []);
+});
+
+test("chord mode — transportStop clears chord context", () => {
+  const host = makeHost({
+    mode: "chord",
+    inputChannel: 1,
+    controlChannel: 16,
+  });
+  host.noteIn(60, 100, 16, 0);
+  host.transportStop();
+  assert.deepEqual(host.getChordContext(), []);
+});
+
+test("setParam mode — accepts 'scale' | 'chord' | 'harmony'", () => {
+  const host = makeHost();
+  host.setParam("mode", "chord");
+  assert.equal(host.getParams().mode, "chord");
+  host.setParam("mode", "harmony");
+  assert.equal(host.getParams().mode, "harmony");
+  host.setParam("mode", "scale");
+  assert.equal(host.getParams().mode, "scale");
+});
+
+test("setParam mode — switching away from chord clears chord context", () => {
+  // When user switches mode to scale or harmony, the previously-held chord
+  // context becomes meaningless (chord-tone snap is no longer the path).
+  // Clearing avoids stale state surfacing if user later returns to chord.
+  const host = makeHost({
+    mode: "chord",
+    inputChannel: 1,
+    controlChannel: 16,
+  });
+  host.noteIn(60, 100, 16, 0);
+  host.noteIn(64, 100, 16, 0);
+  host.setParam("mode", "scale");
+  assert.deepEqual(host.getChordContext(), []);
+});
+
 // ---------- source step / timing ----------
 
 test("noteIn first event — uses FIRST_EVENT_STEP_MS as sourceStepDuration", () => {
