@@ -415,27 +415,25 @@ Active bit = `●` (`color.activeFill`), read-head = highlighted dot
 
 ### Layout sketch — Stencil QT (1000 × 180)
 
-Three columns, same structure:
+Right column splits into two stacked panels (VOICES on top, HUMAN
+below) so the harmony voicing configuration is visually separated
+from humanize/seed parameters — they are different musical concepts.
 
 ```
-┌─── STENCIL QT ───────────────────────────────────────── im9 ───┐
-│ ┌─ SCALE / I/O ─────┐ ┌─ KEYBOARD ────────────┐ ┌─ HUMAN ────┐ │
-│ │ SCL [major     ] │ │ ┌─┐┌─┐  ┌─┐┌─┐┌─┐       │ │◌  ◌  ◌  ◌ │ │
-│ │ ROOT [C ] IN[0] │ │ │ ││  │ ││ ││ │       │ │V  G  T  D │ │
-│ │ MODE [scale   ] │ │ ├─┴┴─┴┬─┴─┴┴─┴┴─┴─┴─┐    │ │           │ │
-│ │ TRG [psthru  ] CTL[16] │ │•│ │•│ │•│•│ │•│ │•│   │ │SEED [42]  │ │
-│ │     ◌            │ │ │C│D│E│F│G│A│B│ │ │ │   │ │           │ │
-│ │     LVL          │ │ └─┴─┴─┴─┴─┴─┴─┴─┴─┴─┘   │ └───────────┘ │
-│ │                   │ ├─ HARMONY VOICES ─────┐  │               │
-│ │                   │ │ V1 [3rd  ] [above]   │  │               │
-│ │                   │ │ V2 [—    ] [—    ]   │  │               │
-│ │                   │ │ V3 [—    ] [—    ]   │  │               │
-│ └──────────────────┘ └────────────────────────┘                  │
+┌─── STENCIL QT ──────────────────────────────────────────────────┐
+│ ┌─ SCALE / I/O ─────┐ ┌─ KEYBOARD ────────────┐ ┌─ VOICES ─────┐│
+│ │ SCL [major     ] │ │ ┌─┐┌─┐  ┌─┐┌─┐┌─┐       │ │[V1▼][V2▼][V3▼]│
+│ │ ROOT [C ] IN[0] │ │ │ ││  │ ││ ││ │       │ └──────────────┘│
+│ │ TRG [psthru ] CTL[16]│ │ ├─┴┴─┴┬─┴─┴┴─┴┴─┴─┴─┐  │ ┌─ HUMAN ──────┐│
+│ │ MODE [scale   ] │ │ │•│ │•│ │•│•│ │•│ │•│   │ │ ◌  ◌  ◌  ◌   ││
+│ │     ◌            │ │ │C│D│E│F│G│A│B│ │ │ │   │ │ V  G  T  D   ││
+│ │     LVL          │ │ └─┴─┴─┴─┴─┴─┴─┴─┴─┴─┘   │ │ SEED [42]    ││
+│ │                   │ │                          │ │              ││
+│ └──────────────────┘ └─────────────────────────┘ └──────────────┘│
 └────────────────────────────────────────────────────────────────┘
-  ~280w                  ~440w                    ~248w
-  7 live.* widgets       1 jsui (scaleKeyboard)   5 live.* widgets
-                         + 6 live.* (harmony cluster, hidden when
-                         mode != harmony)
+  ~280w                  ~440w                       ~248w
+  7 live.* widgets       1 jsui (scaleKeyboard)      VOICES: 3 widgets
+                                                     HUMAN: 5 widgets
 ```
 
 Column allocation:
@@ -447,24 +445,42 @@ Column allocation:
   CTL share a row (TRG governs whether CTL routes to root, chord
   context, or is ignored — see §QT quantize mode table). LVL knob
   owns its own line at the bottom of the column.
-- **KEYBOARD + HARMONY VOICES** (center, ~440w): top half is the
-  one-octave (12-key) piano with in-scale dots, pulse animation, and
-  click-to-set-root hit-testing. Bottom half (visually below the
-  keyboard) is the harmony voice config cluster: 3 rows of
-  `[interval-menu] [direction-menu]` that drive the engine's
-  `harmonyVoices[]`. Empty rows mean fewer voices. Cluster is
-  always present in the patcher (live.* widgets need to exist for
-  Live to round-trip preset values), but visually fades when
-  `qt.mode != harmony` per the patcher's standard show/hide
-  pattern. The keyboard is **octave-invariant**: it draws a single
-  octave (C–B) as the pitch-class legend; pulses fire by pitch class
+- **KEYBOARD** (center, ~440w): the one-octave (12-key) piano with
+  in-scale dots, pulse animation, and click-to-set-root hit-testing.
+  The keyboard is **octave-invariant**: it draws a single octave
+  (C–B) as the pitch-class legend; pulses fire by pitch class
   regardless of which MIDI octave the outgoing note lands in.
   Ableton/MIDI exposes the full 0..127 range — Stencil QT does not
   constrain output to a 3–5 oct band the way inboil's reference UI
   did. (inboil's `octaveRange[3..5]` was an inboil-specific display
   constraint, not a musical decision; not ported.)
-- **HUMAN** (right, ~240w, 5 items): humanizeVelocity, humanizeGate,
-  humanizeTiming, humanizeDrift, seed.
+- **Right column (split)** — two stacked panels with their own
+  borders and legends:
+  - **VOICES** (top, ~248w × 80h): the harmony voice cluster.
+    **6 live.menu widgets** in 3 rows × 2 columns, matching inboil's
+    QuantizerSheet two-select-per-voice badge
+    ([QuantizerSheet.svelte:341-353](../../front/inboil/src/lib/components/QuantizerSheet.svelte#L341-L353)).
+    Per row (one row per voice slot): an Interval menu
+    (`["3rd", "4th", "5th", "6th"]`, inboil display strings) and
+    a Direction menu (`["off", "above", "below"]`). inboil uses
+    dynamic add/remove (`+` button + per-voice `×` button, max
+    3 voices); m4l can't create widgets dynamically (live.* must
+    be statically declared for preset round-trip), so the
+    direction enum adds `"off"` as the disabled state — the
+    static-3-slot translation of inboil's add/remove model.
+    Bridge maps interval string → int 3..6 (`INTERVAL_FROM_STRING`)
+    and validates direction against the 3-enum; slots set to "off"
+    are filtered out of the projected `harmonyVoices` list.
+  - **HUMAN** (bottom, ~248w × 100h): humanizeVelocity, humanizeGate,
+    humanizeTiming, humanizeDrift, seed. Compressed (legend → dial
+    gap = 6px, dial → SEED gap = 6px) to make room for VOICES above
+    while keeping dial knob heights at 52px.
+  Why split the right column instead of co-locating VOICES with the
+  keyboard or scale config: harmony voicing has no musical relation
+  to keyboard visualization, and SCALE / I/O is full. Two stacked
+  panels in the right column give VOICES its own visual category
+  separate from HUMAN — they should not read as a sub-section of
+  humanize.
 
 In-scale key carries a dot inside (`•`); out-of-scale keys carry no
 dot. Active key during pulse glows in `color.activeHighlight`.
@@ -575,11 +591,13 @@ The renderer queries geometry to decide where to draw.
 - [x] `m4l/host-qt/host.test.ts` — chord-mode in/out vectors,
       harmony-mode in/out vectors, controlChannel held-set
       build/release across `noteIn` / `noteOff` / `panic`
-- [ ] `m4l/host-qt/bridge.ts` — `setParam mode <name>` validates
-      against the 3-enum, `setParam harmonyVoices <json>` accepts a
-      bridge-flattened representation (3 voices × 2 fields). Emits
-      `chordChanged <pcs...>` outlet so the keyboard can highlight
-      held PCs (see §QT scale keyboard interaction).
+- [x] `m4l/host-qt/bridge.ts` — `setParam mode <name>` validates
+      against the 3-enum, `setParam harmonyV{1,2,3} <symbol>` accepts
+      the combined-string form `off | {3..6}{up|dn}` from the patcher
+      menu, parses via `parseHarmonyVoiceValue`, and projects the
+      3-slot state to host `harmonyVoices` (length-flattened).
+      Emits `chordChanged <pcs...>` outlet so the keyboard can
+      highlight held PCs (see §QT scale keyboard interaction).
 
 ### Stencil-TM patcher (`Stencil-TM.maxpat`)
 
@@ -635,12 +653,23 @@ The renderer queries geometry to decide where to draw.
       needed — bridge accepts int for `root`), distinct from the
       string-emitting menus for `qt.scale` / `qt.triggerMode` /
       `qt.mode`.
-- [ ] Harmony voices widget cluster: 3 rows of
-      `[interval-menu (3rd|4th|5th|6th)] [direction-menu (above|below)]`
-      with `parameter_longname` = `StencilQtHarmonyV{1,2,3}Interval` /
-      `StencilQtHarmonyV{1,2,3}Direction`. Bridge collects them into
-      `harmonyVoices: HarmonyVoice[]` (length-flattened: voices with
-      direction = "off" or interval = 0 sentinel are filtered out)
+- [x] Harmony voices widget cluster: **6 live.menu widgets** in a
+      dedicated **VOICES panel** (own border + legend), placed above
+      a compressed HUMAN panel in the right column. 3 rows × 2
+      menus per row, matching inboil's QuantizerSheet
+      two-select-per-voice badge. Per slot:
+      `parameter_longname` = `StencilQtHarmonyV{1,2,3}{Interval,Direction}`,
+      `parameter_shortname` = `V{1,2,3}{Iv,Dr}`. Interval enum =
+      `["3rd","4th","5th","6th"]` (inboil display strings),
+      Direction enum = `["off","above","below"]` ("off" added as
+      m4l-only disabled state replacing inboil's add/remove model).
+      Bridge maps interval string → int via `INTERVAL_FROM_STRING`,
+      validates direction against the 3-enum; slots set to "off"
+      are filtered out of the projected `harmonyVoices: HarmonyVoice[]`.
+      VOICES has its own panel border (not nested inside HUMAN)
+      because voicing and humanize are different musical categories
+      — sharing a panel reads as "humanize's voices" sub-section,
+      which is wrong.
 - [ ] `[jsui]` `setRoot` outlet routed into the `qt.root` `live.menu`
       inlet (so a keyboard click updates the menu, which then fires
       `setParam root` through the existing chain)

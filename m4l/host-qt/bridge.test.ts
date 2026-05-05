@@ -441,17 +441,18 @@ test("non-chord mode — no chordChanged emission for input-channel notes", () =
 // ---------- harmony slot collection (bridge → host harmonyVoices) ----------
 //
 // ADR 003 §QT patcher harmony voices widget cluster: 6 live.menu widgets
-// (3 voice slots × 2 fields). Each emits its own setParam:
-//   harmonyV{1,2,3}Interval   ∈ {3, 4, 5, 6}
-//   harmonyV{1,2,3}Direction  ∈ {off, above, below}
-// Bridge tracks the 3-slot state internally and projects to host
-// harmonyVoices (length-flattened: slots with direction="off" dropped).
-// Host stores the filtered list; voicing fires only when mode=harmony.
+// (3 voice slots × 2 fields), matching inboil's QuantizerSheet two-
+// select-per-voice badge. Each emits its own setParam:
+//   harmonyV{1,2,3}Interval   ∈ {"3rd", "4th", "5th", "6th"}
+//   harmonyV{1,2,3}Direction  ∈ {"off", "above", "below"}
+// Bridge maps interval string → int (3..6), validates direction, stores
+// in 3-slot state, and projects to host harmonyVoices (length-flattened:
+// slots with direction="off" dropped).
 
-test("harmony slots — defaults are 3 × {3, off} → empty harmonyVoices", () => {
-  // Default-constructed bridge: all 3 slots default to direction="off",
-  // so the filtered harmonyVoices is empty. In harmony mode this must
-  // produce a single output (primary scale-snap, no voiced notes).
+test("harmony slots — defaults are 3 × {3rd, off} → empty harmonyVoices", () => {
+  // Default-constructed bridge: all slots at direction="off", so the
+  // filtered list is empty. In harmony mode this must produce a single
+  // output (primary scale-snap, no voiced notes).
   const f = makeFakeDeps();
   const b = new QtBridge(f.deps);
   b.setParam("mode", "harmony");
@@ -460,9 +461,9 @@ test("harmony slots — defaults are 3 × {3, off} → empty harmonyVoices", () 
   assert.deepEqual(f.notes[0], { pitch: 60, velocity: 100, channel: 1 });
 });
 
-test("harmony slot V1 — direction='above' enables one voice (default interval=3)", () => {
-  // Default interval=3 in slot 1. Setting direction="above" promotes
-  // it from off → active: harmonyVoices = [{interval:3, direction:"above"}].
+test("harmony slot V1 — direction='above' enables one voice (default interval=3rd)", () => {
+  // Default interval=3 (parameter_initial idx 0 → "3rd" → 3). Setting
+  // direction="above" promotes V1 from off → active.
   // C major + input C(60) → primary 60 + 3rd-above-C = 64 (E).
   const f = makeFakeDeps();
   const b = new QtBridge(f.deps);
@@ -473,61 +474,66 @@ test("harmony slot V1 — direction='above' enables one voice (default interval=
   assert.deepEqual(f.notes.map((n) => n.pitch), [60, 64]);
 });
 
-test("harmony slot — interval accepts string-enum payload from live.menu", () => {
-  // Patcher's live.menu emits the parameter_enum string. Set interval
-  // via the string form: harmonyV1Interval "5" → 5th above C = 67 (G).
-  const f = makeFakeDeps();
-  const b = new QtBridge(f.deps);
-  b.setParam("mode", "harmony");
-  b.setParam("harmonyV1Direction", "above");
-  b.setParam("harmonyV1Interval", "5");
-  b.noteIn(60, 100, 1);
-  assert.deepEqual(f.notes.map((n) => n.pitch), [60, 67]);
+test("harmony slot — interval enum strings map to diatonic shifts", () => {
+  // Parametric over the 4 interval values. Direction="above", input
+  // C(60) in C major. Diatonic distances:
+  //   3rd → 64 (E, 2 scale steps),  4th → 65 (F, 3 steps)
+  //   5th → 67 (G, 4 steps),         6th → 69 (A, 5 steps)
+  const cases: Array<[string, number]> = [
+    ["3rd", 64], ["4th", 65], ["5th", 67], ["6th", 69],
+  ];
+  for (const [intervalStr, expected] of cases) {
+    const f = makeFakeDeps();
+    const b = new QtBridge(f.deps);
+    b.setParam("mode", "harmony");
+    b.setParam("harmonyV1Interval", intervalStr);
+    b.setParam("harmonyV1Direction", "above");
+    b.noteIn(60, 100, 1);
+    assert.deepEqual(
+      f.notes.map((n) => n.pitch),
+      [60, expected],
+      `harmonyV1Interval='${intervalStr}' should produce voice at ${expected}`,
+    );
+  }
 });
 
-test("harmony slot — interval accepts numeric payload too (defensive)", () => {
-  // Patcher could equally route through a numeric path; bridge
-  // coerces with Number() so both shapes work without ceremony.
-  // 6th above C in C major = 5 steps up = 69 (A).
+test("harmony slot — direction='below' inverts the diatonic shift", () => {
+  // C major. Below distances: 3rd↓ = 57 (A, 2 steps below).
   const f = makeFakeDeps();
   const b = new QtBridge(f.deps);
   b.setParam("mode", "harmony");
-  b.setParam("harmonyV1Direction", "above");
-  b.setParam("harmonyV1Interval", 6);
+  b.setParam("harmonyV1Interval", "3rd");
+  b.setParam("harmonyV1Direction", "below");
   b.noteIn(60, 100, 1);
-  assert.deepEqual(f.notes.map((n) => n.pitch), [60, 69]);
+  assert.deepEqual(f.notes.map((n) => n.pitch), [60, 57]);
 });
 
 test("harmony slot — invalid interval is silently rejected (slot unchanged)", () => {
-  // Out-of-range or non-numeric values are silent no-ops. After two
-  // bad updates, the slot retains its prior interval=3 from the
-  // first valid setup.
+  // Out-of-vocabulary or wrong-suffix values: silent no-op.
   const f = makeFakeDeps();
   const b = new QtBridge(f.deps);
   b.setParam("mode", "harmony");
+  b.setParam("harmonyV1Interval", "5th");      // valid → interval=5
   b.setParam("harmonyV1Direction", "above");
-  b.setParam("harmonyV1Interval", "7");      // out of {3,4,5,6}
-  b.setParam("harmonyV1Interval", "abc");    // NaN
+  b.setParam("harmonyV1Interval", "7th");      // out of range
+  b.setParam("harmonyV1Interval", "3");        // missing suffix
+  b.setParam("harmonyV1Interval", "third");    // word form
   b.noteIn(60, 100, 1);
-  // Voice still uses interval=3 (3rd above C = 64).
-  assert.deepEqual(f.notes.map((n) => n.pitch), [60, 64]);
+  // Voice still uses 5th above (G=67).
+  assert.deepEqual(f.notes.map((n) => n.pitch), [60, 67]);
 });
 
 test("harmony slot — invalid direction is silently rejected (slot unchanged)", () => {
-  // Direction whitelist: off | above | below. Anything else is a
-  // no-op; the slot keeps its previous direction.
   const f = makeFakeDeps();
   const b = new QtBridge(f.deps);
   b.setParam("mode", "harmony");
   b.setParam("harmonyV1Direction", "above");
-  b.setParam("harmonyV1Direction", "diagonal"); // not in 3-enum
+  b.setParam("harmonyV1Direction", "diagonal"); // unknown
   b.noteIn(60, 100, 1);
   assert.deepEqual(f.notes.map((n) => n.pitch), [60, 64]);
 });
 
 test("harmony slot — direction='off' removes voice from filtered output", () => {
-  // Toggling a slot back to off drops it from harmonyVoices. Output
-  // returns to a single primary note.
   const f = makeFakeDeps();
   const b = new QtBridge(f.deps);
   b.setParam("mode", "harmony");
@@ -538,71 +544,60 @@ test("harmony slot — direction='off' removes voice from filtered output", () =
 });
 
 test("harmony slots — all 3 active produces primary + 3 voiced notes", () => {
-  // V1=3rd above (64), V2=5th above (67), V3=3rd below (57). C major.
+  // V1=3rd above (E=64), V2=5th above (G=67), V3=3rd below (A=57). C major.
   const f = makeFakeDeps();
   const b = new QtBridge(f.deps);
   b.setParam("mode", "harmony");
-  b.setParam("harmonyV1Direction", "above");           // interval default 3
-  b.setParam("harmonyV2Interval", "5");
+  b.setParam("harmonyV1Direction", "above");           // interval default 3rd
+  b.setParam("harmonyV2Interval", "5th");
   b.setParam("harmonyV2Direction", "above");
-  b.setParam("harmonyV3Interval", "3");
+  b.setParam("harmonyV3Interval", "3rd");
   b.setParam("harmonyV3Direction", "below");
   b.noteIn(60, 100, 1);
   assert.deepEqual(f.notes.map((n) => n.pitch), [60, 64, 67, 57]);
 });
 
 test("harmony slots — gap-filtering preserves declared slot order (V2 only)", () => {
-  // V1 off, V2 active (5th above), V3 off → filtered list contains V2's
-  // config as voices[0]. Output: primary + 5th above. No "padding" for
-  // disabled slots — voices[] is a dense list, not slot-positional.
+  // V1=off, V2 active (5th above), V3=off → filtered voices = [V2].
   const f = makeFakeDeps();
   const b = new QtBridge(f.deps);
   b.setParam("mode", "harmony");
-  b.setParam("harmonyV2Interval", "5");
+  b.setParam("harmonyV2Interval", "5th");
   b.setParam("harmonyV2Direction", "above");
   b.noteIn(60, 100, 1);
   assert.deepEqual(f.notes.map((n) => n.pitch), [60, 67]);
 });
 
 test("harmony slots — V1 and V3 active, V2 off (sandwich case)", () => {
-  // Filtered list: [V1config, V3config]. Output order matches
-  // declared slot order (V1 before V3) even with V2 as a gap.
-  // V1 = 3rd above C = 64; V3 = 5th below C = 53.
+  // V1 emits before V3 even with V2 as the gap.
+  // V1=3rd above (64), V3=5th below (53).
   const f = makeFakeDeps();
   const b = new QtBridge(f.deps);
   b.setParam("mode", "harmony");
   b.setParam("harmonyV1Direction", "above");
-  b.setParam("harmonyV3Interval", "5");
+  b.setParam("harmonyV3Interval", "5th");
   b.setParam("harmonyV3Direction", "below");
   b.noteIn(60, 100, 1);
   assert.deepEqual(f.notes.map((n) => n.pitch), [60, 64, 53]);
 });
 
 test("harmony slot — slot config persists across modes (configure-then-switch)", () => {
-  // Slot config is independent of mode. User can configure voices in
-  // scale mode (a no-op musically) then switch to harmony, and the
-  // configured voicing applies immediately on the next noteIn.
+  // Slot is config; persists regardless of mode.
   const f = makeFakeDeps();
   const b = new QtBridge(f.deps);
-  // Default mode='scale'. Configure V1 silently.
   b.setParam("harmonyV1Direction", "above");
-  // Now flip to harmony.
   b.setParam("mode", "harmony");
   b.noteIn(60, 100, 1);
   assert.deepEqual(f.notes.map((n) => n.pitch), [60, 64]);
 });
 
 test("harmony slot — out-of-range slot index (V4) is silent no-op", () => {
-  // Defense: a typo or future-extension key like harmonyV4Interval must
-  // not crash, must not affect state. Goes through the default unknown-
-  // key branch.
   const f = makeFakeDeps();
   const b = new QtBridge(f.deps);
   b.setParam("mode", "harmony");
-  b.setParam("harmonyV4Interval", "3");
+  b.setParam("harmonyV4Interval", "3rd");
   b.setParam("harmonyV4Direction", "above");
   b.noteIn(60, 100, 1);
-  // Slots 1..3 still all off → no voices.
   assert.equal(f.notes.length, 1);
 });
 

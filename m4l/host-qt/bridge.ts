@@ -61,13 +61,25 @@ const TRIGGER_MODES: readonly TriggerMode[] = ["passthrough", "root"];
 
 const QT_MODES: readonly QtMode[] = ["scale", "chord", "harmony"];
 
-// ADR 003 §QT patcher harmony voices widget cluster: each voice slot's
-// direction is a 3-enum. "off" disables the slot — its config persists
-// in the slot but is filtered out of the projected HarmonyVoice[].
+// ADR 003 §QT patcher harmony voices widget cluster: 6 live.menu widgets
+// in the VOICES panel (3 voice slots × 2 fields), matching inboil's
+// QuantizerSheet two-select-per-voice badge. Bridge maintains the
+// 3-slot state and projects the dense HarmonyVoice[] to the host.
+//
+// - Interval enum (inboil display strings): "3rd" | "4th" | "5th" | "6th"
+//   → mapped to int 3..6 via INTERVAL_FROM_STRING.
+// - Direction enum: "off" | "above" | "below". "off" is the m4l
+//   disabled state (replaces inboil's per-voice × remove button) and
+//   filters that slot out of the projected list.
 type HarmonySlotDirection = "off" | HarmonyDirection;
-const HARMONY_INTERVALS: readonly HarmonyInterval[] = [3, 4, 5, 6];
-const HARMONY_SLOT_DIRECTIONS: readonly HarmonySlotDirection[] = ["off", "above", "below"];
 const HARMONY_SLOT_COUNT = 3;
+const HARMONY_SLOT_DIRECTIONS: readonly HarmonySlotDirection[] = ["off", "above", "below"];
+const INTERVAL_FROM_STRING: Readonly<Record<string, HarmonyInterval>> = {
+  "3rd": 3,
+  "4th": 4,
+  "5th": 5,
+  "6th": 6,
+};
 
 interface HarmonySlot {
   interval: HarmonyInterval;
@@ -214,12 +226,12 @@ export class QtBridge {
       case "harmonyV1Interval":
       case "harmonyV2Interval":
       case "harmonyV3Interval": {
-        // key.charAt(8) is the slot digit ("1" | "2" | "3"); subtract 1
-        // for the zero-based slot index.
+        // key.charAt(8) is the slot digit ("1" | "2" | "3"); subtract
+        // 1 for the zero-based slot index.
         const idx = Number(key.charAt(8)) - 1;
-        const v = Number(value);
-        if (!HARMONY_INTERVALS.includes(v as HarmonyInterval)) return;
-        this.harmonySlots[idx].interval = v as HarmonyInterval;
+        const v = INTERVAL_FROM_STRING[String(value)];
+        if (v === undefined) return;
+        this.harmonySlots[idx].interval = v;
         this.rebuildHarmonyVoices();
         return;
       }

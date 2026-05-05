@@ -189,6 +189,26 @@ const QT_LIVE_ENUMS = [
   // triggerMode. controlChannel held notes form the chord context in
   // chord mode (see ADR 003 §QT scale keyboard interaction).
   ['StencilQtMode',         'Mode',    'mode',        ['scale', 'chord', 'harmony'], 0],
+  // Harmony voice cluster (VOICES panel, 3 rows × 2 menus): matches
+  // inboil's QuantizerSheet two-select-per-voice badge. Per voice
+  // slot, an Interval menu and a Direction menu. Direction enum adds
+  // "off" to inboil's {above, below} as the m4l disabled state
+  // (replacing inboil's per-voice × remove button — m4l can't add /
+  // remove widgets dynamically). Bridge maps interval string → int
+  // 3..6 and validates direction; slots set to "off" are filtered
+  // out of the projected harmonyVoices list.
+  ['StencilQtHarmonyV1Interval',  'V1Iv', 'harmonyV1Interval',
+    ['3rd', '4th', '5th', '6th'], 0],
+  ['StencilQtHarmonyV1Direction', 'V1Dr', 'harmonyV1Direction',
+    ['off', 'above', 'below'], 0],
+  ['StencilQtHarmonyV2Interval',  'V2Iv', 'harmonyV2Interval',
+    ['3rd', '4th', '5th', '6th'], 0],
+  ['StencilQtHarmonyV2Direction', 'V2Dr', 'harmonyV2Direction',
+    ['off', 'above', 'below'], 0],
+  ['StencilQtHarmonyV3Interval',  'V3Iv', 'harmonyV3Interval',
+    ['3rd', '4th', '5th', '6th'], 0],
+  ['StencilQtHarmonyV3Direction', 'V3Dr', 'harmonyV3Direction',
+    ['off', 'above', 'below'], 0],
 ]
 // QT int-enum widgets: live.menu showing labels but emitting the int
 // index 0..N-1 directly. Bridge accepts the int (no [sel] -> [message]
