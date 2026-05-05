@@ -14,6 +14,9 @@
 
 import {
   buildScalePitches,
+  type HarmonyDirection,
+  type HarmonyInterval,
+  type HarmonyVoice,
   type ScaleName,
 } from "../engine/quantizer.ts";
 import {
@@ -58,6 +61,19 @@ const TRIGGER_MODES: readonly TriggerMode[] = ["passthrough", "root"];
 
 const QT_MODES: readonly QtMode[] = ["scale", "chord", "harmony"];
 
+// ADR 003 §QT patcher harmony voices widget cluster: each voice slot's
+// direction is a 3-enum. "off" disables the slot — its config persists
+// in the slot but is filtered out of the projected HarmonyVoice[].
+type HarmonySlotDirection = "off" | HarmonyDirection;
+const HARMONY_INTERVALS: readonly HarmonyInterval[] = [3, 4, 5, 6];
+const HARMONY_SLOT_DIRECTIONS: readonly HarmonySlotDirection[] = ["off", "above", "below"];
+const HARMONY_SLOT_COUNT = 3;
+
+interface HarmonySlot {
+  interval: HarmonyInterval;
+  direction: HarmonySlotDirection;
+}
+
 export class QtBridge {
   private host: QtHost;
   private deps: BridgeDeps;
@@ -66,6 +82,13 @@ export class QtBridge {
   // redraws. "" matches the default (empty) chord context, so a fresh
   // bridge in non-chord mode never spurious-emits.
   private lastChordSig: string = "";
+  // 3 voice slots × {interval, direction}. Slots persist regardless of
+  // mode; rebuildHarmonyVoices() filters out direction="off" and pushes
+  // the dense list to the host. Defaults: all off → empty harmonyVoices.
+  private harmonySlots: HarmonySlot[] = Array.from(
+    { length: HARMONY_SLOT_COUNT },
+    () => ({ interval: 3, direction: "off" }),
+  );
 
   constructor(deps: BridgeDeps, options: BridgeOptions = {}) {
     this.deps = deps;
@@ -188,6 +211,28 @@ export class QtBridge {
         events = this.host.setParam("seed", v);
         break;
       }
+      case "harmonyV1Interval":
+      case "harmonyV2Interval":
+      case "harmonyV3Interval": {
+        // key.charAt(8) is the slot digit ("1" | "2" | "3"); subtract 1
+        // for the zero-based slot index.
+        const idx = Number(key.charAt(8)) - 1;
+        const v = Number(value);
+        if (!HARMONY_INTERVALS.includes(v as HarmonyInterval)) return;
+        this.harmonySlots[idx].interval = v as HarmonyInterval;
+        this.rebuildHarmonyVoices();
+        return;
+      }
+      case "harmonyV1Direction":
+      case "harmonyV2Direction":
+      case "harmonyV3Direction": {
+        const idx = Number(key.charAt(8)) - 1;
+        const v = String(value);
+        if (!HARMONY_SLOT_DIRECTIONS.includes(v as HarmonySlotDirection)) return;
+        this.harmonySlots[idx].direction = v as HarmonySlotDirection;
+        this.rebuildHarmonyVoices();
+        return;
+      }
       default:
         return;
     }
@@ -241,6 +286,19 @@ export class QtBridge {
     if (sig === this.lastChordSig) return;
     this.lastChordSig = sig;
     this.deps.emitOutlet("chordChanged", ...sorted);
+  }
+
+  // Project the 3-slot state to a dense HarmonyVoice[] (filter "off",
+  // map slot fields to engine voice fields) and push to the host. Host
+  // defensive-copies the array so subsequent slot mutations don't alias.
+  private rebuildHarmonyVoices(): void {
+    const voices: HarmonyVoice[] = this.harmonySlots
+      .filter(
+        (s): s is { interval: HarmonyInterval; direction: HarmonyDirection } =>
+          s.direction !== "off",
+      )
+      .map((s) => ({ interval: s.interval, direction: s.direction }));
+    this.host.setParam("harmonyVoices", voices);
   }
 }
 
