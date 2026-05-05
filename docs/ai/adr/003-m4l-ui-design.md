@@ -564,12 +564,12 @@ The renderer queries geometry to decide where to draw.
       in-scale recompute for all 15 scales, multi-pulse stacking
 - [x] `host-qt/ui/scaleKeyboard.jsui.js` — renderer:
       `scaleChanged` / `notePulse` inlets
-- [ ] `host-qt/ui/scaleKeyboard.logic.ts` — `hitTest(x, y, geometry)`
+- [x] `host-qt/ui/scaleKeyboard.logic.ts` — `hitTest(x, y, geometry)`
       returning the pitch class clicked or `-1`. Mirrors inboil
       `tapKey` semantics (any click anywhere on a key surface counts)
-- [ ] `host-qt/ui/scaleKeyboard.logic.test.ts` — `hitTest` boundary
+- [x] `host-qt/ui/scaleKeyboard.logic.test.ts` — `hitTest` boundary
       cases (between keys, on black-key overlap, outside canvas)
-- [ ] `host-qt/ui/scaleKeyboard.jsui.js` — `onclick` reads pointer,
+- [x] `host-qt/ui/scaleKeyboard.jsui.js` — `onclick` reads pointer,
       calls `hitTest`, emits `setRoot <pc>` outlet on hit
 
 ### QT quantize mode + chord/harmony engine
@@ -646,7 +646,7 @@ The renderer queries geometry to decide where to draw.
 - [x] `qt.mode` `live.menu` (3-enum: scale | chord | harmony) wired to
       `setParam mode <name>` via the standard `[sel] -> [message]`
       fanout (same pattern as `qt.scale`)
-- [ ] `qt.root` is a `live.menu` (note-name enum: C, C#, D, D#, E, F,
+- [x] `qt.root` is a `live.menu` (note-name enum: C, C#, D, D#, E, F,
       F#, G, G#, A, A#, B) emitting the int index 0..11 directly into
       `[prepend setParam root]`. Note: this is a `live.menu` whose
       bridge-side payload is the int index (no `[sel]` fanout
@@ -670,7 +670,7 @@ The renderer queries geometry to decide where to draw.
       because voicing and humanize are different musical categories
       — sharing a panel reads as "humanize's voices" sub-section,
       which is wrong.
-- [ ] `[jsui]` `setRoot` outlet routed into the `qt.root` `live.menu`
+- [x] `[jsui]` `setRoot` outlet routed into the `qt.root` `live.menu`
       inlet (so a keyboard click updates the menu, which then fires
       `setParam root` through the existing chain)
 - [x] `chordChanged` outlet routed from `[node.script]` to `[jsui]`
@@ -727,7 +727,7 @@ The renderer queries geometry to decide where to draw.
       transport, register change reflects in jsui within one step
 - [ ] QT scale keyboard: in-scale dots correct, pulse animation visible
       and decays, multi-pulse stacks readable
-- [ ] QT keyboard click: clicking any key sets `qt.root` to that PC,
+- [x] QT keyboard click: clicking any key sets `qt.root` to that PC,
       `qt.root` `live.menu` reflects the change, in-scale dot pattern
       shifts immediately
 - [ ] QT mode = scale: input quantized to scale-snap (existing path),

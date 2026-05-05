@@ -136,3 +136,28 @@ test("renderer handles 'chromatic-half' as the all-true case", () => {
   // chromatic-half would silently render as no-pitches-in-scale.
   assert.match(RENDERER_SRC, /['"]chromatic-half['"]/);
 });
+
+test("renderer defines onclick and emits setRoot on hit", () => {
+  // Slice #4 (ADR 003 §QT scale keyboard interaction): the keyboard
+  // must hit-test clicks and emit `setRoot <pc>` to outlet 0 so the
+  // patcher can route it into qt.root's [live.menu]. Cheap text check
+  // so a typo on either side breaks the link here, not in Live.
+  assert.match(RENDERER_SRC, /function\s+onclick\s*\(/);
+  assert.match(RENDERER_SRC, /outlet\s*\(\s*0\s*,\s*['"]setRoot['"]/);
+});
+
+test("renderer mirrors hitTest's white/black PC tables", () => {
+  // hitTest reads PC_OF_WHITE_INDEX and BLACK_PCS_BY_BOUNDARY to map a
+  // click back to a pitch class. Both tables are duplicated in the
+  // renderer (no module imports in Max classic JS); typo'ing either
+  // one would silently misroute clicks. Verify the exact array
+  // literals appear.
+  assert.match(
+    RENDERER_SRC,
+    /var\s+PC_OF_WHITE_INDEX\s*=\s*\[\s*0\s*,\s*2\s*,\s*4\s*,\s*5\s*,\s*7\s*,\s*9\s*,\s*11\s*\]/,
+  );
+  assert.match(
+    RENDERER_SRC,
+    /var\s+BLACK_PCS_BY_BOUNDARY\s*=\s*\[\s*1\s*,\s*3\s*,\s*6\s*,\s*8\s*,\s*10\s*\]/,
+  );
+});

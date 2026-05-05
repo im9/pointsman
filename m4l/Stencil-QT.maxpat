@@ -66,6 +66,8 @@
             {"box": {"id": "obj-prep-np", "maxclass": "newobj", "text": "prepend notePulse", "numinlets": 1, "numoutlets": 1, "outlettype": [""], "patching_rect": [520.0, 450.0, 120.0, 22.0]}},
             {"box": {"id": "obj-prep-cc", "maxclass": "newobj", "text": "prepend chordChanged", "numinlets": 1, "numoutlets": 1, "outlettype": [""], "patching_rect": [640.0, 450.0, 140.0, 22.0]}},
 
+            {"box": {"id": "obj-route-setroot", "maxclass": "newobj", "text": "route setRoot", "numinlets": 1, "numoutlets": 2, "outlettype": ["", ""], "patching_rect": [344.0, 200.0, 100.0, 22.0]}},
+
             {"box": {"id": "obj-jsui", "maxclass": "jsui", "filename": "scaleKeyboard.jsui.js", "numinlets": 1, "numoutlets": 1, "outlettype": [""], "parameter_enable": 0, "patching_rect": [344.0, 32.0, 416.0, 132.0], "presentation": 1, "presentation_rect": [308.0, 32.0, 416.0, 132.0]}},
 
 
@@ -216,6 +218,9 @@
             {"patchline": {"source": ["obj-route-out", 4], "destination": ["obj-defer-cc", 0]}},
             {"patchline": {"source": ["obj-defer-cc", 0], "destination": ["obj-prep-cc", 0]}},
             {"patchline": {"source": ["obj-prep-cc", 0], "destination": ["obj-jsui", 0]}},
+
+            {"patchline": {"source": ["obj-jsui", 0], "destination": ["obj-route-setroot", 0]}},
+            {"patchline": {"source": ["obj-route-setroot", 0], "destination": ["obj-w-root", 0]}},
 
             {"patchline": {"source": ["obj-w-scale", 0], "destination": ["obj-sel-scale", 0]}},
             {"patchline": {"source": ["obj-sel-scale", 0], "destination": ["obj-msg-scale-major", 0]}},

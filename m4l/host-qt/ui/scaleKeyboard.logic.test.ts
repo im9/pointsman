@@ -13,6 +13,7 @@ import {
   computeGeometry,
   createModel,
   dotCenterAt,
+  hitTest,
   isBlackKey,
   keyBoundsAt,
   recomputeInScale,
@@ -502,6 +503,152 @@ test("dotCenterAt — black-key dots sit higher on canvas than white-key dots", 
   const dWhite = dotCenterAt(0, g);
   const dBlack = dotCenterAt(1, g);
   assert.ok(dBlack.cy < dWhite.cy, `expected black ${dBlack.cy} < white ${dWhite.cy}`);
+});
+
+// ---- hitTest --------------------------------------------------------------
+//
+// Slice #4 (ADR 003 §QT scale keyboard): a click anywhere on a key surface
+// returns that key's pitch class; black keys overlay white keys in the
+// upper blackKeyHeight band, so a click in the black-key column above
+// blackKeyHeight returns the black pc; below blackKeyHeight it falls
+// through to the white below. Mirrors inboil's tapKey semantics
+// (QuantizerSheet.svelte:165-167 — any click on a key counts).
+//
+// Geometry used in these tests: 700×100 canvas, so whiteKeyWidth=100,
+// blackKeyWidth=60 (BLACK_KEY_WIDTH_RATIO=0.6 × 100), blackKeyHeight=60
+// (BLACK_KEY_HEIGHT_RATIO=0.6 × 100). White-key indices left to right:
+// C=0 [0,100), D=1 [100,200), E=2 [200,300), F=3 [300,400), G=4 [400,500),
+// A=5 [500,600), B=6 [600,700). Black-key x-bounds (boundary*100 ± 30):
+// C# pc1 [70,130), D# pc3 [170,230), F# pc6 [370,430), G# pc8 [470,530),
+// A# pc10 [570,630). All test points are derived from these geometry
+// values, not magic numbers.
+
+test("hitTest — white-key center click returns the white pc (lower region)", () => {
+  // y=80 is well below blackKeyHeight=60, so black-key overlay does not
+  // apply; we should always land on the white below.
+  const g = computeGeometry(700, 100);
+  // C center x = whiteKeyWidth/2 = 50. y=80 is in white area.
+  assert.equal(hitTest(50, 80, g), 0, "C center");
+  assert.equal(hitTest(150, 80, g), 2, "D center");
+  assert.equal(hitTest(250, 80, g), 4, "E center");
+  assert.equal(hitTest(350, 80, g), 5, "F center");
+  assert.equal(hitTest(450, 80, g), 7, "G center");
+  assert.equal(hitTest(550, 80, g), 9, "A center");
+  assert.equal(hitTest(650, 80, g), 11, "B center");
+});
+
+test("hitTest — black-key center click in upper region returns the black pc", () => {
+  // Black centers are at boundary * whiteKeyWidth (no half-width offset
+  // for the center itself). y=30 < blackKeyHeight=60 ⇒ in black overlay.
+  const g = computeGeometry(700, 100);
+  assert.equal(hitTest(100, 30, g), 1, "C# center (boundary 1)");
+  assert.equal(hitTest(200, 30, g), 3, "D# center (boundary 2)");
+  assert.equal(hitTest(400, 30, g), 6, "F# center (boundary 4)");
+  assert.equal(hitTest(500, 30, g), 8, "G# center (boundary 5)");
+  assert.equal(hitTest(600, 30, g), 10, "A# center (boundary 6)");
+});
+
+test("hitTest — click in black-key x-bounds but BELOW blackKeyHeight falls through to white", () => {
+  // x=110 is inside C# x-bounds [70,130) AND inside D's white column
+  // [100,200). y=80 > blackKeyHeight=60 ⇒ black overlay does not apply,
+  // so the click is on D (pc 2), the visible part of the white key
+  // below the black-key tip.
+  const g = computeGeometry(700, 100);
+  assert.equal(hitTest(110, 80, g), 2, "below C#, on D's visible lower portion");
+  // x=90 is inside C# x-bounds [70,130) AND inside C's white column [0,100).
+  assert.equal(hitTest(90, 80, g), 0, "below C#, on C's visible lower portion");
+});
+
+test("hitTest — gap-between-black-keys at upper region returns the white below", () => {
+  // Between E and F there is no black key (no boundary-3 black). Any
+  // point in E or F's column at y < blackKeyHeight should still resolve
+  // to the white because no black overlay matches.
+  const g = computeGeometry(700, 100);
+  // Pick x=250 (E center) and x=350 (F center) at y=10 (top region).
+  assert.equal(hitTest(250, 10, g), 4, "E top — no black overlay");
+  assert.equal(hitTest(350, 10, g), 5, "F top — no black overlay");
+  // Same for B/C boundary at canvas right (no boundary-7 black either).
+  assert.equal(hitTest(650, 10, g), 11, "B top — no black overlay");
+});
+
+test("hitTest — black-key edges (left/right of bw) hit the black pc", () => {
+  // C# bounds [70,130). x=70 is left edge; x=129 is just inside right
+  // edge. Both at y=30 (in black region) should return pc 1.
+  const g = computeGeometry(700, 100);
+  assert.equal(hitTest(70, 30, g), 1, "C# left edge");
+  assert.equal(hitTest(129.99, 30, g), 1, "C# right edge (just inside)");
+});
+
+test("hitTest — y exactly at blackKeyHeight is in the white region", () => {
+  // Boundary semantics: y < blackKeyHeight is black overlay, y >=
+  // blackKeyHeight is white. At y=60 (=blackKeyHeight) and x=100
+  // (boundary between C and D), the click belongs to D's white column
+  // (whiteIdx = floor(100/100) = 1 ⇒ D = pc 2). Codifies the
+  // half-open interval so clicks at the exact threshold don't bounce
+  // ambiguously between black and white.
+  const g = computeGeometry(700, 100);
+  assert.equal(hitTest(100, 60, g), 2);
+});
+
+test("hitTest — y just inside blackKeyHeight returns the black pc", () => {
+  // y=59.99 < blackKeyHeight=60 ⇒ still black region. Confirms the
+  // strict-less-than threshold matches the blackKeyHeight constant
+  // exactly (no off-by-one against the keyBoundsAt black height).
+  const g = computeGeometry(700, 100);
+  assert.equal(hitTest(100, 59.99, g), 1);
+});
+
+test("hitTest — clicks outside the canvas return -1", () => {
+  // Defensive: jsui's onclick fires only on hits inside the box, so
+  // these are belt-and-suspenders. Negative coords, x at exactly
+  // canvasWidth (one past last valid pixel), y == canvasHeight, etc.
+  const g = computeGeometry(700, 100);
+  assert.equal(hitTest(-1, 50, g), -1, "x<0");
+  assert.equal(hitTest(700, 50, g), -1, "x==W (one past)");
+  assert.equal(hitTest(800, 50, g), -1, "x>W");
+  assert.equal(hitTest(50, -1, g), -1, "y<0");
+  assert.equal(hitTest(50, 100, g), -1, "y==H (one past)");
+  assert.equal(hitTest(50, 150, g), -1, "y>H");
+});
+
+test("hitTest — canvas edges (x=0, y=0, x=W-ε, y=H-ε) hit valid keys", () => {
+  // Top-left corner is C's top-left and not in any black bounds (no
+  // boundary-0 black) ⇒ pc 0. x just below W is in B's column. y just
+  // below H is white area → for x at C# center (100), returns D=2.
+  const g = computeGeometry(700, 100);
+  assert.equal(hitTest(0, 0, g), 0, "top-left = C");
+  assert.equal(hitTest(699.99, 99.99, g), 11, "bottom-right = B");
+  assert.equal(hitTest(100, 99.99, g), 2, "x=100 bottom = D (no black at this y)");
+});
+
+test("hitTest — every pitch class is reachable by some click point", () => {
+  // Coverage guard: if the white-pc-of-index table or the black bounds
+  // table loses an entry, this test fails for the missing pc rather
+  // than letting a silent gap ship.
+  const g = computeGeometry(700, 100);
+  const reached = new Set<number>();
+  // White centers at y=80 (clearly in white region).
+  for (const x of [50, 150, 250, 350, 450, 550, 650]) {
+    const pc = hitTest(x, 80, g);
+    if (pc >= 0) reached.add(pc);
+  }
+  // Black centers at y=30 (clearly in black region).
+  for (const x of [100, 200, 400, 500, 600]) {
+    const pc = hitTest(x, 30, g);
+    if (pc >= 0) reached.add(pc);
+  }
+  assert.equal(reached.size, 12, `reached: ${[...reached].sort((a, b) => a - b).join(",")}`);
+});
+
+test("hitTest — non-finite x or y returns -1", () => {
+  // jsui's onclick passes Number(...) of the event coords; a NaN
+  // could leak through if Max sends a malformed message. Don't index
+  // into bounds with NaN — return -1 cleanly.
+  const g = computeGeometry(700, 100);
+  assert.equal(hitTest(NaN, 50, g), -1);
+  assert.equal(hitTest(50, NaN, g), -1);
+  assert.equal(hitTest(Infinity, 50, g), -1);
+  assert.equal(hitTest(50, -Infinity, g), -1);
 });
 
 // ---- constants exposed for the mirror drift test --------------------------

@@ -47,11 +47,19 @@ const WHITE_INDEX_OF: Record<number, number> = {
   0: 0, 2: 1, 4: 2, 5: 3, 7: 4, 9: 5, 11: 6,
 };
 
+// Inverse of WHITE_INDEX_OF: white-key index 0..6 -> pitch class.
+// Used by hitTest to map a click's whiteIdx back to a pc.
+const PC_OF_WHITE_INDEX: number[] = [0, 2, 4, 5, 7, 9, 11];
+
 // Boundary white-key index (left of the black key) for each black pitch
 // class. Black-key center sits at boundaryIdx * whiteKeyWidth.
 const BLACK_BOUNDARY_INDEX: Record<number, number> = {
   1: 1, 3: 2, 6: 4, 8: 5, 10: 6,
 };
+
+// Pitch classes ordered by ascending boundary index, so hitTest can
+// iterate the black-key x-bounds without re-deriving boundary positions.
+const BLACK_PCS_BY_BOUNDARY: number[] = [1, 3, 6, 8, 10];
 
 export interface Pulse {
   pitchClass: number;
@@ -209,4 +217,33 @@ export function dotCenterAt(
     cx: b.x + b.w / 2,
     cy: b.h * (1 - DOT_INSET_RATIO),
   };
+}
+
+// Map a canvas-relative click point to a pitch class, matching the
+// visible key under the cursor. Returns -1 if the point is outside the
+// canvas (defensive — jsui's onclick should already filter to in-box).
+//
+// Black keys overlay white keys in the y < blackKeyHeight band: a click
+// in a black-key column AND in that band returns the black pc; below
+// that band the click falls through to the white below. Mirrors
+// inboil's tapKey UX (any click on a key surface counts).
+export function hitTest(
+  x: number,
+  y: number,
+  geometry: KeyboardGeometry,
+): number {
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return -1;
+  if (x < 0 || x >= geometry.canvasWidth) return -1;
+  if (y < 0 || y >= geometry.canvasHeight) return -1;
+
+  if (y < geometry.blackKeyHeight) {
+    for (const pc of BLACK_PCS_BY_BOUNDARY) {
+      const boundaryIdx = BLACK_BOUNDARY_INDEX[pc];
+      const bx = boundaryIdx * geometry.whiteKeyWidth - geometry.blackKeyWidth / 2;
+      if (x >= bx && x < bx + geometry.blackKeyWidth) return pc;
+    }
+  }
+  const whiteIdx = Math.floor(x / geometry.whiteKeyWidth);
+  if (whiteIdx < 0 || whiteIdx >= WHITE_KEYS_PER_OCTAVE) return -1;
+  return PC_OF_WHITE_INDEX[whiteIdx];
 }

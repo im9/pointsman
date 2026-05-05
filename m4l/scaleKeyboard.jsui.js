@@ -237,6 +237,37 @@ function dotCenterAt(pc, g) {
   }
 }
 
+// Inverse of WHITE_INDEX_OF: white-key index 0..6 -> pitch class. Used
+// by hitTest to map a click's whiteIdx back to a pc. Mirrors
+// PC_OF_WHITE_INDEX in scaleKeyboard.logic.ts.
+var PC_OF_WHITE_INDEX = [0, 2, 4, 5, 7, 9, 11]
+
+// Pitch classes ordered by ascending boundary index, so hitTest can
+// iterate the black-key x-bounds without re-deriving boundary positions.
+// Mirrors BLACK_PCS_BY_BOUNDARY in scaleKeyboard.logic.ts.
+var BLACK_PCS_BY_BOUNDARY = [1, 3, 6, 8, 10]
+
+// Map a canvas-relative click point to a pitch class. Mirrors hitTest
+// in scaleKeyboard.logic.ts. Black overlay applies in y < blackKeyHeight;
+// below that, the click falls through to the white below.
+function hitTest(x, y, g) {
+  if (!isFinite(x) || !isFinite(y)) return -1
+  if (x < 0 || x >= g.canvasWidth) return -1
+  if (y < 0 || y >= g.canvasHeight) return -1
+
+  if (y < g.blackKeyHeight) {
+    for (var i = 0; i < BLACK_PCS_BY_BOUNDARY.length; i++) {
+      var pc = BLACK_PCS_BY_BOUNDARY[i]
+      var boundaryIdx = BLACK_BOUNDARY_INDEX[pc]
+      var bx = boundaryIdx * g.whiteKeyWidth - g.blackKeyWidth / 2
+      if (x >= bx && x < bx + g.blackKeyWidth) return pc
+    }
+  }
+  var whiteIdx = Math.floor(x / g.whiteKeyWidth)
+  if (whiteIdx < 0 || whiteIdx >= WHITE_KEYS_PER_OCTAVE) return -1
+  return PC_OF_WHITE_INDEX[whiteIdx]
+}
+
 // --- Drawing ---
 
 function setRgb(c) { mgraphics.set_source_rgba(c[0], c[1], c[2], 1) }
@@ -320,4 +351,27 @@ function paint() {
     }
     fillCircle(d.cx, d.cy, g.dotRadius)
   }
+}
+
+// --- Mouse interaction ---
+//
+// Single primary-button click on any key surface emits `setRoot <pc>`
+// to outlet 0. The patcher routes this into qt.root's [live.menu] so
+// Live's parameter state stays the single source of truth -- the menu
+// then fires the existing setParam root chain. Mirrors inboil's
+// tapKey UX (QuantizerSheet.svelte:165-167). Out-of-bounds or modifier
+// clicks ignored (modifiers reserved for future extensions).
+
+function onclick(x, y, button, cmd, shift, capslock, option, ctrl) {
+  if (button !== 1) return
+  if (cmd || shift || option || ctrl) return
+
+  var w = box.rect[2] - box.rect[0]
+  var h = box.rect[3] - box.rect[1]
+  var g = computeGeometry(w, h)
+
+  var pc = hitTest(x, y, g)
+  if (pc < 0) return
+
+  outlet(0, 'setRoot', pc)
 }

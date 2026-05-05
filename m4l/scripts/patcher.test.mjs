@@ -817,6 +817,51 @@ if (existsSync(QT_MAXPAT)) {
     )
   })
 
+  test('QT — jsui setRoot outlet routes through [route setRoot] into qt.root live.menu', () => {
+    // ADR 003 §QT scale keyboard interaction: clicking a key on the
+    // jsui keyboard must update qt.root via the live.menu (so Live's
+    // parameter state stays the single source of truth and the
+    // existing setParam root chain re-emits scaleChanged for the
+    // keyboard's own dot pattern). Wiring is:
+    //   [jsui scaleKeyboard.jsui.js] outlet 0
+    //     -> [route setRoot]
+    //     -> [live.menu parameter_longname StencilQtRoot] inlet 0
+    // The route box strips the "setRoot" symbol so the bare int
+    // reaches the live.menu (which sets its parameter to that index).
+    const { boxes, lines } = loadPatcher(QT_MAXPAT)
+    const jsui = boxesByMaxclass(boxes, 'jsui').find(
+      (b) => b.box.filename === 'scaleKeyboard.jsui.js',
+    )
+    assert.ok(jsui, 'jsui scaleKeyboard.jsui.js missing')
+    const route = boxesByMaxclass(boxes, 'newobj').find((b) =>
+      /^route\b.*\bsetRoot\b/.test(b.box.text),
+    )
+    assert.ok(route, 'expected [route setRoot] consuming jsui outlet 0')
+    const rootMenu = boxes.find(
+      (b) =>
+        b.box?.maxclass === 'live.menu' &&
+        b.box?.saved_attribute_attributes?.valueof?.parameter_longname ===
+          'StencilQtRoot',
+    )
+    assert.ok(rootMenu, 'live.menu StencilQtRoot missing')
+    const jsuiToRoute = lines.some(
+      (l) =>
+        l.patchline?.source?.[0] === jsui.box.id &&
+        l.patchline?.destination?.[0] === route.box.id,
+    )
+    assert.ok(jsuiToRoute, 'jsui outlet 0 -> [route setRoot] wire missing')
+    const tokens = route.box.text.split(/\s+/).slice(1)
+    const setRootOutletIdx = tokens.indexOf('setRoot')
+    assert.ok(setRootOutletIdx >= 0, 'route must include "setRoot" token')
+    const routeToMenu = lines.some(
+      (l) =>
+        l.patchline?.source?.[0] === route.box.id &&
+        l.patchline?.source?.[1] === setRootOutletIdx &&
+        l.patchline?.destination?.[0] === rootMenu.box.id,
+    )
+    assert.ok(routeToMenu, '[route setRoot] outlet -> qt.root live.menu wire missing')
+  })
+
   test('QT — node.script "ready" outlet bangs each live.* widget for initial value bootstrap', () => {
     // Same pattern as TM (see TM equivalent for full rationale).
     // stencil-qt.mjs MUST emit Max.outlet('ready') AFTER all
