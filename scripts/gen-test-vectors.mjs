@@ -202,6 +202,42 @@ function snapToScale(note, pitches) {
   return dDn <= dUp ? lower : upper; // tie → lower
 }
 
+// Reference impl of stencil's chord-mode helper. Mirrors inboil
+// generative.ts:286-338 quantizeChordMode logic (snap-within-tolerance,
+// scale fallback) but expands chord PCs across the full 0..127 MIDI
+// range — Stencil drops inboil's octaveRange clipping per ADR 003
+// §QT scale keyboard ("Stencil QT does not constrain output to a 3-5
+// oct band the way inboil's reference UI did").
+//
+// Default tolerance = 2 semitones (inboil hardcodes 2). Empty chordPcs
+// → identical to plain scale-snap.
+function snapToChordTones(note, chordPcs, scalePitches, tolerance = 2) {
+  if (chordPcs.length === 0) return snapToScale(note, scalePitches);
+  const pcSet = new Set(chordPcs.map((pc) => ((pc % 12) + 12) % 12));
+  const chordMidi = [];
+  for (let n = 0; n <= 127; n++) {
+    if (pcSet.has(n % 12)) chordMidi.push(n);
+  }
+  const nearestChord = snapToScale(note, chordMidi);
+  if (Math.abs(nearestChord - note) <= tolerance) return nearestChord;
+  return snapToScale(note, scalePitches);
+}
+
+// Reference impl of stencil's harmony-mode helper. Mirrors inboil
+// generative.ts:235-254: interval=N is N-1 scale steps along
+// scalePitches; out-of-scale input snaps to nearest scale degree
+// first; clamps at scale extremes rather than wrapping.
+function diatonicShift(note, interval, direction, scalePitches) {
+  if (scalePitches.length === 0) return note;
+  const snapped = snapToScale(note, scalePitches);
+  const idx = scalePitches.indexOf(snapped);
+  const steps = interval - 1;
+  const targetIdx = direction === "above" ? idx + steps : idx - steps;
+  if (targetIdx < 0) return scalePitches[0];
+  if (targetIdx >= scalePitches.length) return scalePitches[scalePitches.length - 1];
+  return scalePitches[targetIdx];
+}
+
 // ============================================================
 // Helpers for emission
 // ============================================================
@@ -657,6 +693,257 @@ function genSnapToScaleCases() {
   return cases;
 }
 
+function genSnapToChordTonesCases() {
+  // Coverage strategy:
+  //   (a) For every scale at root=0, exercise the "I chord" (scale degrees
+  //       1-3-5 = first three pitch classes of the scale's interval list)
+  //       against three input notes that probe distinct algorithm branches:
+  //         - exact chord-tone (returns input)
+  //         - within-tolerance non-chord (snaps to nearest chord tone)
+  //         - beyond-tolerance non-chord (falls back to scale-snap)
+  //       This is the "14 scale × inboil-reference output" matrix per
+  //       ADR 003 §Implementation checklist: QT quantize mode + chord/harmony.
+  //   (b) Empty-chord PCs at root=0 / major scale: the falls-back-to-scale
+  //       degenerate case explicitly exercised.
+  //   (c) Tolerance-boundary cases: input at exactly tolerance distance,
+  //       at tolerance+1, with the default tolerance=2.
+  //   (d) Custom tolerance: same input, widened tolerance pulls the
+  //       chord branch in instead of falling through.
+  //
+  // Each case carries a `label` (human reason) and the chord-tones
+  // selected. `expected` is computed by the reference snapToChordTones
+  // above, which mirrors inboil generative.ts:286-338 with stencil's
+  // documented full-range semantics.
+  const cases = [];
+
+  for (const scale of Object.keys(SCALE_INTERVALS)) {
+    if (scale === "chromatic-half") continue; // handled separately
+    const intervals = SCALE_INTERVALS[scale];
+    // "I chord" = first three scale degrees as PCs (root, 3rd, 5th of
+    // the diatonic stack). For pentatonic / blues / whole-tone, this
+    // still yields a triad even if it's not a tertian one — the point
+    // is to exercise the algorithm with a chord PC set drawn from the
+    // scale itself.
+    const chordPcs = intervals.slice(0, 3);
+    const scalePitches = buildScalePitches(scale, 0);
+
+    // (a1) input = chordPcs[0] in MIDI octave 5 (60..) → exact chord tone.
+    const exactInput = 60 + chordPcs[0];
+    cases.push({
+      label: `${scale} root=0: input=${exactInput} (exact chord tone PC ${chordPcs[0]}) → unchanged`,
+      note: exactInput,
+      scale,
+      root: 0,
+      chord_pcs: chordPcs,
+      tolerance: 2,
+      expected: snapToChordTones(exactInput, chordPcs, scalePitches),
+    });
+    // (a2) input one semitone above the root chord-PC: within tolerance,
+    //      snaps to the chord tone.
+    const nearInput = exactInput + 1;
+    cases.push({
+      label: `${scale} root=0: input=${nearInput} (1st semitone above root chord-PC; within tolerance=2) → snap to chord`,
+      note: nearInput,
+      scale,
+      root: 0,
+      chord_pcs: chordPcs,
+      tolerance: 2,
+      expected: snapToChordTones(nearInput, chordPcs, scalePitches),
+    });
+    // (a3) input far from any chord tone: with a 1-PC chord (just the
+    //      root) and an input 5 semitones up, no chord tone is within 2;
+    //      falls back to scale-snap. Use a single-PC chord for this case
+    //      so the gap is large enough to force the fallback regardless
+    //      of which 3-PC chord shape the scale has.
+    const farInput = exactInput + 5;
+    cases.push({
+      label: `${scale} root=0: input=${farInput}, single-PC chord [${chordPcs[0]}], distance >2 → scale fallback`,
+      note: farInput,
+      scale,
+      root: 0,
+      chord_pcs: [chordPcs[0]],
+      tolerance: 2,
+      expected: snapToChordTones(farInput, [chordPcs[0]], scalePitches),
+    });
+  }
+
+  // (b) Empty chord → behaves identically to scale-snap.
+  const cMajor = buildScalePitches("major", 0);
+  cases.push({
+    label: "C major: empty chord PCs → identical to snapToScale (input 63 → tie 62/64 → 62)",
+    note: 63,
+    scale: "major",
+    root: 0,
+    chord_pcs: [],
+    tolerance: 2,
+    expected: snapToChordTones(63, [], cMajor),
+  });
+
+  // (c) Tolerance boundary at default tolerance=2.
+  // C major triad C-E-G = PCs [0,4,7]. Input 62 is dist 2 from C(60) and
+  // dist 2 from E(64). Both within tolerance; snapToScale tie picks
+  // lower → 60.
+  cases.push({
+    label: "C major triad [0,4,7]: input=62 (dist 2 to C and 2 to E) → tie → 60 (lower)",
+    note: 62,
+    scale: "major",
+    root: 0,
+    chord_pcs: [0, 4, 7],
+    tolerance: 2,
+    expected: snapToChordTones(62, [0, 4, 7], cMajor),
+  });
+  // Same chord, input 70 — distance to nearest chord tone (72) is 2,
+  // exactly at tolerance. snaps in.
+  cases.push({
+    label: "C major triad [0,4,7]: input=70 (dist 2 to C8=72) → at tolerance → snap to 72",
+    note: 70,
+    scale: "major",
+    root: 0,
+    chord_pcs: [0, 4, 7],
+    tolerance: 2,
+    expected: snapToChordTones(70, [0, 4, 7], cMajor),
+  });
+  // Single-PC chord [0] with input 63: distance 3 to nearest chord tone (60),
+  // beyond tolerance=2, falls back to scale-snap. snapToScale(63, cMajor) →
+  // tie 62/64 → 62.
+  cases.push({
+    label: "C major, chord=[0] only: input=63 (dist 3 from chord) → scale fallback → 62",
+    note: 63,
+    scale: "major",
+    root: 0,
+    chord_pcs: [0],
+    tolerance: 2,
+    expected: snapToChordTones(63, [0], cMajor),
+  });
+
+  // (d) Same input/chord with widened tolerance pulls into the chord branch.
+  cases.push({
+    label: "C major, chord=[0] only: input=63, tolerance=3 → within widened tolerance → snap to 60",
+    note: 63,
+    scale: "major",
+    root: 0,
+    chord_pcs: [0],
+    tolerance: 3,
+    expected: snapToChordTones(63, [0], cMajor, 3),
+  });
+
+  // (e) Non-zero root: D major (root=2) triad D-F#-A → PCs [2,6,9].
+  //     Input 64 (E) is dist 2 from D(62) and dist 2 from F#(66) — tie → 62.
+  const dMajor = buildScalePitches("major", 2);
+  cases.push({
+    label: "D major triad [2,6,9]: input=64 (dist 2 to D and 2 to F#) → tie → 62 (lower)",
+    note: 64,
+    scale: "major",
+    root: 2,
+    chord_pcs: [2, 6, 9],
+    tolerance: 2,
+    expected: snapToChordTones(64, [2, 6, 9], dMajor),
+  });
+
+  return cases;
+}
+
+function genDiatonicShiftCases() {
+  // Coverage strategy:
+  //   (a) For every scale at root=0, take an in-scale input note and
+  //       compute diatonicShift for each interval ∈ {3,4,5,6} above and
+  //       below. Exercises the full 4×2 × 14 scales matrix at one root
+  //       (~112 cases) — the per-scale ladder is the key regression
+  //       discipline (interval semantics depend on scale shape).
+  //   (b) Out-of-scale input (snapped to nearest scale degree first).
+  //   (c) Top-of-scale clamp: input at the highest scale pitch shifted
+  //       up clamps at scalePitches[length-1], does not wrap.
+  //   (d) Bottom-of-scale clamp: shift below scalePitches[0] clamps at
+  //       scalePitches[0].
+  //   (e) Non-zero root: D major shift to verify root-relative behavior.
+  const cases = [];
+
+  for (const scale of Object.keys(SCALE_INTERVALS)) {
+    if (scale === "chromatic-half") continue; // identity passthrough
+    const scalePitches = buildScalePitches(scale, 0);
+    // Pick an input near MIDI middle that's guaranteed in-scale: the
+    // scale's lowest pitch class at MIDI octave 5. For every scale at
+    // root=0, scalePitches always contains 60 (PC 0 ⇔ root) since
+    // every interval list starts with 0.
+    const inputNote = 60;
+    for (const interval of [3, 4, 5, 6]) {
+      for (const direction of ["above", "below"]) {
+        cases.push({
+          label: `${scale} root=0: ${interval}${direction === "above" ? "↑" : "↓"} from MIDI 60`,
+          note: inputNote,
+          scale,
+          root: 0,
+          interval,
+          direction,
+          expected: diatonicShift(inputNote, interval, direction, scalePitches),
+        });
+      }
+    }
+  }
+
+  // (b) Out-of-scale input. C major scale (C D E F G A B) doesn't
+  // contain D# (63). diatonicShift snaps 63 to nearest scale pitch
+  // first: tie 62/64 → 62 (D); then 3rd above D = F (65).
+  const cMajor = buildScalePitches("major", 0);
+  cases.push({
+    label: "C major: out-of-scale input 63 (D#) → snaps to 62 (D) → 3rd↑ → 65 (F)",
+    note: 63,
+    scale: "major",
+    root: 0,
+    interval: 3,
+    direction: "above",
+    expected: diatonicShift(63, 3, "above", cMajor),
+  });
+
+  // (c) Top-of-scale clamp. C major's last pitch is 127 (G8). 6th above
+  // 127 wants index +5 past the array end; clamps at scalePitches[last].
+  cases.push({
+    label: "C major: 6th↑ from MIDI 127 (top of scale) → clamps at top",
+    note: 127,
+    scale: "major",
+    root: 0,
+    interval: 6,
+    direction: "above",
+    expected: diatonicShift(127, 6, "above", cMajor),
+  });
+
+  // (d) Bottom-of-scale clamp. C major's first pitch is 0 (C-1).
+  // 6th below 0 wants index -5 (negative); clamps at scalePitches[0].
+  cases.push({
+    label: "C major: 6th↓ from MIDI 0 (bottom of scale) → clamps at bottom",
+    note: 0,
+    scale: "major",
+    root: 0,
+    interval: 6,
+    direction: "below",
+    expected: diatonicShift(0, 6, "below", cMajor),
+  });
+
+  // (e) Non-zero root: D major scale = D E F# G A B C# (PCs 2,4,6,7,9,11,1).
+  // Input 62 (D) is in scale; 5th above D (4 scale steps) = A = MIDI 69.
+  const dMajor = buildScalePitches("major", 2);
+  cases.push({
+    label: "D major: 5th↑ from MIDI 62 (D5) → 69 (A5)",
+    note: 62,
+    scale: "major",
+    root: 2,
+    interval: 5,
+    direction: "above",
+    expected: diatonicShift(62, 5, "above", dMajor),
+  });
+  cases.push({
+    label: "D major: 3rd↓ from MIDI 62 (D5) → 57 (A4)",
+    note: 62,
+    scale: "major",
+    root: 2,
+    interval: 3,
+    direction: "below",
+    expected: diatonicShift(62, 3, "below", dMajor),
+  });
+
+  return cases;
+}
+
 // ============================================================
 // Compose JSONs
 // ============================================================
@@ -740,9 +1027,31 @@ const qtJson = {
         "abs(note - lower) == abs(upper - note), return the lower pitch " +
         "(round down).",
     },
+    chord_mode_rule: {
+      definition:
+        "snapToChordTones(note, chordPcs, scalePitches, tolerance=2): " +
+        "snap note to nearest chord-tone MIDI pitch (chord PCs expanded " +
+        "across the full 0..127 MIDI range — Stencil drops inboil's " +
+        "octaveRange clipping per ADR 003 §QT scale keyboard); if the " +
+        "distance to that nearest chord tone is <= tolerance, return " +
+        "it; otherwise fall back to snapToScale(note, scalePitches). " +
+        "Empty chord PCs degenerate to plain scale-snap. Mirrors inboil " +
+        "generative.ts:286-338.",
+    },
+    harmony_mode_rule: {
+      definition:
+        "diatonicShift(note, interval, direction, scalePitches): snap " +
+        "note to nearest scale pitch (tie → lower per snap_rule), then " +
+        "advance interval-1 scale steps in direction (above|below). " +
+        "Clamps at scalePitches[0] / scalePitches[last] rather than " +
+        "wrapping. interval=N is N-1 steps (3rd = 2 steps, 4th = 3, " +
+        "5th = 4, 6th = 5). Mirrors inboil generative.ts:235-254.",
+    },
   },
   build_scale_pitches: genBuildScalePitchesCases(),
   snap_to_scale: genSnapToScaleCases(),
+  snap_to_chord_tones: genSnapToChordTonesCases(),
+  diatonic_shift: genDiatonicShiftCases(),
 };
 
 writeFileSync(OUT_TM, JSON.stringify(tmJson, null, 2) + "\n");
@@ -754,4 +1063,4 @@ console.log(`tm sections: prng=${tmJson.prng.length}, splitmix=${tmJson.splitmix
   `register_init=${tmJson.register_init.length}, fraction=${tmJson.register_to_fraction.length}, ` +
   `map=${tmJson.map_to_note.length}, flip=${tmJson.shift_and_flip.length}, ` +
   `force=${tmJson.shift_and_force.length}, step=${tmJson.tm_step.length}`);
-console.log(`qt sections: build=${qtJson.build_scale_pitches.length}, snap=${qtJson.snap_to_scale.length}`);
+console.log(`qt sections: build=${qtJson.build_scale_pitches.length}, snap=${qtJson.snap_to_scale.length}, chord=${qtJson.snap_to_chord_tones.length}, harmony=${qtJson.diatonic_shift.length}`);

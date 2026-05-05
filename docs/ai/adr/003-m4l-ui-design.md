@@ -579,7 +579,7 @@ The renderer queries geometry to decide where to draw.
       `diatonicShift(pitch, interval, direction, scalePcs)`,
       mirroring inboil `generative.ts:200-254` semantics. Pure
       functions, ASCII-only.
-- [ ] `m4l/engine/quantizer.test.ts` — vectors for each helper
+- [x] `m4l/engine/quantizer.test.ts` — vectors for each helper
       across the 14 scale/root combinations sourced from inboil's
       reference outputs (regression discipline)
 - [x] `m4l/host-qt/host.ts` — extend `QtParams` with `mode`,
@@ -705,9 +705,6 @@ The renderer queries geometry to decide where to draw.
 - [x] Pick monospace font available in Max; recorded as `Andale Mono`
 - [x] Brand accent color: `color.salmon #E8A090` (used on TM read-head
       and QT key pulse — single accent, consistent across devices)
-- [ ] Capture fresh screenshots of `Stencil-TM.amxd` and
-      `Stencil-QT.amxd` in Live; commit to `docs/ai/ui/` and embed in
-      this ADR's §Visual identity
 
 ### Verification (manual, in Live)
 
