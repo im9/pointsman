@@ -17,7 +17,7 @@ import {
   type NoteEvent,
   type QtParams,
 } from "./host.ts";
-import { buildScalePitches, snapToScale } from "../engine/quantizer.ts";
+import { buildScalePitches, diatonicShift, snapToScale } from "../engine/quantizer.ts";
 import { nextU32, seedRng } from "../engine/turing.ts";
 
 function makeHost(overrides: Partial<QtParams> = {}): QtHost {
@@ -370,6 +370,253 @@ test("setParam mode — switching away from chord clears chord context", () => {
   host.noteIn(64, 100, 16, 0);
   host.setParam("mode", "scale");
   assert.deepEqual(host.getChordContext(), []);
+});
+
+// ---------- harmony mode ----------
+//
+// ADR 003 §QT quantize mode: when mode='harmony', input note + N parallel
+// diatonic voices (harmonyVoices[], 0..3, each {interval, direction}).
+// Engine logic: snap input to scale first, then compute each voice via
+// diatonicShift from snapped. All voices share one humanize draw — the
+// input event is a single musical event, voiced multiple ways.
+
+test("harmony mode — empty harmonyVoices behaves like scale snap", () => {
+  // voices=[] → no extra notes, single output identical to scale mode.
+  const host = makeHost({
+    mode: "harmony",
+    scale: "major",
+    root: 0,
+    harmonyVoices: [],
+  });
+  const r = partition(host.noteIn(60, 100, 1, 0));
+  assert.equal(r.noteOns.length, 1);
+  assert.equal(r.noteOns[0].pitch, 60);
+});
+
+test("harmony mode — 1 voice (3rd above) emits primary + voiced", () => {
+  // C major, input C(60), voice = 3rd above. Primary stays at 60, voiced
+  // = diatonicShift(60, 3, above) = 64 (E, two scale steps above C).
+  const host = makeHost({
+    mode: "harmony",
+    scale: "major",
+    root: 0,
+    harmonyVoices: [{ interval: 3, direction: "above" }],
+  });
+  const r = partition(host.noteIn(60, 100, 1, 0));
+  assert.equal(r.noteOns.length, 2);
+  // Declared-order emission: primary first, then voices in harmonyVoices[]
+  // order. Order is purely an output convention (all voices fire at the
+  // same delayMs) but must be deterministic for tests and downstream tools.
+  assert.equal(r.noteOns[0].pitch, 60);
+  assert.equal(r.noteOns[1].pitch, 64);
+});
+
+test("harmony mode — 3 voices emit primary + 3 voiced notes in declared order", () => {
+  // C major, input C(60). Voices in declared order:
+  //   3rd above → 64 (E, 2 steps up)
+  //   5th above → 67 (G, 4 steps up)
+  //   3rd below → 57 (A below, 2 steps down)
+  const host = makeHost({
+    mode: "harmony",
+    scale: "major",
+    root: 0,
+    harmonyVoices: [
+      { interval: 3, direction: "above" },
+      { interval: 5, direction: "above" },
+      { interval: 3, direction: "below" },
+    ],
+  });
+  const r = partition(host.noteIn(60, 100, 1, 0));
+  assert.equal(r.noteOns.length, 4);
+  assert.deepEqual(
+    r.noteOns.map((e) => e.pitch),
+    [60, 64, 67, 57],
+  );
+});
+
+test("harmony mode — voice pitches match diatonicShift on a non-C scale", () => {
+  // A minor (root=9), input A(69). Scale degrees include 69(A), 71(B),
+  // 72(C), 74(D), 76(E), 77(F), 79(G), 81(A).
+  //   3rd above A → 2 steps up → 72 (C)
+  //   6th below A → 5 steps down → 60 (C below: A→G→F→E→D→C)
+  const host = makeHost({
+    mode: "harmony",
+    scale: "minor",
+    root: 9,
+    harmonyVoices: [
+      { interval: 3, direction: "above" },
+      { interval: 6, direction: "below" },
+    ],
+  });
+  const r = partition(host.noteIn(69, 100, 1, 0));
+  assert.equal(r.noteOns[0].pitch, 69);
+  assert.equal(r.noteOns[1].pitch, 72);
+  assert.equal(r.noteOns[2].pitch, 60);
+  // Mirror against the helper too — guards against engine drift renaming
+  // the function or changing its signature without updating the host.
+  const scalePitches = buildScalePitches("minor", 9);
+  assert.equal(r.noteOns[1].pitch, diatonicShift(69, 3, "above", scalePitches));
+  assert.equal(r.noteOns[2].pitch, diatonicShift(69, 6, "below", scalePitches));
+});
+
+test("harmony mode — out-of-scale input snaps to scale before voicing", () => {
+  // C major, input C#(61). snapToScale → 60 (tie distance, lower wins).
+  // Voice 3rd above is computed from snapped (60), not raw input (61):
+  //   diatonicShift(60, 3, above, C-major) = 64 (E)
+  // Note: diatonicShift internally snaps too, so this test would also pass
+  // if the host fed raw 61 to diatonicShift — but the spec says snap once
+  // up front so velocity / pulse / primary noteOn pitch all agree.
+  const host = makeHost({
+    mode: "harmony",
+    scale: "major",
+    root: 0,
+    harmonyVoices: [{ interval: 3, direction: "above" }],
+  });
+  const r = partition(host.noteIn(61, 100, 1, 0));
+  assert.equal(r.noteOns[0].pitch, 60);
+  assert.equal(r.noteOns[1].pitch, 64);
+});
+
+test("harmony mode — all voices share same noteOn delayMs (timing lockstep)", () => {
+  // One humanize draw per input event → one timingOffset, applied
+  // identically to primary + every voice. Voices are different pitches
+  // of the same musical event, not separate events with their own timing.
+  const host = makeHost({
+    mode: "harmony",
+    scale: "major",
+    root: 0,
+    humanizeTiming: 1,
+    seed: 13,
+    harmonyVoices: [
+      { interval: 3, direction: "above" },
+      { interval: 5, direction: "above" },
+    ],
+  });
+  // Establish prior input so sourceStepDuration > 0 and humanizeTiming
+  // actually deflects the noteOn delay.
+  host.noteIn(60, 100, 1, 0);
+  const r = partition(host.noteIn(60, 100, 1, 200));
+  assert.equal(r.noteOns.length, 3);
+  const d0 = r.noteOns[0].delayMs;
+  assert.equal(r.noteOns[1].delayMs, d0);
+  assert.equal(r.noteOns[2].delayMs, d0);
+});
+
+test("harmony mode — all voices share same noteOff delayMs (lockstep release)", () => {
+  // Same gateFinal × sourceStepDuration for all voices → identical
+  // noteOff timing. Voices release together as a chord.
+  const host = makeHost({
+    mode: "harmony",
+    scale: "major",
+    root: 0,
+    humanizeGate: 1,
+    seed: 21,
+    harmonyVoices: [
+      { interval: 3, direction: "above" },
+      { interval: 5, direction: "above" },
+    ],
+  });
+  host.noteIn(60, 100, 1, 0);
+  const r = partition(host.noteIn(60, 100, 1, 200));
+  assert.equal(r.noteOffs.length, 3);
+  const d0 = r.noteOffs[0].delayMs;
+  assert.equal(r.noteOffs[1].delayMs, d0);
+  assert.equal(r.noteOffs[2].delayMs, d0);
+});
+
+test("harmony mode — all voices share same velocity (one humanize draw)", () => {
+  // velocityFinal computed once per input event, applied to all voices.
+  // (Inboil's harmony mode treats voices as a single trig with multiple
+  // notes; Stencil emits separate events but preserves shared velocity.)
+  const host = makeHost({
+    mode: "harmony",
+    scale: "major",
+    root: 0,
+    humanizeVelocity: 0.5,
+    seed: 7,
+    harmonyVoices: [
+      { interval: 3, direction: "above" },
+      { interval: 5, direction: "above" },
+    ],
+  });
+  const r = partition(host.noteIn(60, 100, 1, 0));
+  const v0 = r.noteOns[0].velocity;
+  assert.equal(r.noteOns[1].velocity, v0);
+  assert.equal(r.noteOns[2].velocity, v0);
+});
+
+test("harmony mode — notePulse fires for every voiced note", () => {
+  // Keyboard should highlight every sounded key, not just the primary.
+  // Pulse count == noteOn count, same pitch set.
+  const host = makeHost({
+    mode: "harmony",
+    scale: "major",
+    root: 0,
+    harmonyVoices: [
+      { interval: 3, direction: "above" },
+      { interval: 5, direction: "above" },
+    ],
+  });
+  const r = partition(host.noteIn(60, 100, 1, 0));
+  assert.equal(r.pulses.length, r.noteOns.length);
+  assert.deepEqual(
+    [...r.pulses.map((e) => e.pitch)].sort((a, b) => a - b),
+    [...r.noteOns.map((e) => e.pitch)].sort((a, b) => a - b),
+  );
+});
+
+test("harmony mode — output channel preserves input channel for all voices", () => {
+  // Spec (scale mode): 'emit on the same channel as the input event'.
+  // Multi-voice doesn't change that — every voice routes to the input
+  // channel so a user can route specific input channels to specific synths.
+  const host = makeHost({
+    mode: "harmony",
+    scale: "major",
+    root: 0,
+    harmonyVoices: [{ interval: 3, direction: "above" }],
+  });
+  const r = partition(host.noteIn(60, 100, 7, 0));
+  for (const e of r.noteOns) assert.equal(e.channel, 7);
+  for (const e of r.noteOffs) assert.equal(e.channel, 7);
+});
+
+test("harmony mode — switching to scale suppresses voicing on next noteIn", () => {
+  // mode change is the trigger — harmonyVoices is left intact (config, not
+  // held state) but the next noteIn must produce single output.
+  const host = makeHost({
+    mode: "harmony",
+    scale: "major",
+    root: 0,
+    harmonyVoices: [{ interval: 3, direction: "above" }],
+  });
+  const r1 = partition(host.noteIn(60, 100, 1, 0));
+  assert.equal(r1.noteOns.length, 2);
+  host.setParam("mode", "scale");
+  const r2 = partition(host.noteIn(60, 100, 1, 100));
+  assert.equal(r2.noteOns.length, 1);
+});
+
+test("setParam harmonyVoices — replaces voice list, takes effect immediately", () => {
+  // Bridge will deliver a HarmonyVoice[] payload; host stores and uses it
+  // on the next noteIn. C major, input C(60):
+  //   5th above → 67 (G)
+  //   5th below → 53 (F below: 59→57→55→53)
+  const host = makeHost({
+    mode: "harmony",
+    scale: "major",
+    root: 0,
+    harmonyVoices: [{ interval: 3, direction: "above" }],
+  });
+  host.setParam("harmonyVoices", [
+    { interval: 5, direction: "above" },
+    { interval: 5, direction: "below" },
+  ]);
+  const r = partition(host.noteIn(60, 100, 1, 0));
+  assert.equal(r.noteOns.length, 3);
+  assert.deepEqual(
+    r.noteOns.map((e) => e.pitch),
+    [60, 67, 53],
+  );
 });
 
 // ---------- source step / timing ----------

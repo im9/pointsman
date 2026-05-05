@@ -558,7 +558,7 @@ The renderer queries geometry to decide where to draw.
 
 ### QT quantize mode + chord/harmony engine
 
-- [ ] `m4l/engine/quantizer.ts` — chord/harmony helpers:
+- [x] `m4l/engine/quantizer.ts` — chord/harmony helpers:
       `snapToChordTones(pitch, chordPcs, scalePcs, semitoneTolerance=2)`,
       `diatonicShift(pitch, interval, direction, scalePcs)`,
       mirroring inboil `generative.ts:200-254` semantics. Pure
@@ -566,13 +566,13 @@ The renderer queries geometry to decide where to draw.
 - [ ] `m4l/engine/quantizer.test.ts` — vectors for each helper
       across the 14 scale/root combinations sourced from inboil's
       reference outputs (regression discipline)
-- [ ] `m4l/host-qt/host.ts` — extend `QtParams` with `mode`,
+- [x] `m4l/host-qt/host.ts` — extend `QtParams` with `mode`,
       `harmonyVoices`. Track `chordContext: number[]` (PCs) on
       controlChannel held notes. Route `noteIn(pitch, vel, channel)`
       through chord/harmony quantize when `mode != scale`. `noteOff`
       removes from chordContext. `panic` and `transportStop` clear
       it.
-- [ ] `m4l/host-qt/host.test.ts` — chord-mode in/out vectors,
+- [x] `m4l/host-qt/host.test.ts` — chord-mode in/out vectors,
       harmony-mode in/out vectors, controlChannel held-set
       build/release across `noteIn` / `noteOff` / `panic`
 - [ ] `m4l/host-qt/bridge.ts` — `setParam mode <name>` validates

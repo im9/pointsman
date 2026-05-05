@@ -9,6 +9,7 @@
 
 import {
   buildScalePitches,
+  diatonicShift,
   snapToChordTones,
   snapToScale,
   type HarmonyVoice,
@@ -177,25 +178,40 @@ export class QtHost {
     const noteOnDelay = out.timingOffset;
     const noteOffDelay = noteOnDelay + out.gateFinal * sourceStepDuration;
 
-    events.push({
-      type: "noteOn",
-      pitch: snapped,
-      velocity: out.velocityFinal,
-      channel,
-      delayMs: noteOnDelay,
-    });
-    events.push({
-      type: "noteOff",
-      pitch: snapped,
-      channel,
-      delayMs: noteOffDelay,
-    });
-    events.push({
-      type: "notePulse",
-      pitch: snapped,
-      velocity: out.velocityFinal,
-      delayMs: noteOnDelay,
-    });
+    // Harmony mode appends parallel diatonic voices; all voices are pitches
+    // of the *same* musical event, so they share velocity / timing / gate
+    // (one humanize draw covers them all). Declared order is preserved so
+    // the patcher's voice-1/2/3 widgets map predictably to output order.
+    const pitches: MidiNote[] = [snapped];
+    if (this.params.mode === "harmony") {
+      for (const v of this.params.harmonyVoices) {
+        pitches.push(
+          diatonicShift(snapped, v.interval, v.direction, this.scalePitches),
+        );
+      }
+    }
+
+    for (const p of pitches) {
+      events.push({
+        type: "noteOn",
+        pitch: p,
+        velocity: out.velocityFinal,
+        channel,
+        delayMs: noteOnDelay,
+      });
+      events.push({
+        type: "noteOff",
+        pitch: p,
+        channel,
+        delayMs: noteOffDelay,
+      });
+      events.push({
+        type: "notePulse",
+        pitch: p,
+        velocity: out.velocityFinal,
+        delayMs: noteOnDelay,
+      });
+    }
 
     return events;
   }
@@ -255,6 +271,12 @@ export class QtHost {
         this.controlHeldPitches.clear();
       }
       this.params.mode = v;
+      return events;
+    }
+    if (key === "harmonyVoices") {
+      // Defensive copy so external mutation of the bridge-side array does
+      // not silently shift voicing on the host.
+      this.params.harmonyVoices = [...(value as HarmonyVoice[])];
       return events;
     }
     this.params[key] = value;
