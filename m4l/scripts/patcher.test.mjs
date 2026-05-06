@@ -132,10 +132,14 @@ const TM_LIVE_PARAMS = [
 ]
 // Enum widgets (live.menu) carry parameter_enum instead of mmin/mmax.
 // Initial is the index into the enum; the bridge expects the string value.
+// `StencilTmMode` per ADR 003 §TM output mode: per-step output dispatch
+// (note → pitch from regValue; gate → fixed-pitch midrange; velocity →
+// pitch from regValue + velocity from regValue).
 const TM_LIVE_ENUMS = [
   // longname,              shortname, bridgeKey,     enumStrings,                    initialIdx
   ['StencilTmSubdivision',  'Subdiv',  'subdivision', ['8th', '16th', '32nd', '8T', '16T'], 1],
   ['StencilTmTriggerMode',  'Trig',    'triggerMode', ['auto', 'gate', 'seed'],             0],
+  ['StencilTmMode',         'Mode',    'mode',        ['note', 'gate', 'velocity'],         0],
 ]
 
 // ---- ADR 002 §live.* parameter surface (QT) ------------------------------

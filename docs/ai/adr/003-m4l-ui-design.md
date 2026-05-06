@@ -124,43 +124,87 @@ column-group legends (`GENERATE` / `REGISTER` / `I/O`) are sufficient
 in-strip identification of which Stencil device this is.
 
 **Per-control idiom** — per-device, not per-param:
-- **TM** uses `live.slider` horizontal for floats (lock, density, gate)
-  — matches inboil's `.ctl-slider` row layout (label · slider · value)
-  and TM's params each occupy a dedicated row.
-- **QT** uses `live.dial` knobs for ALL floats (humanize vel/gate/time/
-  drift + outputLevel) — sliders eat too much vertical space when
-  stacked, and a horizontal slider's `parameter_shortname` rendering
-  overlays the value digits in the narrow strip width Stencil ships
-  (observed 2026-05-04 in Live: "Lvl" text covered the value display).
-  Knob row is also the conventional idiom for humanize / randomize
-  parameter clusters in DAW devices. The dial's built-in shortname
-  overlay (above the arc) doubles as the user-facing label, so
-  knob params do NOT carry an adjacent comment-label box (one label
-  per value, not two).
+- **TM** and **QT** both use `live.dial` knobs for all floats (TM:
+  lock, density, outputGate; QT: humanize vel/gate/time/drift +
+  outputLevel). An earlier draft used horizontal `live.slider` on TM
+  for inboil parity, but in M4L's narrow strip the slider's shortname
+  + value rendering overflowed the 8 px-tall track and overlapped the
+  next row (observed 2026-05-04 with QT's `Lvl`, again 2026-05-06
+  across all three TM sliders). The dial's built-in shortname overlay
+  above the arc reads cleanly within its own bounds and gives a
+  uniform "knob row" idiom across both devices, so knob params do NOT
+  carry an adjacent comment-label box (one label per value, not two).
 - ints use `live.numbox`
 - enums use `live.menu`
 
 (ADR 002's parameter table says `live.dial float` for floats — that
 spec captures *parameter type*, not the visual widget. Both `live.dial`
 and `live.slider` expose the same float parameter to Live; the choice
-is presentational. Stencil picks `live.slider` for inboil parity. See
-ADR 002 §live.* parameter surface.)
+is presentational. See ADR 002 §live.* parameter surface.)
 
 ### TM register ring (jsui)
 
 `m4l/host-tm/ui/registerRing.{logic,jsui}.ts/.js`.
 
 **Visual:** ring of `length` dots arranged radially around the device's
-vertical centerline. Active bits filled with `color.activeFill`. The
-current read-head dot drawn in `color.activeHighlight` (one dot ahead of
-the dot whose bit was last read out as note-output). Inactive dots are
-outlined in `color.outline`.
+vertical centerline. The bit ring shown is the **initial register
+snapshot** captured at transport start (Mode A — frozen pattern); the
+live engine register may diverge from this under `lock < 1` but the
+visualization keeps the cylinder inscription stable so the user has a
+fixed pattern to read. Active bits (`bit === 1`) are filled with
+`color.activeFill`; inactive bits (`bit === 0`) are outlined thinly in
+`color.outline`. A fixed pointer triangle sits at the top of the ring,
+marking the read head. A salmon **halo** ring is drawn just outside the
+bit currently under the pointer (preserves the bit's on/off rendering
+inside, unlike inboil's `.bit-reading` which forces hollow).
 
-**Animation:** on each step, the read-head highlight advances by one
-position. v1 advances **discretely** (snap to the next dot per step).
-The full *revolver rotation* (continuous spin of the whole ring across
-multiple steps, as in inboil) is **out of v1** — it costs animation
-plumbing for marginal musical value.
+**Animation — revolver model (mirrors inboil), CCW:** on each step the
+bit ring rotates **counter-clockwise** by `2π / length`. CCW is chosen
+to match the engine's shift direction (`register >>> 1` shifts indices
+*down*, so the bit consumed at index 0 visually flows into the
+playhead from the upper-right and out toward upper-left). Implementation:
+`bitPositionRotated(idx, g, cumulativeSteps)` *subtracts*
+`cumulativeSteps · stepAngle` from each bit's base angle.
+`cumulativeSteps` is the host's monotonic `position` counter (resets
+to 0 on transport start/stop and seed change), arriving via the
+bridge's `ringHead` outlet unchanged. The pointer is drawn last so it
+overlays the ring without interaction.
+
+**Active-step flash (bit-tap trigger):** the audible trigger of each
+step is determined by the bit currently under the pointer (the LSB of
+the live register, `register & 1`). When the host emits
+`triggerFlash 1` for a step, the renderer momentarily fills the bit
+currently under the pointer with `color.activeHighlight` (salmon) on
+top of its base rendering, decaying over 2 frames. This makes the
+visualization match the audible event: a bit shown as `1` at the
+pointer fires (flash), a `0` does not (no flash). `triggerFlash 0`
+also arrives every step (silent step) so the renderer can clear any
+in-flight flash deterministically rather than relying on a timeout.
+
+**TM output mode (host-layer dispatch):** the live `tm.mode` parameter
+(`note` / `gate` / `velocity`, default `note`, exposed as a `live.menu`
+in the patcher) is read by `host-tm` and dispatches the per-step
+output. Engine `tmStep` is unchanged; the host re-derives output from
+the engine's `register` / `regValue` per mode:
+
+| `tm.mode`  | active                | pitch                              | velocity                                   |
+|------------|-----------------------|------------------------------------|--------------------------------------------|
+| `note`     | `(register & 1) === 1` | `mapToNote(regValue, range)`       | `tm.outputVelocity` (existing live.numbox) |
+| `gate`     | `(register & 1) === 1` | `floor((rangeLo + rangeHi) / 2)`   | `tm.outputVelocity`                        |
+| `velocity` | `(register & 1) === 1` | `mapToNote(regValue, range)`       | `floor(38 + regValue * 89)` → MIDI 0..127 from inboil's `0.3 + frac * 0.7` curve |
+
+`active` is bit-tap in all three modes. inboil's `note` mode uses
+`regValue > (1 - density) * 0.5` and the `gate`/`velocity` modes use
+pure rng; both severed the visualization↔audio link Stencil makes
+load-bearing, so we replace with bit-tap and document the divergence
+here. `density` continues to advance the engine's PRNG (preserved for
+cross-target reproducibility) but its current effect on host-emitted
+`active` is gated under bit-tap; the parameter remains in the UI as a
+no-op-when-bit-is-on / random-fill-when-bit-is-off probability, so an
+"on" bit always fires and an "off" bit fires with probability
+`density`. `density = 0` → exact bit pattern; `density = 1` → all
+steps fire. This keeps `density` musically meaningful without
+violating the bit-tap visual contract.
 
 **Interaction (clickable):** clicking a bit dot toggles that bit's
 value at that index in the host's register and re-emits any note-output
@@ -367,10 +411,6 @@ list is small on purpose.
   informative but takes vertical space; the m4l strip is 180 px max
   and the bit ring already occupies the central column. Reason:
   spatial budget.
-- **Revolver continuous rotation animation** — bit ring snaps to the
-  next dot per step rather than spinning. Reason: animation plumbing
-  cost vs marginal musical value; revisit if a user complains about
-  legibility at fast subdivisions.
 - **Scale-snap preview overlay** (showing which scale degree TM's
   chromatic output will snap to when chained through QT) — requires
   cross-device awareness across two patchers. Reason: would need a
@@ -390,16 +430,18 @@ Three vertical columns, header band on top:
 ┌─── STENCIL TM ───────────────────────────────────────── im9 ───┐ ~16h
 │ ┌─ GENERATE ────┐ ┌─ REGISTER ──────────┐ ┌─ I/O ───────────┐ │
 │ │ LEN  [16] bit │ │                     │ │ TRG  [auto    ] │ │
-│ │ LOCK ●━━─     │ │      ◌ ● ●          │ │ IN   [0       ] │ │
-│ │ DENS ●━━━     │ │   ◌         ●       │ │ VEL  [100     ] │ │
-│ │ LO   [48]     │ │  ●           ◌      │ │ GATE ●━━─       │ │
-│ │ HI   [72]     │ │  ●           ●      │ │ OUT  [1       ] │ │
-│ │ SUBD [16th]   │ │   ◌         ◌       │ │ SEED [42      ] │ │
-│ │                │ │      ◌ ● ◌          │ │                  │ │
+│ │ LO  [48] HI[72]│ │      ◌ ● ●          │ │ IN   [0       ] │ │
+│ │ MODE [note] SUBD[16th] │ │   ◌         ●       │ │ OUT  [1       ] │ │
+│ │   ◍       ◍   │ │  ●           ◌      │ │ VEL  [100     ] │ │
+│ │  LOCK    DENS │ │  ●           ●      │ │ SEED [42      ] │ │
+│ │                │ │   ◌  ▼ ◌            │ │   ◍              │ │
+│ │                │ │      ◌ ● ◌          │ │  GATE            │ │
 │ └───────────────┘ └─────────────────────┘ └─────────────────┘ │
 └────────────────────────────────────────────────────────────────┘
   ~280w              ~280w                  ~280w
-  6 live.* widgets   1 jsui (registerRing)  6 live.* widgets
+  GENERATE: LEN numbox │ LO/HI numbox row │ MODE/SUBD menu row │ LOCK/DENS dial pair
+  REGISTER: 1 jsui (registerRing) — fixed ▼ pointer + CCW rotating bit ring (Mode A frozen)
+  I/O:       TRG menu │ IN/OUT numboxes │ VEL/SEED numboxes │ GATE dial
 ```
 
 Column allocation:

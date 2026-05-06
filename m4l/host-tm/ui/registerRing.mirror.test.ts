@@ -25,6 +25,9 @@ import {
   MAX_BIT_RADIUS,
   MAX_LENGTH,
   MIN_LENGTH,
+  POINTER_GAP,
+  POINTER_HALF_WIDTH,
+  POINTER_HEIGHT,
 } from "./registerRing.logic.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -68,6 +71,18 @@ test("renderer mirrors CANVAS_MARGIN from logic.ts", () => {
   assert.equal(findVarDecl("CANVAS_MARGIN"), CANVAS_MARGIN);
 });
 
+test("renderer mirrors POINTER_GAP from logic.ts", () => {
+  assert.equal(findVarDecl("POINTER_GAP"), POINTER_GAP);
+});
+
+test("renderer mirrors POINTER_HALF_WIDTH from logic.ts", () => {
+  assert.equal(findVarDecl("POINTER_HALF_WIDTH"), POINTER_HALF_WIDTH);
+});
+
+test("renderer mirrors POINTER_HEIGHT from logic.ts", () => {
+  assert.equal(findVarDecl("POINTER_HEIGHT"), POINTER_HEIGHT);
+});
+
 test("renderer is ASCII-only (Max classic JS parser constraint)", () => {
   // oedipa convention: cellstrip-renderer.js opens with the same constraint
   // ("Max's classic JS parser has been observed to choke on UTF-8 in source
@@ -100,6 +115,8 @@ test("renderer declares the message handlers the bridge emits", () => {
   // emitOutlet ringHead call site for full context.
   assert.match(RENDERER_SRC, /msg === ['"]register['"]/);
   assert.match(RENDERER_SRC, /msg === ['"]ringHead['"]/);
+  // ADR 003 §Active-step flash — bridge emits triggerFlash 0|1 per step
+  assert.match(RENDERER_SRC, /msg === ['"]triggerFlash['"]/);
 });
 
 test("renderer emits the setBit message the bridge handles", () => {

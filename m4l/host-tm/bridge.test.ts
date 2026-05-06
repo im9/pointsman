@@ -163,17 +163,64 @@ test("step — msPerStep estimate updates via EMA across multiple steps", () => 
   assert.equal(sched[0].ms, 100);
 });
 
-test("step — emits register + position outlets", () => {
+test("step — emits ringHead + triggerFlash, NOT register (Mode A frozen pattern)", () => {
+  // ADR 003 §TM register ring (Mode A): the ring visualization shows the
+  // initial register snapshot rotating; bits[] in jsui must NOT update on
+  // every step or the rotation animation jumps. Bridge therefore omits
+  // `register` from the per-step outlet set; lifecycle events (constructor,
+  // transportStart, setBit, length/seed change) re-emit it.
   const { bridge, rec } = makeBridge({ seed: 1, length: 8 });
   // clear construction-time emits
   rec.outlets.length = 0;
   bridge.step(0);
   const regs = outletsByName(rec, "register");
   const pos = outletsByName(rec, "ringHead");
-  assert.equal(regs.length, 1, "exactly one register emit per step");
-  assert.equal(regs[0].args.length, 8);
-  assert.equal(pos.length, 1);
+  const flash = outletsByName(rec, "triggerFlash");
+  assert.equal(regs.length, 0, "step must NOT emit register (Mode A)");
+  assert.equal(pos.length, 1, "step must emit ringHead");
   assert.deepEqual(pos[0].args, [1], "position incremented to 1");
+  assert.equal(flash.length, 1, "step must emit triggerFlash");
+  assert.ok(
+    flash[0].args[0] === 0 || flash[0].args[0] === 1,
+    "triggerFlash arg is 0 or 1",
+  );
+});
+
+test("step active=true — triggerFlash 1 (audible step → visual flash)", () => {
+  // ADR 003 §Active-step flash: the flash overlay fires precisely when the
+  // host emits a noteOn, so visual matches audible. With density=1, lock=1,
+  // and bit-tap on, the first step is guaranteed active.
+  const { bridge, rec } = makeBridge({
+    seed: 1,
+    length: 8,
+    density: 1.0,
+    lock: 1.0,
+  });
+  rec.outlets.length = 0;
+  rec.notes.length = 0;
+  bridge.step(0);
+  const flash = outletsByName(rec, "triggerFlash");
+  assert.equal(flash.length, 1);
+  assert.equal(flash[0].args[0], 1, "active step → triggerFlash 1");
+});
+
+test("step active=false — triggerFlash 0 (silent step → clear flash)", () => {
+  // ADR 003 §Active-step flash: the renderer relies on a deterministic
+  // 0-message to clear in-flight flash state, rather than a timeout. Force
+  // bit0=0 + density=0 so the step is silent under bit-tap.
+  const { bridge, rec } = makeBridge({
+    seed: 1,
+    length: 8,
+    density: 0.0,
+    lock: 1.0,
+  });
+  bridge.setBit(0, 0); // ensure bit0 = 0
+  rec.outlets.length = 0;
+  rec.notes.length = 0;
+  bridge.step(0);
+  const flash = outletsByName(rec, "triggerFlash");
+  assert.equal(flash.length, 1);
+  assert.equal(flash[0].args[0], 0, "silent step → triggerFlash 0");
 });
 
 // --- setBit --------------------------------------------------------------
@@ -237,7 +284,32 @@ test("setParam invalid value — silently ignored", () => {
   bridge.setParam("length", "not a number");
   bridge.setParam("length", NaN);
   bridge.setParam("triggerMode", "bogus-mode");
+  bridge.setParam("mode", "bogus-mode"); // ADR 003 §TM output mode validation
   assert.equal(rec.outlets.length, 0);
+});
+
+test("setParam mode — accepts 'note' / 'gate' / 'velocity'", () => {
+  // ADR 003 §TM output mode: enum is exactly {note, gate, velocity}; any
+  // other string value is rejected at the bridge boundary.
+  const { bridge, rec } = makeBridge({ seed: 1 });
+  rec.outlets.length = 0;
+  bridge.setParam("mode", "note");
+  bridge.setParam("mode", "gate");
+  bridge.setParam("mode", "velocity");
+  // No outlet emit expected (mode change doesn't reset register), but the
+  // calls must not throw and must not be the silent-no-op path. Probe
+  // effect via a step: in 'gate' mode the next active step's pitch is the
+  // range midpoint, regardless of regValue.
+  bridge.setParam("mode", "gate");
+  rec.notes.length = 0;
+  // Force bit0 = 1 so the step is guaranteed active under bit-tap.
+  bridge.setBit(0, 1);
+  rec.outlets.length = 0;
+  bridge.step(0);
+  const noteOn = rec.notes.find((n) => n.velocity > 0);
+  assert.ok(noteOn);
+  // Default range is [48, 72]; gate-mode midpoint = 60.
+  assert.equal(noteOn.pitch, 60);
 });
 
 test("setRange — orders lo ≤ hi via host", () => {

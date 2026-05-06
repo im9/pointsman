@@ -7,12 +7,19 @@ import {
   MAX_BIT_RADIUS,
   MAX_LENGTH,
   MIN_LENGTH,
+  POINTER_GAP,
+  POINTER_HALF_WIDTH,
+  POINTER_HEIGHT,
   type RingModel,
   advanceReadHead,
   bitPosition,
+  bitPositionRotated,
   computeGeometry,
   createModel,
   hitTest,
+  hitTestRotated,
+  pointerTip,
+  readingIndexAt,
   setHovered,
   setReadHead,
   setRegister,
@@ -120,6 +127,148 @@ test("bitPosition — index 3·length/4 sits at left", () => {
   const p = bitPosition(6, g);
   assert.ok(Math.abs(p.x - (g.cx - g.radius)) < 1e-9);
   assert.ok(Math.abs(p.y - g.cy) < 1e-9);
+});
+
+// ---- bitPositionRotated (revolver model) -----------------------------------
+
+test("bitPositionRotated — cumulativeSteps=0 reduces to bitPosition", () => {
+  // No rotation = identical to the unrotated layout; ensures the rotation
+  // formula is additive and round-trippable rather than a separate code path.
+  const g = computeGeometry(200, 200, 8);
+  for (let i = 0; i < 8; i++) {
+    const a = bitPosition(i, g);
+    const b = bitPositionRotated(i, g, 0);
+    assert.ok(Math.abs(a.x - b.x) < 1e-9, `x mismatch at idx ${i}`);
+    assert.ok(Math.abs(a.y - b.y) < 1e-9, `y mismatch at idx ${i}`);
+  }
+});
+
+test("bitPositionRotated — period equals length (full revolution returns to start)", () => {
+  // After `length` shifts the cylinder is back where it started. Mirrors
+  // inboil's `rotationDeg = cumulativeSteps * stepAngle` modulo 360.
+  const g = computeGeometry(200, 200, 8);
+  for (let i = 0; i < 8; i++) {
+    const a = bitPosition(i, g);
+    const b = bitPositionRotated(i, g, 8);
+    assert.ok(Math.abs(a.x - b.x) < 1e-9, `period: x mismatch at idx ${i}`);
+    assert.ok(Math.abs(a.y - b.y) < 1e-9, `period: y mismatch at idx ${i}`);
+  }
+});
+
+test("bitPositionRotated — 1 step CCW shifts bit 0 to angle -π/2 - 2π/length", () => {
+  // ADR 003 §TM register ring: rotation is CCW to match the engine's
+  // shift direction (`register >>> 1` moves indices DOWN, so the bit
+  // consumed at index 0 visually flows away from the pointer in the
+  // CCW direction). bit 0 starts at top (angle -π/2) and after 1 step
+  // lands at the next CCW slot (angle -π/2 - 2π/length, upper-LEFT).
+  const g = computeGeometry(200, 200, 8);
+  const expectedAngle = -Math.PI / 2 - (Math.PI * 2) / 8;
+  const ex = g.cx + g.radius * Math.cos(expectedAngle);
+  const ey = g.cy + g.radius * Math.sin(expectedAngle);
+  const p = bitPositionRotated(0, g, 1);
+  assert.ok(Math.abs(p.x - ex) < 1e-9, `x: got ${p.x}, expected ${ex}`);
+  assert.ok(Math.abs(p.y - ey) < 1e-9, `y: got ${p.y}, expected ${ey}`);
+});
+
+// ---- readingIndexAt --------------------------------------------------------
+
+test("readingIndexAt — pre-step (0): bit 0 sits at top by convention", () => {
+  // Initial pose has bit 0 at angle -π/2 (top), so before any rotation the
+  // pointer reads bit 0.
+  assert.equal(readingIndexAt(0, 8), 0);
+});
+
+test("readingIndexAt — 1 step CCW puts bit 1 under the pointer", () => {
+  // CCW rotation by stepAngle moves the bit originally at upper-RIGHT
+  // (logical index 1, angle -π/2 + 2π/length) up to the top slot. So
+  // after k steps, the bit at the pointer has logical index `k mod length`.
+  assert.equal(readingIndexAt(1, 8), 1);
+  assert.equal(readingIndexAt(2, 8), 2);
+  assert.equal(readingIndexAt(7, 8), 7);
+});
+
+test("readingIndexAt — wraps with period length", () => {
+  // host.position is monotonic and never resets except on transport
+  // start/seed, so the index calculation must wrap cleanly for arbitrarily
+  // large counters.
+  for (let k = 0; k < 8; k++) {
+    assert.equal(readingIndexAt(k + 8, 8), readingIndexAt(k, 8));
+    assert.equal(readingIndexAt(k + 16, 8), readingIndexAt(k, 8));
+  }
+});
+
+test("readingIndexAt — large cumulativeSteps stays in [0, length)", () => {
+  // Defensive: a long-running session can push position into the thousands.
+  // The result must remain a valid bit index with no off-by-one drift.
+  for (const k of [100, 1000, 12345]) {
+    const idx = readingIndexAt(k, 8);
+    assert.ok(idx >= 0 && idx < 8, `out-of-range: k=${k} idx=${idx}`);
+  }
+});
+
+test("readingIndexAt — degenerate length=0 returns -1", () => {
+  // Bridge can momentarily emit an empty register on init/length-shrink;
+  // the renderer queries readingIndexAt during paint and must not throw.
+  assert.equal(readingIndexAt(0, 0), -1);
+});
+
+// ---- pointerTip ------------------------------------------------------------
+
+test("pointerTip — sits above outermost dot edge by POINTER_GAP+HEIGHT", () => {
+  // Vertical position derives from radius + bitRadius (bottom of dot at
+  // top of ring) + POINTER_GAP (padding) + POINTER_HEIGHT (triangle height).
+  // The tip is the apex; the base sits at tip.y + POINTER_HEIGHT.
+  const g = computeGeometry(200, 200, 8);
+  const tip = pointerTip(g);
+  assert.equal(tip.x, g.cx);
+  assert.equal(
+    tip.y,
+    g.cy - g.radius - g.bitRadius - POINTER_GAP - POINTER_HEIGHT,
+  );
+});
+
+test("pointerTip — sits clear of the bit dot at top", () => {
+  // Sanity: tip plus full triangle height must not overlap the top dot's
+  // upper edge. Otherwise the pointer would visually fuse with the dot.
+  const g = computeGeometry(200, 200, 8);
+  const tip = pointerTip(g);
+  const topDotUpperEdge = g.cy - g.radius - g.bitRadius;
+  assert.ok(tip.y + POINTER_HEIGHT <= topDotUpperEdge);
+});
+
+test("POINTER_HALF_WIDTH stays positive (renderer expects a triangle)", () => {
+  // Renderer draws a triangle from (tip) to (cx ± POINTER_HALF_WIDTH, base).
+  // A zero or negative width would degenerate to a line; verify the constant
+  // expresses a real triangle.
+  assert.ok(POINTER_HALF_WIDTH > 0);
+});
+
+// ---- hitTestRotated --------------------------------------------------------
+
+test("hitTestRotated — clicking the rotated visual position returns the LOGICAL bit index", () => {
+  // After rotation, the user clicks at the on-screen location of bit 3
+  // post-rotation; setBit must target logical index 3, not whatever bit
+  // currently happens to sit at the unrotated slot 3. Otherwise the user
+  // toggles a bit different from the one they pressed.
+  const g = computeGeometry(200, 200, 8);
+  for (const k of [0, 1, 4, 7, 100]) {
+    for (let i = 0; i < 8; i++) {
+      const p = bitPositionRotated(i, g, k);
+      assert.equal(
+        hitTestRotated(p.x, p.y, g, k),
+        i,
+        `cumulativeSteps=${k}, idx=${i}: hit-test must return logical idx`,
+      );
+    }
+  }
+});
+
+test("hitTestRotated — empty space returns -1 regardless of rotation", () => {
+  const g = computeGeometry(200, 200, 8);
+  for (const k of [0, 3, 7]) {
+    assert.equal(hitTestRotated(g.cx, g.cy, g, k), -1, `center, k=${k}`);
+    assert.equal(hitTestRotated(0, 0, g, k), -1, `corner, k=${k}`);
+  }
 });
 
 // ---- hitTest ---------------------------------------------------------------

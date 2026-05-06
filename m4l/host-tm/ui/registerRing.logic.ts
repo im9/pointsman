@@ -23,6 +23,16 @@ export const BIT_GAP = 2;
 // Padding between the canvas edge and the outermost dot edge.
 export const CANVAS_MARGIN = 4;
 
+// Gap between the outer edge of the bit dot and the tip of the fixed
+// pointer triangle drawn at the top of the ring (revolver model).
+export const POINTER_GAP = 4;
+
+// Pointer triangle base half-width and height in px. Mirrors inboil
+// TuringSheet.svelte polygon "points={cx},{cy-R-bitR-10} {cx-3},{cy-R-bitR-5} {cx+3},{cy-R-bitR-5}"
+// scaled to our ring (10/5 → POINTER_HEIGHT/POINTER_GAP, 3 → POINTER_HALF_WIDTH).
+export const POINTER_HALF_WIDTH = 3;
+export const POINTER_HEIGHT = 6;
+
 export interface RingModel {
   bits: Bit[];
   readHead: number;
@@ -81,6 +91,73 @@ export function bitPosition(index: number, geometry: RingGeometry): Point {
     x: geometry.cx + geometry.radius * Math.cos(angle),
     y: geometry.cy + geometry.radius * Math.sin(angle),
   };
+}
+
+// Revolver model (ADR 003 §TM register ring): the bit ring rotates CCW
+// by `cumulativeSteps * (2π/length)` while a fixed pointer marks the read
+// position at top. CCW matches the engine's shift direction
+// (`register >>> 1` moves indices DOWN, so the consumed bit flows away
+// from the pointer in the CCW direction). cumulativeSteps is the host's
+// monotonic position counter (host.position), passed through unchanged
+// via the bridge's `ringHead` outlet.
+export function bitPositionRotated(
+  index: number,
+  geometry: RingGeometry,
+  cumulativeSteps: number,
+): Point {
+  const stepAngle = (Math.PI * 2) / geometry.length;
+  const angle =
+    (index / geometry.length) * Math.PI * 2 -
+    Math.PI / 2 -
+    cumulativeSteps * stepAngle;
+  return {
+    x: geometry.cx + geometry.radius * Math.cos(angle),
+    y: geometry.cy + geometry.radius * Math.sin(angle),
+  };
+}
+
+// Tip of the fixed pointer triangle at the top of the ring. The triangle
+// itself is drawn by the renderer between (tip) and the two base points
+// at (cx ± POINTER_HALF_WIDTH, tip.y + POINTER_HEIGHT).
+export function pointerTip(geometry: RingGeometry): Point {
+  return {
+    x: geometry.cx,
+    y:
+      geometry.cy -
+      geometry.radius -
+      geometry.bitRadius -
+      POINTER_GAP -
+      POINTER_HEIGHT,
+  };
+}
+
+// Logical bit index whose dot currently sits under the fixed top pointer
+// after CCW rotation by `cumulativeSteps`. With CCW rotation, the bit at
+// the top has index `cumulativeSteps mod length` (each step advances the
+// pointer-bit by 1).
+export function readingIndexAt(
+  cumulativeSteps: number,
+  length: number,
+): number {
+  if (length <= 0) return -1;
+  const k = Math.floor(cumulativeSteps);
+  return ((k % length) + length) % length;
+}
+
+export function hitTestRotated(
+  x: number,
+  y: number,
+  geometry: RingGeometry,
+  cumulativeSteps: number,
+): number {
+  const r2 = geometry.bitRadius * geometry.bitRadius;
+  for (let i = 0; i < geometry.length; i++) {
+    const p = bitPositionRotated(i, geometry, cumulativeSteps);
+    const dx = x - p.x;
+    const dy = y - p.y;
+    if (dx * dx + dy * dy <= r2) return i;
+  }
+  return -1;
 }
 
 export function hitTest(x: number, y: number, geometry: RingGeometry): number {

@@ -21,6 +21,7 @@ import {
   type HostParams,
   type NoteEvent,
   type Subdivision,
+  type TmMode,
   type TriggerMode,
 } from "./host.ts";
 
@@ -48,6 +49,7 @@ const SUBDIVISIONS: readonly Subdivision[] = [
   "16T",
 ];
 const TRIGGER_MODES: readonly TriggerMode[] = ["auto", "gate", "seed"];
+const TM_MODES: readonly TmMode[] = ["note", "gate", "velocity"];
 
 // EMA factor for msPerStep estimate. Same shape as oedipa's bridge: weight
 // the running estimate 0.7, the latest sample 0.3 — smooths jitter from
@@ -86,9 +88,17 @@ export class TmBridge {
     if (!Number.isFinite(pos)) return;
     this.recordStepTiming(pos);
     const events = this.host.step(pos);
+    // Active flag is "did the step emit a noteOn?" — derived from events
+    // rather than re-running the bit-tap formula here, so the flash always
+    // matches what the user actually hears.
+    const wasActive = events.some((e) => e.type === "noteOn");
     for (const ev of events) this.dispatch(ev);
-    this.emitRegister();
+    // Mode A (ADR 003 §TM register ring): the visualization shows the
+    // initial register snapshot rotating. Per-step `register` emit would
+    // make jsui's `bits[]` jump under us. Lifecycle-only emits live in
+    // transportStart / setBit / setParam(length|seed) / noteIn-seed.
     this.emitPosition();
+    this.emitTriggerFlash(wasActive);
   }
 
   setBit(index: number, value: number): void {
@@ -191,6 +201,12 @@ export class TmBridge {
         events = this.host.setParam("triggerMode", v as TriggerMode);
         break;
       }
+      case "mode": {
+        const v = String(value);
+        if (!TM_MODES.includes(v as TmMode)) return;
+        events = this.host.setParam("mode", v as TmMode);
+        break;
+      }
       case "inputChannel": {
         const v = Number(value);
         if (!Number.isInteger(v) || v < 0 || v > 16) return;
@@ -269,6 +285,13 @@ export class TmBridge {
     const bits: number[] = [];
     for (let i = 0; i < len; i++) bits.push((reg >>> i) & 1);
     this.deps.emitOutlet("register", ...bits);
+  }
+
+  // ADR 003 §Active-step flash: visual flash overlay synced with audible
+  // trigger. Emitted every step (1 = noteOn fired, 0 = silent) so the
+  // renderer can deterministically clear in-flight flash without timeouts.
+  private emitTriggerFlash(active: boolean): void {
+    this.deps.emitOutlet("triggerFlash", active ? 1 : 0);
   }
 
   private emitPosition(): void {

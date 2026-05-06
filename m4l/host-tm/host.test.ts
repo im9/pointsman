@@ -96,12 +96,179 @@ test("step matches tm_step vector trace (lock=1.0 perfect loop)", () => {
 });
 
 test("step density=0 — no events, but rng still advances", () => {
+  // seed=1 length=8 register = 0xe4 (binary 11100100), bit0 = 0. Under
+  // bit-tap (ADR 003 §TM register ring): bit0=0 + density=0 → silent.
   const host = makeHost({ seed: 1, length: 8, density: 0.0 });
   const reg0 = host.getRegister();
+  assert.equal(reg0 & 1, 0, "precondition: seed=1 register has bit0=0");
   const events = host.step(0);
   assert.equal(events.length, 0);
   // Register advanced (auto mode shiftAndFlip ran)
   assert.notEqual(host.getRegister(), reg0);
+});
+
+// ── ADR 003 §TM register ring — bit-tap active ───────────────────────────────
+
+test("bit-tap: bit0=1 fires regardless of density (on-bit always active)", () => {
+  // ADR 003 spec: a bit shown as `1` at the pointer MUST fire. density=0
+  // would suppress under the old rng-based gate; bit-tap overrides.
+  const host = makeHost({ seed: 1, length: 8, density: 0.0, lock: 1.0 });
+  host.setBit(0, 1); // force bit0 = 1
+  const events = host.step(0);
+  const noteOns = events.filter((e) => e.type === "noteOn");
+  assert.equal(noteOns.length, 1, "bit0=1 with density=0 must still fire");
+});
+
+test("bit-tap: bit0=0 + density=0 silent (off-bit, no random fill)", () => {
+  // ADR 003: off-bit fires with probability density. density=0 → no fill.
+  const host = makeHost({ seed: 1, length: 8, density: 0.0, lock: 1.0 });
+  host.setBit(0, 0); // force bit0 = 0
+  const events = host.step(0);
+  const noteOns = events.filter((e) => e.type === "noteOn");
+  assert.equal(noteOns.length, 0, "bit0=0 + density=0 must be silent");
+});
+
+test("bit-tap: bit0=0 + density=1 fires via random fill (off-bit fill)", () => {
+  // ADR 003: density=1 → off-bits always fire (full random fill). Combined
+  // with bit-tap on-bits, every step triggers.
+  const host = makeHost({ seed: 1, length: 8, density: 1.0, lock: 1.0 });
+  host.setBit(0, 0); // force bit0 = 0
+  const events = host.step(0);
+  const noteOns = events.filter((e) => e.type === "noteOn");
+  assert.equal(noteOns.length, 1, "bit0=0 + density=1 fires via fill");
+});
+
+test("bit-tap: bit0=1 + density=0.5 always fires (precedence)", () => {
+  // bit-tap takes precedence over density: an on-bit MUST fire regardless
+  // of the density draw outcome. Run a few steps; every one is active.
+  const host = makeHost({
+    seed: 1,
+    length: 8,
+    density: 0.5,
+    lock: 1.0, // freeze register so bit0 stays 1 across cycle
+    rangeLo: 60,
+    rangeHi: 60, // single-note range for simplicity
+  });
+  host.setBit(0, 1);
+  // With lock=1 the register cycles; bit0 may or may not stay 1 across
+  // steps depending on the cycle. Just verify the FIRST step (where we
+  // forced bit0=1) fires.
+  const events = host.step(0);
+  const noteOns = events.filter((e) => e.type === "noteOn");
+  assert.equal(noteOns.length, 1);
+});
+
+// ── ADR 003 §TM output mode (host-layer dispatch) ────────────────────────────
+
+test("default mode is 'note' — pitch from regValue, velocity = outputVelocity", () => {
+  // Default mode preserves legacy behavior: mapToNote(regValue, range) +
+  // static velocity from outputVelocity.
+  assert.equal(DEFAULT_PARAMS.mode, "note");
+  const host = makeHost({
+    seed: 1,
+    length: 8,
+    lock: 1.0,
+    density: 1.0,
+    rangeLo: 60,
+    rangeHi: 72,
+    outputVelocity: 100,
+    mode: "note",
+  });
+  host.setBit(0, 1);
+  const events = host.step(0);
+  const noteOn = events.find((e) => e.type === "noteOn");
+  assert.ok(noteOn);
+  assert.equal(noteOn.velocity, 100);
+  // Pitch is in [60, 72] (range)
+  assert.ok(noteOn.pitch >= 60 && noteOn.pitch <= 72);
+});
+
+test("mode='gate' — pitch fixed at midpoint of range, velocity = outputVelocity", () => {
+  // ADR 003: gate mode pins pitch to midpoint of [rangeLo, rangeHi].
+  const host = makeHost({
+    seed: 1,
+    length: 8,
+    lock: 1.0,
+    density: 1.0,
+    rangeLo: 60,
+    rangeHi: 72,
+    outputVelocity: 100,
+    mode: "gate",
+  });
+  host.setBit(0, 1);
+  const events = host.step(0);
+  const noteOn = events.find((e) => e.type === "noteOn");
+  assert.ok(noteOn);
+  assert.equal(noteOn.pitch, Math.floor((60 + 72) / 2)); // 66
+  assert.equal(noteOn.velocity, 100);
+});
+
+test("mode='velocity' — pitch from regValue, velocity scaled by regFraction", () => {
+  // ADR 003: velocity mode maps regValue to MIDI via the inboil curve
+  //   v_norm = 0.3 + frac * 0.7   (inboil 0.3..1.0)
+  //   v_midi = floor(v_norm * outputVelocity)
+  // Uses outputVelocity as the cap so users can set a ceiling.
+  const host = makeHost({
+    seed: 1,
+    length: 8,
+    lock: 1.0,
+    density: 1.0,
+    rangeLo: 60,
+    rangeHi: 72,
+    outputVelocity: 100,
+    mode: "velocity",
+  });
+  // Set the register so its fraction is predictable. With length=8,
+  // an all-zero register (after setBit clears) has frac=0 → vel=30.
+  for (let i = 0; i < 8; i++) host.setBit(i, 0);
+  host.setBit(0, 1); // bit0=1, register=0x01, frac = 1/255
+  const events = host.step(0);
+  const noteOn = events.find((e) => e.type === "noteOn");
+  assert.ok(noteOn);
+  // frac = 1/255 ≈ 0.00392; v_norm = 0.3 + 0.00392 * 0.7 ≈ 0.30274
+  // v_midi = floor(0.30274 * 100) = 30
+  assert.equal(noteOn.velocity, 30);
+  // Pitch from regValue (small frac → near rangeLo)
+  assert.equal(noteOn.pitch, 60);
+});
+
+test("mode='velocity' — all-ones register gives velocity = outputVelocity", () => {
+  // frac = 1.0 (all bits set) → v_norm = 1.0 → v_midi = outputVelocity
+  const host = makeHost({
+    seed: 1,
+    length: 8,
+    lock: 1.0,
+    density: 1.0,
+    rangeLo: 60,
+    rangeHi: 72,
+    outputVelocity: 100,
+    mode: "velocity",
+  });
+  for (let i = 0; i < 8; i++) host.setBit(i, 1);
+  const events = host.step(0);
+  const noteOn = events.find((e) => e.type === "noteOn");
+  assert.ok(noteOn);
+  assert.equal(noteOn.velocity, 100);
+});
+
+test("setParam mode — updates dispatch behavior", () => {
+  // Switching mode during a session must take effect on the next step.
+  const host = makeHost({
+    seed: 1,
+    length: 8,
+    lock: 1.0,
+    density: 1.0,
+    rangeLo: 60,
+    rangeHi: 72,
+    outputVelocity: 100,
+    mode: "note",
+  });
+  host.setBit(0, 1);
+  host.setParam("mode", "gate");
+  const events = host.step(0);
+  const noteOn = events.find((e) => e.type === "noteOn");
+  assert.ok(noteOn);
+  assert.equal(noteOn.pitch, 66, "gate mode must use midpoint pitch");
 });
 
 test("step gate mode without held input — silent and frozen", () => {
@@ -330,29 +497,33 @@ test("setBit — value coerced to 0/1 (LSB only, like shiftAndForce)", () => {
   assert.equal(host.getRegister(), after1 & ~1);
 });
 
-test("setBit — does not advance rng (active-flag sequence matches baseline)", () => {
+test("setBit — does not advance rng (idempotent writes leave step trajectory unchanged)", () => {
   // RNG advance would shift the density / flip draws on subsequent step()
-  // calls. Run two hosts: one with setBit calls before stepping, one
-  // without. Collect the active-flag sequence (driven by the density draw
-  // — purely RNG-bound, register-independent). Sequences must match.
+  // calls. Under bit-tap the active flag depends on the register too, so
+  // we can't compare active flags between hosts with different bits. Use
+  // an idempotent-setBit baseline instead: host A writes each bit back to
+  // its current value (no-op effect on register), so any rng drift would
+  // come ONLY from setBit consuming draws. Step both hosts and compare
+  // register evolution — if rng matches, registers must too.
   const params: Partial<HostParams> = {
     seed: 1,
     length: 8,
-    density: 0.5, // mid-range so the draw splits roughly 50/50
-    lock: 0.7, // also varies, but flip outcome doesn't affect active-flag
+    density: 0.5,
+    lock: 0.7,
   };
   const a = makeHost(params);
   const b = makeHost(params);
-  a.setBit(3, 1);
-  a.setBit(0, 0);
-  a.setBit(7, 1);
-  const seqA: boolean[] = [];
-  const seqB: boolean[] = [];
-  for (let i = 0; i < 12; i++) {
-    seqA.push(a.step(i).some((e) => e.type === "noteOn"));
-    seqB.push(b.step(i).some((e) => e.type === "noteOn"));
+  const reg = a.getRegister();
+  for (let i = 0; i < 8; i++) {
+    a.setBit(i, ((reg >> i) & 1) as 0 | 1); // no-op write
   }
-  assert.deepEqual(seqA, seqB);
+  // After the no-op writes, register and rng must match between A and B.
+  assert.equal(a.getRegister(), b.getRegister(), "no-op setBit must not change register");
+  for (let i = 0; i < 12; i++) {
+    a.step(i);
+    b.step(i);
+    assert.equal(a.getRegister(), b.getRegister(), `step ${i}: register drift`);
+  }
 });
 
 test("setBit — independent of lock (no flip draw consumed)", () => {
