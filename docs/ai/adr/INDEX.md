@@ -32,15 +32,18 @@ only when relevant to the current task.
 ## M4L
 
 The M4L ADRs (002–004) defined the pre-split v1. ADR 005 splits the
-two devices into separate per-product repos; deferred verification +
-distribution items from 003 / 004 carry forward into ADR 006 (TM) and
-pointsman-002 (QT) per ADR 005 §Relationship to prior ADRs.
+two devices into separate per-product repos; deferred verification
+items from 003 / 004 land in ADR 006 (TM-side, this repo) and in
+`pointsman-002` (QT-side, authored in the new repo during ADR 005
+Phase 2). §Distribution items go to a separate per-product
+distribution ADR per ADR 005 §Relationship to prior ADRs.
 
 | #   | Title | Status | Notes |
 |-----|-------|--------|-------|
 | 002 | [M4L Architecture — Stencil TM + Stencil QT](archive/002-m4l-architecture.md) | Implemented | Two-device topology; per-device host/patcher/engine layering; live.* parameters; MIDI I/O & triggerMode; QT humanize layer; state ownership. Host code complete 2026-05-02 (125 unit tests). |
 | 003 | [M4L UI Design — Stencil TM / Stencil QT](archive/003-m4l-ui-design.md) | Implemented | Double-height canvas; live.* params + 2 jsui widgets per device (TM clickable bit ring, QT pulse-animated scale keyboard); inboil visual identity; logic/renderer split. §Verification manual-Live items deferred to ADR 006 (TM) / pointsman-002 (QT) per ADR 005. |
 | 004 | [M4L Bake & Distribution](archive/004-m4l-bake-distribution.md) | Implemented | Bake script + bare-sibling path conventions + abs-path / external-ref guard tests shipped. argv parameterization obsoleted post-split (replaced per-repo by ADR 005 Phase 2/3). §Distribution items move to per-product distribution ADRs. |
+| 006 | [Stencil m4l v1 — release verification](006-m4l-release-verification.md) | Proposed | Manual-Live verification gate for Stencil m4l v1: live.* surface coverage, rendering at multiple UI scales / themes, TM bit-ring jsui interaction, TM smoke (trigger × output modes), transport behavior, bake artifact hygiene. Carries forward TM-side §Verification (ADR 003) + TM-side §Bake outputs (ADR 004); QT-side handoff happens in pointsman-002 during ADR 005 Phase 2. |
 
 ## VST
 

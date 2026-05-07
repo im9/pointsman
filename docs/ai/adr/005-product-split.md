@@ -310,7 +310,7 @@ inside earlier checklists.
 - [x] [CLAUDE.md](../../../CLAUDE.md) — update §Targets, §Layout,
       §Build to reflect single-product (TM-only) state of this repo.
       Pointsman's `CLAUDE.md` is authored separately in Phase 2.
-- [ ] [docs/ai/adr/INDEX.md](INDEX.md) — flip ADR 003 / ADR 004 to
+- [x] [docs/ai/adr/INDEX.md](INDEX.md) — flip ADR 003 / ADR 004 to
       *Implemented* and move both files to `archive/`. Add ADR 006
       row (the ADR 005 row is already present).
 
@@ -348,11 +348,19 @@ duration of this phase — no edits to the source repo.
       `pointsman/docs/ai/concept.md` to QT (drop TM sections; retain
       shared MIDI semantics and humanize content).
 - [ ] Replace `pointsman/docs/ai/adr/`: `git rm` the cloned-from-Stencil
-      ADRs (001 / 002 / 003 / 004 / 005 and the archive). Author
+      ADRs (001 / 002 / 003 / 004 / 005 / 006 and the archive). Author
       `pointsman/docs/ai/adr/001-pointsman-base.md` carrying forward
       QT-relevant content from Stencil's archived ADRs 002 (§Stencil QT)
-      and 003 (§QT scale keyboard, §QT quantize mode, §Visual identity,
-      QT §Verification). Author the new `INDEX.md`.
+      and 003 (§QT scale keyboard, §QT quantize mode, §Visual identity).
+      Author `pointsman/docs/ai/adr/002-pointsman-release.md` as the
+      symmetric ADR to Stencil's [ADR 006](006-m4l-release-verification.md),
+      carrying forward QT-side items from archived ADR 003 §Verification
+      (QT scale keyboard, QT keyboard click [x], QT mode = scale / chord
+      / harmony, QT controlChannel) and from archived ADR 004 (§Bake
+      outputs: bake produces Pointsman.amxd, Pointsman.amxd loads in
+      Live, QT smoke, transport hung-notes; §Distribution: channel,
+      screenshot, audio demo Pointsman solo, description copy, upload).
+      Author the new `INDEX.md`.
 - [ ] Simplify `pointsman/m4l/scripts/maxpat-to-amxd.mjs` to
       single-product shape (no argv; fixed I/O `Pointsman.maxpat` →
       `Pointsman.amxd`). Update guard tests; collapse `bake:tm` /
