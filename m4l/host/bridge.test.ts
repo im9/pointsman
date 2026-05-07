@@ -1,4 +1,4 @@
-// Tests for host-qt/bridge.ts — Max protocol layer.
+// Tests for host/bridge.ts — Max protocol layer.
 //
 // Pattern mirrors host-tm/bridge.test.ts: BridgeDeps faked with recorders
 // so we assert against captured emit / schedule calls. No Max API, no
@@ -60,7 +60,7 @@ function makeFakeDeps(): {
 test("constructor — does NOT emit ready (entry-script responsibility); emits initial scaleChanged", () => {
   const f = makeFakeDeps();
   new QtBridge(f.deps);
-  // ADR 003 §Ready handshake: 'ready' MUST be emitted by stencil-qt.mjs
+  // ADR 003 §Ready handshake: 'ready' MUST be emitted by pointsman.mjs
   // AFTER every Max.addHandler() install. Emitting from the bridge
   // constructor races handler installation and the patcher's setParam
   // dispatches drop with "Node script not ready". The constructor still

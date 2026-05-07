@@ -77,30 +77,40 @@ Items prefixed `[x]` are complete. Items prefixed `[ ]` remain.
 - [x] `git submodule update --init --recursive` (materialize the
       JUCE submodule)
 - [x] Provision GitHub private repo `im9/pointsman`
-- [ ] Replace `pointsman/.git/config` `[remote "origin"]` URL
+- [x] Replace `pointsman/.git/config` `[remote "origin"]` URL
       (currently points at `/Users/tn/src/vst/stencil` from the
       local clone) with the GitHub URL for `im9/pointsman`
-- [ ] `git push -u origin main` — initial seed push of the
+- [x] `git push -u origin main` — initial seed push of the
       cloned + this-session state to GitHub
 
 ### 2. Rename surface (m4l/)
 
-- [ ] Rename `m4l/Stencil-QT.maxpat` → `m4l/Pointsman.maxpat`
-- [ ] Rename `m4l/stencil-qt.mjs` → `m4l/pointsman.mjs`; update
+- [x] Rename `m4l/Stencil-QT.maxpat` → `m4l/Pointsman.maxpat`
+- [x] Rename `m4l/stencil-qt.mjs` → `m4l/pointsman.mjs`; update
       its internal `host-qt/dist/` references to `host/dist/`
-- [ ] Update the patcher's `[node.script]` `filename` attribute
+- [x] Update the patcher's `[node.script]` `filename` attribute
       to `pointsman.mjs`
-- [ ] Rename `m4l/host-qt/` → `m4l/host/`
-- [ ] Update `m4l/host/package.json` `name`: `@stencil/host-qt`
+- [x] Rename `m4l/host-qt/` → `m4l/host/`
+- [x] Update `m4l/host/package.json` `name`: `@stencil/host-qt`
       → `@pointsman/host`
-- [ ] Update `m4l/host/tsconfig.json` paths to reflect the
-      rename
-- [ ] Update relative imports inside `m4l/host/` (sibling
-      package references, etc.)
-- [ ] Update workspace-root `m4l/package.json` `name`:
+- [x] Update `m4l/host/tsconfig.json` paths to reflect the
+      rename (no path-string changes needed: `rootDir: "../"`
+      and bare `host.ts` includes already resolve correctly
+      after the directory rename)
+- [x] Update relative imports inside `m4l/host/` (sibling
+      package references, etc.) — none required; comments
+      referencing `host-qt`/`stencil-qt.mjs` were updated for
+      consistency
+- [x] Update workspace-root `m4l/package.json` `name`:
       `@stencil/m4l` → `@pointsman/m4l`
-- [ ] Edit `m4l/pnpm-workspace.yaml`: drop the `host-tm` entry
+- [x] Edit `m4l/pnpm-workspace.yaml`: drop the `host-tm` entry
       and rename `host-qt` → `host`
+- [x] Rename `m4l/engine/package.json` `name`: `@stencil/engine`
+      → `@pointsman/engine` (added: per CLAUDE.md target
+      package layout)
+- [x] Rename `m4l/scripts/package.json` `name`:
+      `@stencil/scripts` → `@pointsman/scripts` (added: same
+      reason)
 
 ### 3. RNG extract (m4l/engine/)
 

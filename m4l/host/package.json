@@ -1,0 +1,13 @@
+{
+  "name": "@pointsman/host",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "M4L host layer for Pointsman. Snaps incoming MIDI to scale via the Quantizer engine and applies the humanize layer (velocity, gate, timing, drift). Loaded by [node.script] in Pointsman.amxd via pointsman.mjs; unit-tested standalone under node --test.",
+  "main": "./dist/host/host.js",
+  "scripts": {
+    "test": "node --test",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  }
+}

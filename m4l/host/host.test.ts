@@ -1,4 +1,4 @@
-// Tests for host-qt/host.ts — pure logic per ADR 002 §Stencil QT.
+// Tests for host/host.ts — pure logic per ADR 002 §Stencil QT.
 //
 // Mirrors the host-tm test layout: state-machine tests, no Max API, no
 // timers. nowMs is injected per noteIn call so tests deliver deterministic

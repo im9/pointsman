@@ -1,9 +1,9 @@
 {
-  "name": "@stencil/scripts",
+  "name": "@pointsman/scripts",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Bake pipeline for Stencil M4L (.maxpat -> .amxd) and patcher guard tests. Per ADR 004.",
+  "description": "Bake pipeline for Pointsman M4L (.maxpat -> .amxd) and patcher guard tests.",
   "scripts": {
     "test": "node --test",
     "build": "echo 'no build for scripts package'",

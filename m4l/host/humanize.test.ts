@@ -1,4 +1,4 @@
-// Tests for host-qt/humanize.ts — pure layer per ADR 002 §QT humanize.
+// Tests for host/humanize.ts — pure layer per ADR 002 §QT humanize.
 // Spec: docs/ai/adr/002-m4l-architecture.md
 //
 // Threshold derivation rule (CLAUDE.md global): every numeric assertion

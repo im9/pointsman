@@ -1,14 +1,14 @@
-// Stencil QT n4m entry. Thin wrapper over QtBridge — wires the Max API
+// Pointsman n4m entry. Thin wrapper over QtBridge — wires the Max API
 // (Max.outlet, Max.addHandler, Date.now, setTimeout) into the bridge's
 // injected deps. No musical logic lives here.
 //
 // Path conventions (flat, m4l/ root):
-// - This file MUST live at `m4l/stencil-qt.mjs` (NOT under host-qt/),
+// - This file MUST live at `m4l/pointsman.mjs` (NOT under host/),
 //   because Max [node.script]'s `filename` attribute does not reliably
 //   resolve subdirectory paths in M4L presentation view. Same constraint
 //   as Max [jsui], which is why `scaleKeyboard.jsui.js` is also at the
-//   m4l/ root. (See ADR 004 §Patcher path conventions.)
-// - The compiled bridge dist still lives under `host-qt/dist/host-qt/`,
+//   m4l/ root.
+// - The compiled bridge dist still lives under `host/dist/host/`,
 //   imported relatively from this entry — `import "./..."` paths inside
 //   the .mjs are resolved by Node, not by Max, so subdirs work.
 //
@@ -46,9 +46,9 @@
 //     notePulse <pitch> <velocity>         per quantized noteOn (lockstep)
 
 import Max from "max-api";
-import { QtBridge } from "./host-qt/dist/host-qt/bridge.js";
+import { QtBridge } from "./host/dist/host/bridge.js";
 
-Max.post("stencil qt: stencil-qt.mjs loaded");
+Max.post("pointsman: pointsman.mjs loaded");
 
 const bridge = new QtBridge({
   emitNote: (pitch, velocity, channel) =>

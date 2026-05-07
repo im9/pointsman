@@ -21,7 +21,7 @@ export type ScaleName =
   | "chromatic-half";
 
 // Exported so the QT scale-keyboard renderer's mirror test
-// (host-qt/ui/scaleKeyboard.mirror.test.ts) can verify the renderer's
+// (host/ui/scaleKeyboard.mirror.test.ts) can verify the renderer's
 // hand-mirrored copy matches this canonical table.
 export const SCALE_INTERVALS: Record<Exclude<ScaleName, "chromatic-half">, number[]> = {
   major: [0, 2, 4, 5, 7, 9, 11],
@@ -77,7 +77,7 @@ export function snapToScale(note: MidiNote, pitches: MidiNote[]): MidiNote {
   return dDn <= dUp ? lower : upper; // tie → lower
 }
 
-// ---- Harmony types (used by host-qt mode == 'harmony') ------------------
+// ---- Harmony types (used by host mode == 'harmony') ------------------
 
 export type HarmonyDirection = "above" | "below";
 export type HarmonyInterval = 3 | 4 | 5 | 6;

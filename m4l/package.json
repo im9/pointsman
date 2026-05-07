@@ -1,9 +1,9 @@
 {
-  "name": "@stencil/m4l",
+  "name": "@pointsman/m4l",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Stencil M4L target — pnpm workspace root for engine, host-tm, and host-qt packages.",
+  "description": "Pointsman M4L target — pnpm workspace root for engine, host, and scripts packages.",
   "scripts": {
     "build": "pnpm -r build",
     "test": "pnpm -r test",
