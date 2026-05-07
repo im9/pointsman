@@ -303,11 +303,11 @@ inside earlier checklists.
 
 ### Phase 1 — docs alignment (this repo)
 
-- [ ] [docs/ai/concept.md](../concept.md) — replace `Stencil TM` /
+- [x] [docs/ai/concept.md](../concept.md) — replace `Stencil TM` /
       `Stencil QT` references with `Stencil` / `Pointsman`. Update
       §Topology header and prose. Pointsman's `concept.md` is
       authored separately in Phase 2 with the same naming.
-- [ ] [CLAUDE.md](../../../CLAUDE.md) — update §Targets, §Layout,
+- [x] [CLAUDE.md](../../../CLAUDE.md) — update §Targets, §Layout,
       §Build to reflect single-product (TM-only) state of this repo.
       Pointsman's `CLAUDE.md` is authored separately in Phase 2.
 - [ ] [docs/ai/adr/INDEX.md](INDEX.md) — flip ADR 003 / ADR 004 to

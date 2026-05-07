@@ -1,40 +1,48 @@
 # Concept
 
-Stencil is a probabilistic MIDI sequence generator and scale quantizer. It
-ports two generators from [inboil](https://github.com/im9/inboil) — a Music
+Stencil and Pointsman together port two generators from
+[inboil](https://github.com/im9/inboil) into DAW-native form: a Music
 Thing-style **Turing Machine** (looping shift register that mutates under
 user-controlled stability) and a **Quantizer** (scale-locked snap on note
-input) — into DAW-native form.
+input). Per [ADR 005](adr/005-product-split.md), each generator ships as
+its own product from its own repository — **Stencil** is the TM product
+(this repo); **Pointsman** is the QT product
+([~/src/vst/pointsman/](../../../pointsman/)).
 
 This document describes the **musical model** — the parts that are shared
-across all targets (`m4l/`, `vst/`). Target-specific UI and interaction
-design live in separate ADRs.
+across the two products and across each product's targets (`m4l/`,
+`vst/`). Per-product UI, parameter surface, and interaction design live
+in each product's own ADRs.
 
-## Topology — two devices, not one
+## Topology — two products, chained at the DAW
 
-In m4l, Stencil ships as **two separate devices**:
+Stencil and Pointsman are independent products that ship as single-purpose
+MIDI effects:
 
-- **Stencil TM** — emits MIDI notes from a probabilistic shift register
-- **Stencil QT** — snaps incoming MIDI notes to a chosen scale, with optional
-  humanize layer
+- **Stencil** — emits MIDI notes from a probabilistic shift register
+- **Pointsman** — snaps incoming MIDI notes to a chosen scale, with
+  optional humanize layer and chord/harmony modes
 
-The user chains them on a track (`Stencil TM → Stencil QT`) when they want
-scale-locked random melodies. Each device is also useful on its own:
+The user chains them on a track (`Stencil → Pointsman`) when they want
+scale-locked random melodies. Each product is also useful on its own:
 
-- **Stencil TM alone** — feed an unquantized random pitch stream into a synth
-  that has its own scale handling, or print the chromatic register output to
-  a clip and edit there.
-- **Stencil QT alone** — constrain any upstream MIDI source (Tonnetz walks,
-  arpeggiators, played input, MPE controllers) to a scale.
+- **Stencil alone** — feed an unquantized random pitch stream into a synth
+  that has its own scale handling (or into a sampler where one fixed pitch
+  per pad makes the shift register a probabilistic trigger pattern), or
+  print the chromatic register output to a clip and edit there.
+- **Pointsman alone** — constrain any upstream MIDI source (Tonnetz walks,
+  arpeggiators, played input, MPE controllers, chord clips) to a scale.
 
-This split mirrors inboil's mental model (TM and Quantizer were independent
-generative nodes connected by edges) and keeps each device's UI focused. The
-VST target may revisit this — combining into one plugin is a reasonable
-choice when device-chaining friction is higher (see ADR 002).
+This split mirrors inboil's mental model — TM and Quantizer were
+independent generative nodes connected by edges — and gives each product
+a single-purpose UI. ADR 005 §Architectural motivation records why VST
+follows the same per-product split rather than collapsing into one plugin
+(brand consistency with m4l, standalone discoverability, single-purpose
+UI focus).
 
-## What Stencil TM does
+## What Stencil does
 
-On each step of the host transport, Stencil TM:
+On each step of the host transport, Stencil:
 
 1. Reads the current **shift register** as an integer of `length` bits.
 2. Maps the register's value to a normalized fraction `0..1` and then to a
@@ -52,13 +60,14 @@ Intermediate values gradually mutate the loop: `lock = 0.95` is the classic
 "slowly evolving pattern" sweet spot.
 
 The musical intent is **a loop the user cannot fully author** — it emerges
-from initial randomness + lock and is steered, not written. This is why TM
-has no per-step program (cf. Oedipa's cells): the program *is* the register
-and the user shapes it by holding `lock` high during a section they like.
+from initial randomness + lock and is steered, not written. This is why
+Stencil has no per-step program (cf. Oedipa's cells): the program *is* the
+register and the user shapes it by holding `lock` high during a section
+they like.
 
-## What Stencil QT does
+## What Pointsman does
 
-On each incoming MIDI `noteOn`, Stencil QT:
+On each incoming MIDI `noteOn`, Pointsman:
 
 1. Computes the active scale pitches as MIDI numbers across the octave range,
    built from `(scale, root)`.
@@ -80,33 +89,37 @@ Fifteen presets matching inboil:
 `chromatic`, `chromatic-half` (last is a no-op identity for "passthrough
 within the device chain").
 
-### Chord and harmony modes — v2 territory
+### Chord and harmony modes
 
-inboil's QT had `chord` mode (snap to a per-step chord context) and
-`harmony` mode (output diatonic interval stacks). Both are out of scope for
-v1: `chord` mode requires an external chord source (in inboil, a Tonnetz
-node); `harmony` mode adds polyphony semantics. Revisit when the v1 surface
-is shipping cleanly.
+Pointsman ships three quantize modes — `scale` (snap to nearest scale
+degree), `chord` (snap to chord-tone with scale fallback), `harmony`
+(input plus diatonic voice stack). The chord context source is real-time
+MIDI on a control channel (held notes form the current chord) rather
+than an offline `chords[]` array; this collapses inboil's two
+chord-context paths (manual progression, Tonnetz coupling) into one
+input contract that any chord generator (clip, played, oedipa) can
+drive.
 
-## Composition — TM → QT chain
+## Composition — Stencil → Pointsman chain
 
 The intended primary use:
 
 ```
-[Stencil TM] -> [Stencil QT] -> [Synth]
+[Stencil] -> [Pointsman] -> [Synth]
 ```
 
-TM emits chromatic notes from `[lo, hi]`; QT snaps them to scale. The
-chain produces the canonical "Music Thing TM + Quantizer" sound.
+Stencil emits chromatic notes from `[lo, hi]`; Pointsman snaps them to
+scale. The chain produces the canonical "Music Thing TM + Quantizer"
+sound.
 
-Both devices are MIDI effects. Live's MIDI routing handles the chain — no
-internal IPC or shared state between devices. They communicate via MIDI
-notes, period.
+Both products are MIDI effects. The host's MIDI routing handles the
+chain — no internal IPC or shared state between products. They
+communicate via MIDI notes, period.
 
-## Per-event humanize (QT only)
+## Per-event humanize (Pointsman only)
 
-QT applies an optional **per-event humanize** layer to its output. Five
-parameters, defaults all `0` (off):
+Pointsman applies an optional **per-event humanize** layer to its output.
+Five parameters, defaults all `0` (off):
 
 - `humanizeVelocity` (`0..1`) — signed uniform noise on output velocity
 - `humanizeGate` (`0..1`) — signed uniform noise on gate length
@@ -116,12 +129,13 @@ parameters, defaults all `0` (off):
   independent draws (jittery), `1` = slow drift (breath)
 - `outputLevel` (`0..1`, default `1.0`) — global multiplier on output velocity
 
-Humanize lives in QT (not TM) because:
+Humanize lives in Pointsman (not Stencil) because:
 
-- TM's "register-driven note" is already a complete musical unit; perturbing
-  it before quantization muddies the lock semantic
-- QT is the natural place for "shape the note as it leaves the chain" —
-  whether the upstream is TM, Tonnetz, played input, or anything else
+- Stencil's "register-driven note" is already a complete musical unit;
+  perturbing it before quantization muddies the lock semantic
+- Pointsman is the natural place for "shape the note as it leaves the
+  chain" — whether the upstream is Stencil, Tonnetz, played input, or
+  anything else
 
 The draws are seeded (shared seed parameter) so a fixed `(seed, input
 sequence, params)` reproduces the same output bit-for-bit. Drift smoothing
@@ -129,34 +143,41 @@ maintains its EMA state per-axis, reset on transport stop.
 
 ## MIDI semantics
 
-Stencil is a MIDI effect family: each device consumes transport (clock +
-position) and emits MIDI notes. Sample-accurate timing against the host
-clock is expected on all targets.
+Stencil and Pointsman are both MIDI effects: each consumes transport
+(clock + position) and emits MIDI notes. Sample-accurate timing against
+the host clock is expected on all targets.
 
-### Stencil TM — input handling
+### Stencil — input handling
 
-`triggerMode` parameter controls how MIDI input affects the TM:
+`triggerMode` parameter controls how MIDI input affects Stencil:
 
-- `auto` (default) — TM advances on host transport; input is ignored
-- `gate` — TM only advances while a key is held; release stops the clock
-  (held register, no shift)
+- `auto` (default) — Stencil advances on host transport; input is ignored
+- `gate` — Stencil only advances while a key is held; release stops the
+  clock (held register, no shift)
 - `seed` — incoming `noteOn` writes a `1` bit at the head of the register
-  (the player "writes the program"). `noteOff` writes `0`. The user becomes
-  the bit source; `lock` no longer governs the head bit while the seed mode
-  is active.
+  (the player "writes the program"). `noteOff` writes `0`. The user
+  becomes the bit source; `lock` no longer governs the head bit while
+  the seed mode is active.
 
-`inputChannel` selects which channel TM listens to (default `0` = omni).
+`inputChannel` selects which channel Stencil listens to (default `0` =
+omni).
 
-### Stencil QT — input handling
+### Pointsman — input handling
 
-QT is fundamentally input-driven (it transforms incoming notes). Its
-`triggerMode` only chooses what role MIDI input plays beyond passthrough:
+Pointsman is fundamentally input-driven (it transforms incoming notes).
+Its `triggerMode` only chooses what role MIDI input plays beyond
+passthrough:
 
-- `passthrough` (default) — input notes are quantized and emitted; nothing
-  else
-- `root` — incoming `noteOn` (within a designated control channel/range, see
-  ADR 002) sets the QT `root` parameter live, allowing key changes from a
-  controller. Quantized passthrough still happens for non-control notes.
+- `passthrough` (default) — input notes are quantized and emitted;
+  nothing else
+- `root` — incoming `noteOn` (within a designated control channel/range,
+  see each target's ADRs) sets the Pointsman `root` parameter live,
+  allowing key changes from a controller. Quantized passthrough still
+  happens for non-control notes.
+
+When `mode = chord`, the control channel switches role: held notes form
+the current chord context (see §Chord and harmony modes), and the
+single-note `root` setter is suppressed for that channel.
 
 ### Note-off discipline
 
@@ -167,82 +188,59 @@ all channels) is required behavior, not optional.
 
 ### Polyphony / overlap
 
-TM is monophonic in v1 — one note per step. QT preserves the input's
-polyphony: if multiple notes arrive in the same processing block, all are
-quantized and emitted.
+Stencil is monophonic — one note per step. Pointsman preserves the
+input's polyphony: if multiple notes arrive in the same processing
+block, all are quantized and emitted.
 
 ### Transport
 
 State is reset on transport stop. Resuming from an arbitrary position
-recomputes the TM register evolution deterministically from `(seed, length,
-lock, position)` so the output is identical regardless of where playback
-begins. Seeded determinism is a core contract.
+recomputes the Stencil register evolution deterministically from
+`(seed, length, lock, position)` so the output is identical regardless
+of where playback begins. Seeded determinism is a core contract.
 
-## What Stencil is not
+## What these products are not
 
 Clarifying scope by exclusion:
 
-- **Not a step sequencer.** TM has no editable per-step pattern. The user
-  shapes the loop via `lock`, `length`, and `seed`, not by drawing notes.
-- **Not a chord generator.** TM emits monophonic notes. QT does not stack
-  intervals (no `harmony` mode in v1).
+- **Not a step sequencer.** Stencil has no editable per-step pattern.
+  The user shapes the loop via `lock`, `length`, and `seed`, not by
+  drawing notes.
 - **Not a generative synth.** No oscillators, no audio. MIDI only.
-- **Not a scene graph.** inboil embeds TM and QT as nodes in a broader
-  generative system. Stencil flattens this: each device does one thing.
-- **Not an unseeded random walker.** The bit evolution is reproducible for
-  fixed `(seed, length, lock, position)`.
+- **Not a scene graph.** inboil embeds TM and Quantizer as nodes in a
+  broader generative system. The split here flattens this: Stencil does
+  one thing (TM), Pointsman does one thing (quantize / harmony).
+- **Not an unseeded random walker.** Stencil's bit evolution is
+  reproducible for fixed `(seed, length, lock, position)`; Pointsman's
+  humanize draws are reproducible for fixed `(seed, input sequence,
+  params)`.
 
 ## Future extensions
 
-Deferred from v1 — listed so the v1 surface stays small and these don't get
-quietly designed-around.
-
-### TM — alternate output modes (`gate` / `velocity`)
-
-inboil's TM has three output modes; Stencil v1 ships only `note`:
-
-- **`gate`** — register fraction drives **gate length** instead of pitch;
-  the emitted note's pitch is fixed (midpoint of `range` or a separate
-  `gateNote` parameter), and `density` still controls active-step
-  probability. Use case: rhythmic articulation programs where the loop
-  modulates how *long* each step rings rather than *what* it plays.
-- **`velocity`** — register fraction drives **output velocity** in a
-  user-musical range (inboil uses `0.3..1.0`; for Stencil this should
-  probably map to `[velocityMin, velocityMax]` user parameters); pitch is
-  fixed. Use case: the register becomes a dynamic accent pattern.
-
-When (re-)introduced, the parameter would be `tmOutputMode: 'note' |
-'gate' | 'velocity'` with `note` remaining default. The fixed-pitch modes
-need a `gateNote` / `pitchCenter` parameter to specify the constant pitch.
-
-Likely sequencing: ship v1 with `note` only, watch how users play with
-`density` and `lock`, then revisit. If users are reaching for an external
-LFO or step sequencer to sculpt velocity dynamics, that's the signal that
-`velocity` mode earns its weight.
-
-### QT — chord and harmony modes
-
-`chord` mode (snap to a per-step chord context, e.g., from a Tonnetz upstream)
-and `harmony` mode (output diatonic interval stacks) — both inherited from
-inboil. See "Chord and harmony modes — v2 territory" above.
-
-### Other future surface
+Listed so the surface stays small and these don't get quietly
+designed-around. Stencil's TM output modes (`note` / `gate` / `velocity`,
+ADR 003) and Pointsman's quantize modes (`scale` / `chord` / `harmony`,
+ADR 003) are shipped — those are no longer "future".
 
 - **MPE output** — keep the note-emission abstraction loose enough that
   per-note pitch bend / pressure / timbre can be added without a rewrite.
 - **More scales** — microtonal, custom user scales (CSV / Scala import).
-- **Preset / slot system** — oedipa-style 4-slot preset bank with MIDI-
-  triggered recall; useful once the v1 surface is in real use.
-- **TM length sync to bar count** — currently `length` is in bits and the
-  loop length in time depends on `subdivision` × `length`. Consider a
-  "bars per loop" parameterization that internally derives `length`.
+- **Preset / slot system** — oedipa-style 4-slot preset bank with
+  MIDI-triggered recall; useful once each product is in real use.
+- **Stencil length sync to bar count** — currently `length` is in bits
+  and the loop length in time depends on `subdivision` × `length`.
+  Consider a "bars per loop" parameterization that internally derives
+  `length`.
+- **Pointsman pitch-class scale editing** — `scale` is currently an enum
+  of preset names; supporting a free pitch-class set (per-key toggle on
+  the keyboard) would generalize beyond the preset list.
 
 ## Parameter surface (canonical)
 
 Targets must expose this minimum set. Additional parameters (MIDI routing
 specifics, GUI-only state) may be added per target.
 
-### Stencil TM
+### Stencil
 
 | Parameter         | Type                          | Notes                                              |
 |-------------------|-------------------------------|----------------------------------------------------|
@@ -252,18 +250,20 @@ specifics, GUI-only state) may be added per target.
 | `density`         | float `0..1`                  | active-step probability (default `1.0`)            |
 | `subdivision`     | `8th \| 16th \| 32nd \| 8T \| 16T` | step unit; default `16th`                     |
 | `seed`            | int                           | RNG seed for reproducibility                       |
+| `mode`            | `note \| gate \| velocity`    | output mode; default `note`                        |
 | `triggerMode`     | `auto \| gate \| seed`        | input handling; default `auto`                     |
 | `inputChannel`    | int `0..16`                   | MIDI input channel; `0` = omni; default `0`        |
 | `outputVelocity`  | int `1..127`                  | output note velocity; default `100`                |
 | `outputGate`      | float `0..1`                  | gate length as fraction of step; default `0.5`     |
 
-### Stencil QT
+### Pointsman
 
 | Parameter         | Type                                                 | Notes                                              |
 |-------------------|------------------------------------------------------|----------------------------------------------------|
 | `scale`           | enum (15 names)                                       | scale preset; default `major`                      |
 | `root`            | int `0..11`                                          | root pitch class; default `0` (C)                  |
-| `mode`            | `scale` (v1)                                         | snap strategy; v1 has only `scale`                 |
+| `mode`            | `scale \| chord \| harmony`                          | snap strategy; default `scale`                     |
+| `harmonyVoices`   | `HarmonyVoice[]` (length 0..3)                       | diatonic voice stack used in `harmony` mode        |
 | `humanizeVelocity`| float `0..1`                                          | signed-noise amplitude on velocity                 |
 | `humanizeGate`    | float `0..1`                                          | signed-noise amplitude on gate                     |
 | `humanizeTiming`  | float `0..1`                                          | signed-noise amplitude on timing                   |
@@ -271,24 +271,27 @@ specifics, GUI-only state) may be added per target.
 | `outputLevel`     | float `0..1`                                          | global output velocity multiplier; default `1.0`   |
 | `triggerMode`     | `passthrough \| root`                                | input handling; default `passthrough`              |
 | `inputChannel`    | int `0..16`                                          | MIDI input channel; `0` = omni; default `0`        |
+| `controlChannel`  | int `0..16`                                          | control channel for root / chord context           |
 | `seed`            | int                                                  | RNG seed for humanize draws                        |
 
 ## Origin notes
 
-Stencil has two ancestors:
+Stencil and Pointsman have two ancestors:
 
-- **inboil's `generative.ts`** (see [`reference_inboil`](../../) memory and
-  CLAUDE.md) provided both algorithms — the shift register math, lock
-  semantics, scale presets, snap-to-nearest. inboil's scene graph,
-  multi-mode TM output (gate/velocity), and chord/harmony QT modes do not
-  carry over to v1.
+- **inboil's `generative.ts`** (see [`reference_inboil`](../../) memory
+  and each repo's CLAUDE.md) provided both algorithms — the shift
+  register math, lock semantics, scale presets, snap-to-nearest, multi-
+  mode TM output, and chord/harmony quantizer modes. inboil's scene
+  graph does not carry over: the products are flat MIDI effects, not
+  generative graph nodes.
 - **Music Thing Modular's [Turing Machine](https://musicthing.co.uk/Turing-Machine/)**
-  (Tom Whitwell, 2014) is the source of the algorithm itself: an 8-bit
-  shift register with a probability-controlled write-bit. Stencil generalizes
-  the length to `2..32` and parameterizes lock continuously, but the
-  musical intent (steered loop, not authored sequence) is identical.
+  (Tom Whitwell, 2014) is the source of the shift-register algorithm:
+  an 8-bit register with a probability-controlled write-bit. Stencil
+  generalizes the length to `2..32` and parameterizes lock continuously,
+  but the musical intent (steered loop, not authored sequence) is
+  identical.
 
-The TM + Quantizer pairing is a long-standing Eurorack idiom (Music Thing TM
-into Mutable Instruments Yarns or similar). Stencil is the DAW-native
-expression of that idiom, with humanize at the QT layer as the
-"shake-the-grid" element.
+The TM + Quantizer pairing is a long-standing Eurorack idiom (Music
+Thing TM into Mutable Instruments Yarns or similar). Stencil and
+Pointsman are the DAW-native expression of that idiom, with Pointsman's
+humanize layer as the "shake-the-grid" element.
