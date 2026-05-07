@@ -8,23 +8,16 @@ Rainbow* — the railway-pointsman metaphor (routing an incoming
 train to a discrete track) is exact for what a quantizer does
 (routing input pitch to a discrete scale degree).
 
-Pointsman is the QT-side product of the Stencil + Pointsman pair
-(see [stencil's ADR 005][stencil-adr-005]). The TM-side companion
-ships from `~/src/vst/stencil/`. The two are independent products;
-the canonical musical relationship is the `Stencil → Pointsman`
-MIDI chain.
-
-[stencil-adr-005]: https://github.com/im9/stencil/blob/main/docs/ai/adr/005-product-split.md
-
-> **Fork in progress.** This repository was just cloned from
-> `~/src/vst/stencil` at Stencil commit `dc00191` and has not yet
-> been transformed into proper Pointsman shape. The on-disk layout
-> still has the pre-migration dual-package structure (`host-tm/`
-> alongside `host-qt/`, `Stencil-{TM,QT}.{maxpat,amxd}`, both
-> engine modules) and the cloned Stencil ADR set. Migration is
-> tracked in [ADR 001](docs/ai/adr/001-pointsman-base.md) — execute
-> its checklist to bring this repo to the QT-only state described
-> below. Remove this callout once ADR 001 is Implemented.
+> **Migration in progress.** This repository was bootstrapped on
+> 2026-05-07 by cloning `~/src/vst/stencil` at commit `dc00191`.
+> The on-disk layout still has the pre-migration dual-package
+> structure (`host-tm/` alongside `host-qt/`,
+> `Stencil-{TM,QT}.{maxpat,amxd}`, both engine modules).
+> Migration is tracked in
+> [ADR 001](docs/ai/adr/001-pointsman-base.md) — execute its
+> checklist to bring this repo to the single-product state
+> described below. Remove this callout once ADR 001 is
+> Implemented.
 
 ## Targets
 
@@ -41,16 +34,13 @@ one another.
   standalone product.
 - `vst/` — **VST3 + AU MIDI Effect** plugin (C++17/JUCE).
   DAW-native, cross-platform. Ships as a standalone product
-  alongside m4l, on a slower cadence. Per Stencil ADR 005,
-  single-purpose MIDI Effect format (VST3 + AU); paired in the
-  DAW with Stencil's vst plugin for scale-locked chains.
+  alongside m4l, on a slower cadence. Single-purpose MIDI Effect
+  format (VST3 + AU).
 
 Core logic, parameter design, and ADRs are shared across this
 repo's targets via `docs/ai/`. Code is not shared between
 targets — each target is a ground-up implementation in its native
-stack. RNG primitives are also synchronized cross-repo with
-Stencil via `docs/ai/rng-test-vectors.json` per Stencil ADR 005
-§RNG sharing.
+stack.
 
 ## Origin
 
@@ -58,8 +48,7 @@ Generative engine extracted from
 [inboil](https://github.com/im9/inboil) (browser-based groove
 box). inboil's Quantizer generator lives in the scene graph as a
 generative node; Pointsman ships it as a single standalone
-DAW-native MIDI effect. The Turing Machine counterpart ships
-separately as Stencil per Stencil ADR 005.
+DAW-native MIDI effect.
 
 Key references in inboil:
 - `src/lib/sceneActions.ts` — `executeGenChain()`, Quantizer logic
@@ -74,12 +63,11 @@ musical logic and parameter design carry over.
 
 ## Layout
 
-Target state (post-ADR-001 migration). The current cloned-Stencil
-state is dual-package; the migration reshapes it into the layout
-below.
+Target state (post-ADR-001 migration). The current cloned state
+is dual-package; the migration reshapes it into the layout below.
 
 ```
-m4l/                 — Max for Live device (Pointsman only)
+m4l/                 — Max for Live device
   engine/            — Quantizer + RNG (TypeScript)
     rng.ts             shared RNG primitives (xoshiro128++ + SplitMix64)
     rng.test.ts        vectors against docs/ai/rng-test-vectors.json
@@ -100,15 +88,15 @@ m4l/                 — Max for Live device (Pointsman only)
     maxpat-to-amxd.mjs   bake script (single product, no argv)
   package.json, pnpm-workspace.yaml
 vst/                 — VST3 + AU MIDI Effect plugin (C++17/JUCE)
-  Source/            — Plugin source (QT only, post per-product
+  Source/            — Plugin source (post per-product
                        vst-architecture ADR)
   JUCE/              — JUCE framework (git submodule)
   tests/             — Catch2 unit tests
   CMakeLists.txt, Makefile
 docs/ai/             — design docs, ADRs, test vectors
   concept.md
-  rng-test-vectors.json       cross-repo synced with Stencil
-  quantizer-test-vectors.json Pointsman-specific
+  rng-test-vectors.json
+  quantizer-test-vectors.json
   adr/
 ```
 
@@ -148,8 +136,7 @@ so run `pnpm -r build` after engine or host changes (and
 `pnpm bake` after `.maxpat` edits).
 
 **Do NOT add `max-api` to dependencies.** It's injected by Max at
-runtime; the npm version conflicts with the injected one. (Same
-convention as Stencil and oedipa.)
+runtime; the npm version conflicts with the injected one.
 
 ### vst/
 
@@ -175,12 +162,10 @@ make test      # build + run tests
   contract
 - Per-event humanize: velocity / gate / timing / drift, all
   seeded for reproducibility
-- Pointsman pairs with Stencil upstream as the canonical
-  `Stencil → Pointsman → Synth` chain
+- Pairs naturally upstream with any MIDI sequence source for
+  the canonical `<source> → Pointsman → Synth` chain
 - Parameters normalized in plugin/host layer
-- Label: im9. Free distribution under the family-wide
-  brand-presence posture (see Stencil ADR 005 §Distribution
-  posture)
+- Label: im9. Free distribution.
 
 ## Mandatory Workflow
 
@@ -217,10 +202,7 @@ Cross-target engine semantics (Quantizer scale mapping, RNG
 primitives) are captured in
 `docs/ai/quantizer-test-vectors.json` and
 `docs/ai/rng-test-vectors.json`. Each target's test suite reads
-the appropriate JSON and iterates the cases. The RNG vectors are
-also synchronized cross-repo with Stencil per Stencil ADR 005
-§RNG sharing — when changing `rng.ts` or its vectors, both repos
-must stay byte-identical (verified by Stencil ADR 005 Phase 4).
+the appropriate JSON and iterates the cases.
 
 When adding a new semantic case, add it to the JSON — do not
 duplicate the data in per-target test code.

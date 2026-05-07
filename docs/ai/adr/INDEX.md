@@ -22,36 +22,19 @@ only when relevant to the current task.
 - Created date: `**Created**: YYYY-MM-DD`
 - Sections: Context → Decision → (optional) Scope / Implementation notes
 
-## Core
+## ADRs
 
 | #   | Title | Status | Notes |
 |-----|-------|--------|-------|
-| 001 | [Engine Interface — TM + Quantizer](archive/001-engine-interface.md) | Implemented | Pure-function APIs for `turing.ts` and `quantizer.ts`; types, semantics, shared test vectors. m4l reference impl 10/10 (2026-05-02). |
-| 005 | [Product Split — Stencil (TM) and Pointsman (QT)](005-product-split.md) | Proposed | Per-product repo split (`stencil/`, `pointsman/`); RNG primitives shared via `rng-test-vectors.json` cross-repo sync; vst/AU = single-purpose MIDI Effect per product (VST3 + AU); m4l asset rename + migration; archive ADRs 003 / 004 with deferred verification items moving to ADR 006 (TM) and pointsman-002 (QT). |
-
-## M4L
-
-The M4L ADRs (002–004) defined the pre-split v1. ADR 005 splits the
-two devices into separate per-product repos; deferred verification
-items from 003 / 004 land in ADR 006 (TM-side, this repo) and in
-`pointsman-002` (QT-side, authored in the new repo during ADR 005
-Phase 2). §Distribution items go to a separate per-product
-distribution ADR per ADR 005 §Relationship to prior ADRs.
-
-| #   | Title | Status | Notes |
-|-----|-------|--------|-------|
-| 002 | [M4L Architecture — Stencil TM + Stencil QT](archive/002-m4l-architecture.md) | Implemented | Two-device topology; per-device host/patcher/engine layering; live.* parameters; MIDI I/O & triggerMode; QT humanize layer; state ownership. Host code complete 2026-05-02 (125 unit tests). |
-| 003 | [M4L UI Design — Stencil TM / Stencil QT](archive/003-m4l-ui-design.md) | Implemented | Double-height canvas; live.* params + 2 jsui widgets per device (TM clickable bit ring, QT pulse-animated scale keyboard); inboil visual identity; logic/renderer split. §Verification manual-Live items deferred to ADR 006 (TM) / pointsman-002 (QT) per ADR 005. |
-| 004 | [M4L Bake & Distribution](archive/004-m4l-bake-distribution.md) | Implemented | Bake script + bare-sibling path conventions + abs-path / external-ref guard tests shipped. argv parameterization obsoleted post-split (replaced per-repo by ADR 005 Phase 2/3). §Distribution items move to per-product distribution ADRs. |
-| 006 | [Stencil m4l v1 — release verification](006-m4l-release-verification.md) | Proposed | Manual-Live verification gate for Stencil m4l v1: live.* surface coverage, rendering at multiple UI scales / themes, TM bit-ring jsui interaction, TM smoke (trigger × output modes), transport behavior, bake artifact hygiene. Carries forward TM-side §Verification (ADR 003) + TM-side §Bake outputs (ADR 004); QT-side handoff happens in pointsman-002 during ADR 005 Phase 2. |
+| 001 | [Pointsman m4l — base (initial migration from cloned source)](001-pointsman-base.md) | Proposed | Migration spec from the cloned-source bootstrap state to single-product Pointsman shape: rename surface, RNG extract, TM asset delete, bake script simplification, doc rewrite, ADR set replace, GitHub remote setup, verification. |
+| 002 | [Pointsman m4l v1 — release](002-pointsman-release.md) | Proposed | Manual-Live verification gate for Pointsman m4l v1: live.* surface coverage, rendering at multiple UI scales / themes, scale keyboard jsui interaction, mode (scale / chord / harmony) smoke, controlChannel chord context, transport hygiene, bake artifact hygiene. Per-channel distribution work (channel, screenshot, audio demo, copy, upload). |
 
 ## VST
 
-VST is post-v1. The target is paused at scaffold state while m4l v1
-ships; it will get its own architecture ADR(s) when picked up. Engine
-spec and shared test vectors carry over via ADR 001; the m4l-specific
-ADRs (002–004) do not necessarily apply (e.g. two-device topology may
-become single-plugin in VST).
+VST is post-v1. The target is paused at the cloned scaffold state
+while m4l v1 ships; it gets its own per-product vst-architecture
+ADR when picked up. The engine spec carries over from existing
+Pointsman m4l code.
 
 | #   | Title | Status | Notes |
 |-----|-------|--------|-------|

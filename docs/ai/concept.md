@@ -4,10 +4,10 @@ Stencil and Pointsman together port two generators from
 [inboil](https://github.com/im9/inboil) into DAW-native form: a Music
 Thing-style **Turing Machine** (looping shift register that mutates under
 user-controlled stability) and a **Quantizer** (scale-locked snap on note
-input). Per [ADR 005](adr/005-product-split.md), each generator ships as
-its own product from its own repository — **Stencil** is the TM product
-(this repo); **Pointsman** is the QT product
-([~/src/vst/pointsman/](../../../pointsman/)).
+input). Each generator ships as its own product from its own
+repository — **Stencil** is the TM product
+([~/src/vst/stencil/](../../../stencil/)); **Pointsman** is the QT
+product (this repo).
 
 This document describes the **musical model** — the parts that are shared
 across the two products and across each product's targets (`m4l/`,
