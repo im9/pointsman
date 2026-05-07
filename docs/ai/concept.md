@@ -42,7 +42,7 @@ degree), `chord` (snap to chord-tone with scale fallback), `harmony`
 MIDI on a control channel (held notes form the current chord) rather
 than an offline `chords[]` array; this collapses inboil's two
 chord-context paths (manual progression, Tonnetz coupling) into one
-input contract that any chord generator (clip, played, oedipa) can
+input contract that any chord generator (clip, played, Oedipa) can
 drive.
 
 ## Composition — upstream → Pointsman → Synth
@@ -57,9 +57,9 @@ source and the synth:
 Sources that pair naturally:
 
 - **Music Thing-style Turing Machine** (e.g. inboil's TM, or its
-  forthcoming standalone DAW-native sibling) — chromatic random pitch
-  stream; Pointsman snaps the result to scale, producing the canonical
-  "Music Thing TM + Quantizer" sound.
+  standalone DAW-native sibling [Stencil](https://github.com/im9/stencil))
+  — chromatic random pitch stream; Pointsman snaps the result to scale,
+  producing the canonical "Music Thing TM + Quantizer" sound.
 - **Tonnetz walks / arpeggiators** — Pointsman locks free pitch motion
   to a key.
 - **Played input / MPE controllers** — Pointsman acts as a real-time
@@ -162,7 +162,7 @@ designed-around. Pointsman's quantize modes (`scale` / `chord` /
 - **MPE output** — keep the note-emission abstraction loose enough that
   per-note pitch bend / pressure / timbre can be added without a rewrite.
 - **More scales** — microtonal, custom user scales (CSV / Scala import).
-- **Preset / slot system** — oedipa-style 4-slot preset bank with
+- **Preset / slot system** — Oedipa-style 4-slot preset bank with
   MIDI-triggered recall; useful once the device is in real use.
 - **Pitch-class scale editing** — `scale` is currently an enum of
   preset names; supporting a free pitch-class set (per-key toggle on
@@ -186,15 +186,15 @@ specifics, GUI-only state) may be added per target.
 | `outputLevel`     | float `0..1`                                         | global output velocity multiplier; default `1.0`   |
 | `triggerMode`     | `passthrough \| root`                                | input handling; default `passthrough`              |
 | `inputChannel`    | int `0..16`                                          | MIDI input channel; `0` = omni; default `0`        |
-| `controlChannel`  | int `0..16`                                          | control channel for root / chord context           |
+| `controlChannel`  | int `1..16`                                          | control channel for root / chord context           |
 | `seed`            | int                                                  | RNG seed for humanize draws                        |
 
 ## Origin notes
 
 Pointsman has two ancestors:
 
-- **inboil's `generative.ts`** (see [`reference_inboil`](../../) memory
-  and CLAUDE.md) provided the algorithm — scale presets, snap-to-nearest,
+- **inboil's `generative.ts`** (see the `reference_inboil` memory and
+  CLAUDE.md) provided the algorithm — scale presets, snap-to-nearest,
   chord-tone snap, and diatonic harmony voice stacking. inboil's scene
   graph does not carry over: Pointsman is a flat MIDI effect, not a
   generative graph node.

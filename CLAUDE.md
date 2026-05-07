@@ -8,17 +8,6 @@ Rainbow* — the railway-pointsman metaphor (routing an incoming
 train to a discrete track) is exact for what a quantizer does
 (routing input pitch to a discrete scale degree).
 
-> **Migration in progress.** This repository was bootstrapped on
-> 2026-05-07 by cloning `~/src/vst/stencil` at commit `dc00191`.
-> The on-disk layout still has the pre-migration dual-package
-> structure (`host-tm/` alongside `host-qt/`,
-> `Stencil-{TM,QT}.{maxpat,amxd}`, both engine modules).
-> Migration is tracked in
-> [ADR 001](docs/ai/adr/001-pointsman-base.md) — execute its
-> checklist to bring this repo to the single-product state
-> described below. Remove this callout once ADR 001 is
-> Implemented.
-
 ## Targets
 
 Pointsman is developed in parallel across multiple targets that
@@ -62,9 +51,6 @@ C++17/JUCE reimplementation — no code ported directly, but
 musical logic and parameter design carry over.
 
 ## Layout
-
-Target state (post-ADR-001 migration). The current cloned state
-is dual-package; the migration reshapes it into the layout below.
 
 ```
 m4l/                 — Max for Live device
@@ -110,7 +96,7 @@ git clone --recursive <repo-url>   # fetches the JUCE submodule under vst/
 
 ### m4l/
 
-`m4l/` is a pnpm workspace. Packages: `@pointsman/engine`, `@pointsman/host`.
+`m4l/` is a pnpm workspace. Packages: `@pointsman/engine`, `@pointsman/host`, `@pointsman/scripts`.
 
 ```bash
 cd m4l
