@@ -1,5 +1,5 @@
 {
-  "spec": "ADR 001 Quantizer engine conformance vectors",
+  "spec": "Pointsman Quantizer engine conformance vectors",
   "generated_by": "scripts/gen-test-vectors.mjs",
   "generator_note": "Re-run scripts/gen-test-vectors.mjs to regenerate. Do not hand-edit.",
   "meta": {
@@ -137,7 +137,7 @@
       "definition": "Returns the scale pitch nearest to note. Tie-breaking: when abs(note - lower) == abs(upper - note), return the lower pitch (round down)."
     },
     "chord_mode_rule": {
-      "definition": "snapToChordTones(note, chordPcs, scalePitches, tolerance=2): snap note to nearest chord-tone MIDI pitch (chord PCs expanded across the full 0..127 MIDI range — Stencil drops inboil's octaveRange clipping per ADR 003 §QT scale keyboard); if the distance to that nearest chord tone is <= tolerance, return it; otherwise fall back to snapToScale(note, scalePitches). Empty chord PCs degenerate to plain scale-snap. Mirrors inboil generative.ts:286-338."
+      "definition": "snapToChordTones(note, chordPcs, scalePitches, tolerance=2): snap note to nearest chord-tone MIDI pitch (chord PCs expanded across the full 0..127 MIDI range); if the distance to that nearest chord tone is <= tolerance, return it; otherwise fall back to snapToScale(note, scalePitches). Empty chord PCs degenerate to plain scale-snap. Mirrors inboil generative.ts:286-338."
     },
     "harmony_mode_rule": {
       "definition": "diatonicShift(note, interval, direction, scalePitches): snap note to nearest scale pitch (tie → lower per snap_rule), then advance interval-1 scale steps in direction (above|below). Clamps at scalePitches[0] / scalePitches[last] rather than wrapping. interval=N is N-1 steps (3rd = 2 steps, 4th = 3, 5th = 4, 6th = 5). Mirrors inboil generative.ts:235-254."

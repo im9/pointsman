@@ -164,17 +164,20 @@ Side effects of §4 (folded into the same commit):
   ×2). The substance of each comment is preserved; only the
   dangling pointers to deleted code are removed.
 
-Follow-up (not in §4 scope):
+Follow-up (resolved in §7):
 - Top-level `scripts/gen-test-vectors.mjs` is orphaned (its
-  `OUT_TM` target is gone). Decide in §7 whether to repurpose
-  it for `rng-test-vectors.json` regeneration or delete.
-- `m4l/Stencil-QT.amxd` orphan from §2 rename gets superseded
-  by §7 bake's `Pointsman.amxd`.
+  `OUT_TM` target is gone). Repurposed in §7: stripped to RNG
+  + QT generators only, outputs `rng-test-vectors.json` +
+  `quantizer-test-vectors.json`. Vector data sections are
+  bit-identical to the prior on-disk forms; only meta/note
+  strings updated to reflect the new generator.
+- `m4l/Stencil-QT.amxd` orphan from §2 rename — deleted in §7;
+  superseded by §7 bake's `Pointsman.amxd`.
 
 ### 5. Doc rewrite
 
 - [x] Replace `CLAUDE.md` with Pointsman content
-- [ ] Narrow `docs/ai/concept.md` to Pointsman (drop TM
+- [x] Narrow `docs/ai/concept.md` to Pointsman (drop TM
       sections; retain MIDI semantics and humanize content)
 
 ### 6. ADR set replace
@@ -195,23 +198,28 @@ Follow-up (not in §4 scope):
 
 ### 7. Bake script simplification
 
-- [ ] Simplify `m4l/scripts/maxpat-to-amxd.mjs` to single-product
+- [x] Simplify `m4l/scripts/maxpat-to-amxd.mjs` to single-product
       shape (no argv; fixed I/O `Pointsman.maxpat` →
       `Pointsman.amxd`)
-- [ ] Update guard tests to drop per-device branching
-- [ ] Collapse `bake:tm` / `bake:qt` / `bake:check:tm` /
+- [x] Update guard tests (`bake.test.mjs`, `patcher.test.mjs`)
+      to drop per-device branching. Patcher test still asserts
+      `StencilQt*` `parameter_longname` strings — renaming the
+      patcher widget longnames to `Pointsman*` is a separate
+      patcher-side surgery, deferred to a follow-up ADR.
+- [x] Collapse `bake:tm` / `bake:qt` / `bake:check:tm` /
       `bake:check:qt` scripts in `m4l/package.json` to a single
       `bake` / `bake:check`
 
 ### 8. Verification
 
-- [ ] From `m4l/`: `pnpm install` (the clone does not bring
+- [x] From `m4l/`: `pnpm install` (the clone does not bring
       `node_modules`)
-- [ ] `pnpm -r test` — all green
-- [ ] `pnpm -r typecheck` — all green
-- [ ] `pnpm -r build` — all green; refreshes `dist/`
-- [ ] `pnpm bake` — produces `m4l/Pointsman.amxd`
-- [ ] `pnpm bake:check` — passes (abs-path scrub, sibling-file
+- [x] `pnpm -r test` — all green (engine 8/8, host 185/185,
+      scripts 71/71)
+- [x] `pnpm -r typecheck` — all green
+- [x] `pnpm -r build` — all green; refreshes `dist/`
+- [x] `pnpm bake` — produces `m4l/Pointsman.amxd` (55026 bytes)
+- [x] `pnpm bake:check` — passes (abs-path scrub, sibling-file
       resolve)
 
 ### 9. Final push

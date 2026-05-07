@@ -1,6 +1,7 @@
 {
   "spec": "Pointsman RNG conformance vectors (xoshiro128++ + SplitMix64)",
-  "generator_note": "Forked from docs/ai/turing-test-vectors.json on 2026-05-08 per ADR 001 §3 — RNG primitives only (seedRng + nextU32). Cross-target spec: m4l/engine/rng.ts and vst/Source/<rng>.cpp must produce values bit-for-bit equal to these cases.",
+  "generated_by": "scripts/gen-test-vectors.mjs",
+  "generator_note": "Re-run scripts/gen-test-vectors.mjs to regenerate. Do not hand-edit. Cross-target spec: m4l/engine/rng.ts and vst/Source/<rng>.cpp must produce values bit-for-bit equal to these cases.",
   "meta": {
     "prng": {
       "algorithm": "xoshiro128++ (Vigna 2019)",
