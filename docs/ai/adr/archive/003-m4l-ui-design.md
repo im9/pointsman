@@ -1,8 +1,9 @@
 # ADR 003: m4l UI Design — Stencil TM / Stencil QT
 
-## Status: Proposed
+## Status: Implemented
 
 **Created**: 2026-05-02
+**Implemented**: 2026-05-07 (UI design landed for both m4l devices; jsui logic + renderers, layouts, visual identity, ready handshake all shipped. §Verification manual-Live items deferred to ADR 006 (TM-side) and pointsman-002 (QT-side) per ADR 005 §Relationship to prior ADRs.)
 
 This ADR specifies the UI for both m4l devices: device canvas size,
 the boundary between live.* widgets and custom drawing (jsui), the two

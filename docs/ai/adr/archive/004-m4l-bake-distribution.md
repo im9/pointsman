@@ -1,8 +1,9 @@
 # ADR 004: m4l Bake & Distribution
 
-## Status: Proposed
+## Status: Implemented
 
 **Created**: 2026-05-02
+**Implemented**: 2026-05-07 (bake script + path conventions + abs-path / external-ref guard tests shipped; both devices bake to .amxd. argv parameterization obsolete post-split — replaced per-repo by ADR 005 Phase 2/3 single-product bake. §Distribution and device-smoke items move to per-product distribution ADRs in each post-split repo.)
 
 This ADR specifies how the `.maxpat` source files are baked into
 distributable `.amxd` artifacts, the path / external-reference conventions
