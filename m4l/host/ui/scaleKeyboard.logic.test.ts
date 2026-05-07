@@ -156,8 +156,8 @@ test("setScale — preserves active pulses", () => {
 });
 
 test("setScale — does not mutate input model", () => {
-  // Same immutability discipline as the TM ring (registerRing.logic.ts):
-  // the renderer relies on it for redraw-comparison and prior-frame safety.
+  // Immutability discipline: the renderer relies on it for
+  // redraw-comparison and prior-frame safety.
   const m = createModel("major", 0);
   const before = m.inScale.slice();
   setScale(m, "minor", 0);
@@ -657,7 +657,7 @@ test("constants exported for mirror drift check", () => {
   // The mirror drift test (scaleKeyboard.mirror.test.ts) reads these named
   // exports from renderer source text. Keep them as bare numeric exports
   // (no enum / no object wrap) so the renderer can mirror them as
-  // `var FOO = N` literals — same convention as registerRing.logic.ts.
+  // `var FOO = N` literals.
   assert.equal(typeof NUM_PITCH_CLASSES, "number");
   assert.equal(typeof PULSE_DECAY_MS, "number");
   assert.equal(typeof WHITE_KEYS_PER_OCTAVE, "number");

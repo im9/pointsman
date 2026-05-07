@@ -1,8 +1,7 @@
 // Tests for host/host.ts — pure logic per ADR 002 §Stencil QT.
 //
-// Mirrors the host-tm test layout: state-machine tests, no Max API, no
-// timers. nowMs is injected per noteIn call so tests deliver deterministic
-// time deltas.
+// State-machine tests, no Max API, no timers. nowMs is injected per
+// noteIn call so tests deliver deterministic time deltas.
 //
 // Threshold derivation rule (CLAUDE.md global): every numeric assertion
 // is justified inline against the spec or first-principles derivation.
@@ -18,7 +17,7 @@ import {
   type QtParams,
 } from "./host.ts";
 import { buildScalePitches, diatonicShift, snapToScale } from "../engine/quantizer.ts";
-import { nextU32, seedRng } from "../engine/turing.ts";
+import { nextU32, seedRng } from "../engine/rng.ts";
 
 function makeHost(overrides: Partial<QtParams> = {}): QtHost {
   return new QtHost({ ...DEFAULT_PARAMS, ...overrides });
@@ -727,8 +726,8 @@ test("transportStart — resets driftState, lastInputTime, and humanizeRng", () 
 });
 
 test("transportStop — flushes notesOn (no-op in mono v1, returns no events)", () => {
-  // notesOn stays empty in mono passthrough (per host-tm pattern: paired
-  // noteOn/noteOff emitted together, bridge schedules). flushNotesOn is
+  // notesOn stays empty in mono passthrough (paired noteOn/noteOff
+  // emitted together, bridge schedules). flushNotesOn is
   // the safety hook for future polyphony — current contract: returns [].
   const host = makeHost();
   host.noteIn(60, 100, 1, 0);

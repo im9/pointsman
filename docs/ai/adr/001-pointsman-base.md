@@ -120,9 +120,11 @@ Items prefixed `[x]` are complete. Items prefixed `[ ]` remain.
       is deleted wholesale in §4, so the in-place refactor
       would be throwaway work)
 - [x] Re-point `m4l/engine/quantizer.ts` and
-      `m4l/host/humanize.ts` imports to `./rng` (only
-      `humanize.ts` needed updating; `quantizer.ts` has no
-      RNG-import — the ADR over-specified). Also updated
+      `m4l/host/humanize.ts` imports to `./rng`. Actual
+      coverage (corrected in §4 commit): `host/humanize.ts`,
+      `host/host.ts`, `host/host.test.ts`,
+      `host/humanize.test.ts`. `quantizer.ts` has no
+      RNG-import — the ADR over-specified there. Also updated
       `m4l/host/tsconfig.json` include: `../engine/turing.ts`
       → `../engine/rng.ts`
 - [x] Generate `docs/ai/rng-test-vectors.json` from the seed/step
@@ -138,17 +140,36 @@ Items prefixed `[x]` are complete. Items prefixed `[ ]` remain.
 The cloned tree carries TM-side assets that are not Pointsman's
 concern. Delete:
 
-- [ ] `m4l/Stencil-TM.maxpat`
-- [ ] `m4l/Stencil-TM.amxd`
-- [ ] `m4l/Stencil-TM Project/` (Live's auto-generated project
-      folder for the TM device)
-- [ ] `m4l/stencil-tm.mjs`
-- [ ] `m4l/host-tm/`
-- [ ] `m4l/engine/turing.ts`
-- [ ] `m4l/engine/turing.test.ts`
-- [ ] `m4l/registerRing.jsui.js`
-- [ ] `m4l/registerRing.subpatcher.maxpat`
-- [ ] `docs/ai/turing-test-vectors.json`
+- [x] `m4l/Stencil-TM.maxpat`
+- [x] `m4l/Stencil-TM.amxd`
+- [x] `m4l/Stencil-TM Project/` (Live's auto-generated project
+      folder for the TM device) — never existed in the cloned
+      tree (Live had not opened the device), implicitly
+      satisfied
+- [x] `m4l/stencil-tm.mjs`
+- [x] `m4l/host-tm/`
+- [x] `m4l/engine/turing.ts`
+- [x] `m4l/engine/turing.test.ts`
+- [x] `m4l/registerRing.jsui.js`
+- [x] `m4l/registerRing.subpatcher.maxpat`
+- [x] `docs/ai/turing-test-vectors.json`
+
+Side effects of §4 (folded into the same commit):
+- Completed §3 import re-point: `host/host.ts`,
+  `host/host.test.ts`, `host/humanize.test.ts` switched from
+  `../engine/turing.ts` → `../engine/rng.ts`.
+- Removed `host-tm` cross-references in `host/*` comments
+  (`bridge.ts` ready-handshake comment, `bridge.test.ts`
+  pattern blurb, `host.test.ts` ×2, `ui/scaleKeyboard.logic.test.ts`
+  ×2). The substance of each comment is preserved; only the
+  dangling pointers to deleted code are removed.
+
+Follow-up (not in §4 scope):
+- Top-level `scripts/gen-test-vectors.mjs` is orphaned (its
+  `OUT_TM` target is gone). Decide in §7 whether to repurpose
+  it for `rng-test-vectors.json` regeneration or delete.
+- `m4l/Stencil-QT.amxd` orphan from §2 rename gets superseded
+  by §7 bake's `Pointsman.amxd`.
 
 ### 5. Doc rewrite
 

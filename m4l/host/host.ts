@@ -16,7 +16,7 @@ import {
   type MidiNote,
   type ScaleName,
 } from "../engine/quantizer.ts";
-import { seedRng, type RngState } from "../engine/turing.ts";
+import { seedRng, type RngState } from "../engine/rng.ts";
 import {
   composeHumanize,
   NEUTRAL_DRIFT,

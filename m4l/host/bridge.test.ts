@@ -1,8 +1,8 @@
 // Tests for host/bridge.ts — Max protocol layer.
 //
-// Pattern mirrors host-tm/bridge.test.ts: BridgeDeps faked with recorders
-// so we assert against captured emit / schedule calls. No Max API, no
-// real timers, no setTimeout.
+// Pattern: BridgeDeps faked with recorders so we assert against
+// captured emit / schedule calls. No Max API, no real timers,
+// no setTimeout.
 //
 // Threshold derivation rule (CLAUDE.md global): every numeric assertion
 // is justified inline against the spec or first-principles derivation.

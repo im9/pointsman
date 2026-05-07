@@ -109,9 +109,9 @@ export class QtBridge {
     // handshake is NOT emitted here — that signal must fire only after
     // every Max.addHandler() in the entry script (pointsman.mjs),
     // otherwise the patcher's setParam cascade races handler installation
-    // and dispatches drop with "Node script not ready". Mirrors TM:
-    // see m4l/host-tm/bridge.ts constructor and pointsman.mjs's
-    // end-of-script Max.outlet('ready', 1).
+    // and dispatches drop with "Node script not ready". The 'ready'
+    // outlet fires at the end of pointsman.mjs after addHandler
+    // installation completes.
     this.emitScaleChanged();
   }
 

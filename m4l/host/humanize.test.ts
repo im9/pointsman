@@ -7,7 +7,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { nextU32, seedRng, type RngState } from "../engine/turing.ts";
+import { nextU32, seedRng, type RngState } from "../engine/rng.ts";
 import {
   composeHumanize,
   draw,
