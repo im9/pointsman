@@ -1,8 +1,9 @@
 # ADR 001: Pointsman m4l — base (initial migration from cloned source)
 
-## Status: Proposed
+## Status: Implemented
 
 **Created**: 2026-05-07
+**Implemented**: 2026-05-08 (cloned tree reshaped to single-product Pointsman; bake / tests / typecheck / build all green; Pointsman.amxd baked; pushed to origin/main)
 
 This ADR is the migration spec that takes the Pointsman repository
 from its cloned-source bootstrap state to proper Pointsman shape:
@@ -224,7 +225,7 @@ Follow-up (resolved in §7):
 
 ### 9. Final push
 
-- [ ] `git push origin main` once §1–§8 are all `[x]` (lands the
+- [x] `git push origin main` once §1–§8 are all `[x]` (lands the
       Pointsman repo at its single-product state on GitHub)
 
 ## Verification

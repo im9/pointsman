@@ -26,7 +26,7 @@ only when relevant to the current task.
 
 | #   | Title | Status | Notes |
 |-----|-------|--------|-------|
-| 001 | [Pointsman m4l — base (initial migration from cloned source)](001-pointsman-base.md) | Proposed | Migration spec from the cloned-source bootstrap state to single-product Pointsman shape: rename surface, RNG extract, TM asset delete, bake script simplification, doc rewrite, ADR set replace, GitHub remote setup, verification. |
+| 001 | [Pointsman m4l — base (initial migration from cloned source)](archive/001-pointsman-base.md) | Implemented | Migration from the cloned-source bootstrap state to single-product Pointsman shape: rename surface, RNG extract, TM asset delete, bake script simplification, doc rewrite, ADR set replace, GitHub remote setup, verification. |
 | 002 | [Pointsman m4l v1 — release](002-pointsman-release.md) | Proposed | Manual-Live verification gate for Pointsman m4l v1: live.* surface coverage, rendering at multiple UI scales / themes, scale keyboard jsui interaction, mode (scale / chord / harmony) smoke, controlChannel chord context, transport hygiene, bake artifact hygiene. Per-channel distribution work (channel, screenshot, audio demo, copy, upload). |
 
 ## VST
