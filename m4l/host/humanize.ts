@@ -2,7 +2,7 @@
 // Composes per-event velocity / gate / timing perturbations from a single
 // shared RNG, with optional EMA drift smoothing across consecutive events.
 
-import { nextU32, type RngState } from "../engine/turing.ts";
+import { nextU32, type RngState } from "../engine/rng.ts";
 
 export interface DriftState {
   vel: number;  // smoothed velocity offset, signed

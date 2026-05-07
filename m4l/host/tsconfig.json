@@ -19,7 +19,7 @@
     "humanize.ts",
     "bridge.ts",
     "ui/scaleKeyboard.logic.ts",
-    "../engine/turing.ts",
+    "../engine/rng.ts",
     "../engine/quantizer.ts"
   ],
   "exclude": ["**/*.test.ts", "dist", "node_modules"]

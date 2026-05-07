@@ -114,15 +114,24 @@ Items prefixed `[x]` are complete. Items prefixed `[ ]` remain.
 
 ### 3. RNG extract (m4l/engine/)
 
-- [ ] Extract RNG primitives (`seedRng`, `nextU32`, types
+- [x] Extract RNG primitives (`seedRng`, `nextU32`, types
       `RngState`) from `m4l/engine/turing.ts` into
-      `m4l/engine/rng.ts`
-- [ ] Re-point `m4l/engine/quantizer.ts` and
-      `m4l/host/humanize.ts` imports to `./rng`
-- [ ] Generate `docs/ai/rng-test-vectors.json` from the seed/step
-      prefix of `docs/ai/turing-test-vectors.json`
-- [ ] Add `m4l/engine/rng.test.ts` running against the new
-      vectors
+      `m4l/engine/rng.ts` (copied, not moved — `turing.ts`
+      is deleted wholesale in §4, so the in-place refactor
+      would be throwaway work)
+- [x] Re-point `m4l/engine/quantizer.ts` and
+      `m4l/host/humanize.ts` imports to `./rng` (only
+      `humanize.ts` needed updating; `quantizer.ts` has no
+      RNG-import — the ADR over-specified). Also updated
+      `m4l/host/tsconfig.json` include: `../engine/turing.ts`
+      → `../engine/rng.ts`
+- [x] Generate `docs/ai/rng-test-vectors.json` from the seed/step
+      prefix of `docs/ai/turing-test-vectors.json` (forked via
+      `jq`; keeps `splitmix64_init` + `prng` arrays + matching
+      `meta.{prng,seeding}` entries)
+- [x] Add `m4l/engine/rng.test.ts` running against the new
+      vectors (mirrors the two RNG tests from
+      `m4l/engine/turing.test.ts`)
 
 ### 4. TM-only asset delete
 
