@@ -103,7 +103,17 @@ Per-target build commands:
 | `vst/` (VST3 + AU) | `git submodule update --init --recursive` | `cd vst && make build` | `cd vst && make test` |
 
 m4l rebake after source edits: `cd m4l && pnpm bake` (refreshes
-`Pointsman.amxd` from `Pointsman.maxpat`).
+`Pointsman.amxd` from `Pointsman.maxpat`; pre-bundles
+`pointsman.entry.mjs` into `pointsman.mjs` via esbuild).
+
+m4l distribution build: `make release` (from repo root) runs
+build + bake and prepares `dist/`. The baked dev `.amxd`
+references sibling JS on disk, so it only loads on the build
+machine. To ship: open `m4l/Pointsman.amxd` in Max → click the
+**snowflake (Freeze)** button in the patcher toolbar (inlines
+every referenced JS) → *File → Save As* `dist/Pointsman.amxd`.
+The frozen file is self-contained and works on any Live install.
+See [ADR 002](docs/ai/adr/002-pointsman-release.md) §Phase 0.
 
 ## Design docs
 

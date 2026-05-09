@@ -1,24 +1,33 @@
-// Pointsman n4m entry. Thin wrapper over QtBridge — wires the Max API
-// (Max.outlet, Max.addHandler, Date.now, setTimeout) into the bridge's
-// injected deps. No musical logic lives here.
+// Pointsman n4m entry source. Thin wrapper over QtBridge — wires the
+// Max API (Max.outlet, Max.addHandler, Date.now, setTimeout) into the
+// bridge's injected deps. No musical logic lives here.
+//
+// Build pipeline (ADR 002 §Phase 0):
+// - Source: `m4l/pointsman.entry.mjs` (this file, tracked).
+// - Bundled output: `m4l/pointsman.mjs` (gitignored). Produced by
+//   `pnpm bundle:host` (esbuild) with `--external:max-api`; everything
+//   else (host bridge, engine quantizer / RNG, humanize) is inlined so
+//   that Max Freeze captures the entire host. Max Freeze does NOT
+//   follow ESM `import` chains (oedipa ADR 007 §Phase 5); pre-bundling
+//   is what lets a frozen `dist/Pointsman.amxd` load on any Live install.
 //
 // Path conventions (flat, m4l/ root):
-// - This file MUST live at `m4l/pointsman.mjs` (NOT under host/),
-//   because Max [node.script]'s `filename` attribute does not reliably
-//   resolve subdirectory paths in M4L presentation view. Same constraint
-//   as Max [jsui], which is why `scaleKeyboard.jsui.js` is also at the
-//   m4l/ root.
-// - The compiled bridge dist still lives under `host/dist/host/`,
-//   imported relatively from this entry — `import "./..."` paths inside
-//   the .mjs are resolved by Node, not by Max, so subdirs work.
+// - The bundled output MUST live at `m4l/pointsman.mjs` (NOT under
+//   host/), because Max [node.script]'s `filename` attribute does not
+//   reliably resolve subdirectory paths in M4L presentation view. Same
+//   constraint as Max [jsui], which is why `scaleKeyboard.jsui.js` is
+//   also at the m4l/ root.
+// - The compiled bridge dist lives under `host/dist/host/` and is
+//   imported relatively from this entry source — esbuild follows the
+//   `import "./..."` chain at bundle time and inlines everything.
 //
-// `.mjs` (not `.js`) is load-bearing for distribution: when the .amxd
-// is baked / frozen, [node.script] extracts the script to a tempdir
-// with no sibling package.json. `.js` would default to CJS there and
-// the `import Max from "max-api"` line below would fail to parse,
-// leaving [node.script] permanently in "Node script not ready" state.
-// `.mjs` is unconditionally ESM. (Convention ported from oedipa,
-// validated against TM's dev/dist Max console comparison.)
+// `.mjs` (not `.js`) on the bundle output is load-bearing: when the
+// .amxd is baked / frozen, [node.script] extracts the script to a
+// tempdir with no sibling package.json. `.js` would default to CJS
+// there and the `import Max from "max-api"` line below would fail to
+// parse, leaving [node.script] permanently in "Node script not ready"
+// state. `.mjs` is unconditionally ESM. (Convention ported from
+// oedipa, validated against TM's dev/dist Max console comparison.)
 //
 // `max-api` is provided by Max at runtime; it MUST NOT appear in
 // package.json dependencies — the npm version conflicts with the

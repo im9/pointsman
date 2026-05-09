@@ -9,6 +9,14 @@ vst/build/
 m4l/engine/dist/
 m4l/host/dist/
 
+# m4l n4m bundle output — regenerate with `pnpm bundle:host` (or `pnpm bake`).
+# Source is m4l/pointsman.entry.mjs (tracked). See ADR 002 §Phase 0.
+m4l/pointsman.mjs
+
+# Frozen distribution `.amxd` (release target). Produced by `make release`
+# + manual Freeze step in Max. See ADR 002 §Phase 0.
+dist/
+
 # Ableton Live project folder (auto-created on first device load, named
 # after the .amxd: Pointsman Project/)
 m4l/Pointsman Project/

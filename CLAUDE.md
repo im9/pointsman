@@ -117,12 +117,24 @@ pnpm build           # compile dist/
 ```
 
 Open `Pointsman.amxd` in Max for Live to use the device. The
-device loads `dist/` artifacts via `[node.script pointsman.mjs]`,
-so run `pnpm -r build` after engine or host changes (and
-`pnpm bake` after `.maxpat` edits).
+device loads `dist/` artifacts via `[node.script pointsman.mjs]`
+— `pointsman.mjs` is the esbuild-bundled output of
+`pointsman.entry.mjs` (run `pnpm bake` to refresh both the
+bundle and `Pointsman.amxd`). Run `pnpm -r build` after engine
+or host changes, and `pnpm bake` after engine / host / `.maxpat`
+edits.
 
 **Do NOT add `max-api` to dependencies.** It's injected by Max at
 runtime; the npm version conflicts with the injected one.
+
+**Distribution (release builds).** `make release` (from repo
+root) runs build + bake and prepares `dist/`. The baked dev
+`.amxd` references sibling JS on disk, so it only loads on the
+build machine. To ship: open `m4l/Pointsman.amxd` in Max → click
+the **snowflake (Freeze)** button in the patcher toolbar
+(inlines every referenced JS) → *File → Save As*
+`dist/Pointsman.amxd`. The frozen file is self-contained and
+works on any Live install. See ADR 002 §Phase 0.
 
 ### vst/
 
