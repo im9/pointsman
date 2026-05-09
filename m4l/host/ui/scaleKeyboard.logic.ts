@@ -1,4 +1,4 @@
-// QT scale-keyboard jsui pure logic — ADR 003 §QT scale keyboard.
+// scale-keyboard jsui pure logic — ADR 003 §scale keyboard.
 //
 // Pure data + math, no Max APIs. Runs in Node for tests. Mirrored (by hand,
 // ASCII-only) into scaleKeyboard.jsui.js for Max's [jsui] consumer. A drift
@@ -25,7 +25,7 @@ export const BLACK_KEY_HEIGHT_RATIO = 0.6;
 
 // In-scale dot is drawn INSIDE each in-scale key (no dedicated bottom
 // strip — that arrangement made it ambiguous which dot belongs to which
-// key, see ADR 003 §QT scale keyboard).
+// key, see ADR 003 §scale keyboard).
 //
 // DOT_INSET_RATIO: vertical inset from the key's bottom, as a fraction
 //   of that key's own height. Same ratio for both white and black keys
@@ -38,6 +38,12 @@ export const BLACK_KEY_HEIGHT_RATIO = 0.6;
 export const DOT_INSET_RATIO = 0.15;
 export const DOT_RADIUS_RATIO = 0.08;
 const DOT_RADIUS_MIN_PX = 1.5;
+
+// Chord-context dot radius (the third highlight tier between in-scale
+// and pulse, per ADR 002 §Verification line 184). Drawn at the same
+// position as the in-scale dot but ~2× the radius so a chord-tone PC
+// reads as visibly "promoted" over a plain in-scale PC.
+export const CHORD_DOT_RADIUS_RATIO = 0.16;
 
 // Pitch classes that are black keys on a piano (C# D# F# G# A#).
 const BLACK_PITCH_CLASSES = new Set<number>([1, 3, 6, 8, 10]);
@@ -69,6 +75,11 @@ export interface Pulse {
 
 export interface KeyboardModel {
   inScale: boolean[]; // length 12, true if pitch class is in current scale
+  // length 12, true if pitch class is part of the current chord context
+  // (held controlChannel notes in mode=chord). Empty array semantically
+  // when no controlChannel notes are held. Visually rendered as the
+  // "third tier" between in-scale dot and pulse glow.
+  chordPcs: boolean[];
   pulses: Pulse[];
 }
 
@@ -107,6 +118,7 @@ export function recomputeInScale(
 export function createModel(scale: ScaleName, root: number): KeyboardModel {
   return {
     inScale: recomputeInScale(scale, root),
+    chordPcs: new Array(NUM_PITCH_CLASSES).fill(false) as boolean[],
     pulses: [],
   };
 }
@@ -118,6 +130,28 @@ export function setScale(
 ): KeyboardModel {
   return {
     inScale: recomputeInScale(scale, root),
+    chordPcs: model.chordPcs.slice(),
+    pulses: model.pulses.map((p) => ({ ...p })),
+  };
+}
+
+// Replace the chord-context pitch-class set. Bridge emits `chordChanged
+// <pc...>` with the held controlChannel PCs (sorted, deduped). An empty
+// list clears the tier (no controlChannel notes held). PCs outside 0..11
+// are ignored — defensive against a malformed message reaching the jsui.
+export function setChord(
+  model: KeyboardModel,
+  pcList: readonly number[],
+): KeyboardModel {
+  const next = new Array(NUM_PITCH_CLASSES).fill(false) as boolean[];
+  for (const pc of pcList) {
+    if (Number.isInteger(pc) && pc >= 0 && pc < NUM_PITCH_CLASSES) {
+      next[pc] = true;
+    }
+  }
+  return {
+    inScale: model.inScale.slice(),
+    chordPcs: next,
     pulses: model.pulses.map((p) => ({ ...p })),
   };
 }

@@ -82,7 +82,10 @@ Five parameters, defaults all `0` (off):
 - `humanizeTiming` (`0..1`) — signed uniform noise on note start offset
   (fraction of source step length, ±0.5 max)
 - `humanizeDrift` (`0..1`) — EMA smoothing across all humanize axes; `0` =
-  independent draws (jittery), `1` = slow drift (breath)
+  independent draws (jittery), values close to `1` produce slow drift
+  (breath). Note: `1.0` exactly is degenerate — the EMA never blends a
+  new draw, so the layer freezes at its current value (effectively no
+  humanize). Use `0.95–0.99` for "very slow drift".
 - `outputLevel` (`0..1`, default `1.0`) — global multiplier on output velocity
 
 Humanize lives in Pointsman because Pointsman is the natural place for
@@ -93,8 +96,11 @@ loop / lock semantics in the source; doing it after the snap leaves
 upstream timing intact.
 
 The draws are seeded (shared seed parameter) so a fixed `(seed, input
-sequence, params)` reproduces the same output bit-for-bit. Drift smoothing
-maintains its EMA state per-axis, reset on transport stop.
+sequence, params)` reproduces the same output bit-for-bit. Drift
+smoothing maintains its EMA state per-axis, reset on transport
+**start** (so each play loop re-seeds from the same initial state).
+Transport stop does not touch drift state — it only flushes any
+in-flight notes and clears chord context.
 
 ## MIDI semantics
 

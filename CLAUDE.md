@@ -119,13 +119,43 @@ pnpm build           # compile dist/
 Open `Pointsman.amxd` in Max for Live to use the device. The
 device loads `dist/` artifacts via `[node.script pointsman.mjs]`
 — `pointsman.mjs` is the esbuild-bundled output of
-`pointsman.entry.mjs` (run `pnpm bake` to refresh both the
-bundle and `Pointsman.amxd`). Run `pnpm -r build` after engine
-or host changes, and `pnpm bake` after engine / host / `.maxpat`
-edits.
+`pointsman.entry.mjs`. `pnpm bake` chains
+`pnpm -r build && pnpm bundle:host && maxpat-to-amxd`, so a
+single `pnpm bake` after engine / host / `.maxpat` edits refreshes
+the dist/ JS, the bundle, and `Pointsman.amxd` in the right
+order. (Historical note: `bake` did NOT run `tsc` first prior to
+v1.0.1 — edits to `host/bridge.ts` silently shipped against
+stale `host/dist/host/bridge.js`. If you ever see `bake` succeed
+but a recent source edit not reach `pointsman.mjs`, check the
+chain in `m4l/package.json`.)
 
 **Do NOT add `max-api` to dependencies.** It's injected by Max at
 runtime; the npm version conflicts with the injected one.
+
+### Live runtime gotchas (m4l)
+
+Hard-won during v1.0.1 audit-fix; capture here so future code
+agents do not re-debug them blindly.
+
+- **n4m caches the running Node process.** Re-baking the dev
+  `.amxd` and re-dragging it into a Live track does NOT reliably
+  restart n4m — sometimes the prior process keeps running the
+  stale bundle. Save the Live set between drops to force a
+  cleaner reload, and confirm reload by looking for the
+  `pointsman: pointsman.mjs loaded` line in the Max console.
+- **Live track-internal MIDI arrives with channel = 0.** When an
+  upstream M4L device (e.g. Stencil) emits MIDI to a downstream
+  M4L device (Pointsman) on the same track, Pointsman's
+  `[midiparse]` reports channel 0 — *not* whatever the upstream
+  set on its `noteout`. Bridge guards on noteIn / noteOff must
+  accept channel 0 (the host's `channelMatches()` already treats
+  0 as omni, so this is the consistent boundary).
+- **Avoid `Number.isInteger` for n4m handler inputs.** max-api's
+  marshaling has been observed to drop the integer type tag even
+  though `[midiparse]` upstream is int. Strict-integer guards
+  silently dropped Stencil-generated MIDI in v1.0.1 dev. Use
+  `Number.isFinite` plus a numeric range — the bridge guards are
+  defense-in-depth, not a parser.
 
 **Distribution (release builds).** `make release` (from repo
 root) runs build + bake and prepares `dist/`. The baked dev

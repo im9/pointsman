@@ -10,7 +10,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { QtBridge, type BridgeDeps } from "./bridge.ts";
+import { PointsmanBridge, type BridgeDeps } from "./bridge.ts";
 import { FIRST_EVENT_STEP_MS } from "./host.ts";
 
 interface NoteCall {
@@ -59,7 +59,7 @@ function makeFakeDeps(): {
 
 test("constructor — does NOT emit ready (entry-script responsibility); emits initial scaleChanged", () => {
   const f = makeFakeDeps();
-  new QtBridge(f.deps);
+  new PointsmanBridge(f.deps);
   // ADR 003 §Ready handshake: 'ready' MUST be emitted by pointsman.mjs
   // AFTER every Max.addHandler() install. Emitting from the bridge
   // constructor races handler installation and the patcher's setParam
@@ -79,7 +79,7 @@ test("noteIn — emits noteOn (immediate) + noteOff (scheduled at gate)", () => 
   // Defaults: humanize=0 → timingOffset=0 → noteOn immediate.
   // Default outputGateBase=1.0, FIRST_EVENT_STEP_MS=250 → noteOff at 250 ms.
   const f = makeFakeDeps();
-  const b = new QtBridge(f.deps);
+  const b = new PointsmanBridge(f.deps);
   f.setNow(1000);
   b.noteIn(60, 100, 1);
   // noteOn dispatched immediately.
@@ -94,7 +94,7 @@ test("noteIn — emits notePulse outlet at scheduled noteOn time", () => {
   // Spec: notePulse fires at the same moment the scheduled noteOn dispatches.
   // With timingOffset=0, both are immediate (delayMs=0 → no schedule).
   const f = makeFakeDeps();
-  const b = new QtBridge(f.deps);
+  const b = new PointsmanBridge(f.deps);
   b.noteIn(60, 100, 1);
   const pulse = f.outlets.find((o) => o.channel === "notePulse");
   assert.ok(pulse, "notePulse outlet must fire");
@@ -106,7 +106,7 @@ test("noteIn — passes deps.now() as nowMs to host (sourceStep tracking)", () =
   // Two sequential noteIns at now=0 then now=400 → sourceStepDuration=400 ms
   // → noteOff at 1.0 × 400 = 400 ms.
   const f = makeFakeDeps();
-  const b = new QtBridge(f.deps);
+  const b = new PointsmanBridge(f.deps);
   f.setNow(0);
   b.noteIn(60, 100, 1);
   // Drop the first event's schedules so the second's stand alone.
@@ -123,11 +123,61 @@ test("noteIn — non-finite inputs ignored (boundary defense)", () => {
   // Max can deliver NaN from a malformed message; bridge must not crash
   // and must not forward to host.
   const f = makeFakeDeps();
-  const b = new QtBridge(f.deps);
+  const b = new PointsmanBridge(f.deps);
   const notesBefore = f.notes.length;
   b.noteIn(Number.NaN, 100, 1);
   b.noteIn(60, 100, Number.NaN);
   assert.equal(f.notes.length, notesBefore);
+});
+
+test("noteIn — out-of-range pitch / velocity / channel ignored (MIDI domain defense)", () => {
+  // MIDI domain: pitch 0..127, velocity 0..127, channel 0..16. Live's
+  // [midiparse] guarantees these ranges, but a misrouted message or a
+  // future direct-from-Node callsite could deliver values outside the
+  // domain. Defense-in-depth at the bridge keeps the host from emitting
+  // pitch>127 to noteout (would silently truncate). Note: we accept
+  // channel=0 (track-internal Live MIDI from an upstream M4L device)
+  // and finite-but-non-integer values (max-api's marshaling has been
+  // observed to drop the int type tag in some configurations).
+  const f = makeFakeDeps();
+  const b = new PointsmanBridge(f.deps);
+  const before = f.notes.length;
+  // pitch out of range
+  b.noteIn(-1, 100, 1);
+  b.noteIn(128, 100, 1);
+  // velocity out of range
+  b.noteIn(60, -1, 1);
+  b.noteIn(60, 128, 1);
+  // channel out of range (>16 invalid; 0 is valid for track-internal MIDI)
+  b.noteIn(60, 100, -1);
+  b.noteIn(60, 100, 17);
+  assert.equal(f.notes.length, before, "all out-of-range noteIns must be silently dropped");
+  // Channel 0 (track-internal Live MIDI) must be ACCEPTED.
+  f.setNow(0);
+  b.noteIn(60, 100, 0);
+  assert.equal(f.notes.length, before + 1, "channel=0 (track-internal) must be accepted");
+  // Sanity: a valid channel-1 noteIn still works. Space far enough
+  // ahead that sourceStepDuration > 0 → noteOff is scheduled, not
+  // dispatched immediately, so we only count the noteOn here.
+  f.setNow(500);
+  b.noteIn(60, 100, 1);
+  assert.equal(f.notes.length, before + 2);
+});
+
+test("noteOff — out-of-range pitch / channel ignored (MIDI domain defense)", () => {
+  // Mirror of noteIn range guard for the noteOff path. Velocity is not
+  // an argument here, so just pitch + channel.
+  const f = makeFakeDeps();
+  const b = new PointsmanBridge(f.deps);
+  // noteOff against an unheld pitch is a silent no-op anyway, so we
+  // assert the bridge doesn't crash (no throw) for out-of-range.
+  assert.doesNotThrow(() => {
+    b.noteOff(-1, 1);
+    b.noteOff(128, 1);
+    b.noteOff(60, -1);
+    b.noteOff(60, 17);
+    b.noteOff(60, 0); // track-internal channel 0 — accepted, no-op for unheld
+  });
 });
 
 // ---------- negative delay clamp ----------
@@ -142,7 +192,7 @@ test("negative delayMs — dispatched immediately (not scheduled)", () => {
   // timing=1 and a fixed seed, at least some events will have negative
   // timingOffset. Run several and verify none get scheduled at a
   // negative `ms` argument.
-  const b = new QtBridge(f.deps, {
+  const b = new PointsmanBridge(f.deps, {
     initialParams: { humanizeTiming: 1, seed: 7 },
   });
   for (let i = 0; i < 10; i++) {
@@ -157,7 +207,7 @@ test("negative delayMs — dispatched immediately (not scheduled)", () => {
 
 test("setParam scale — accepts valid scale name", () => {
   const f = makeFakeDeps();
-  const b = new QtBridge(f.deps);
+  const b = new PointsmanBridge(f.deps);
   const before = f.outlets.length;
   b.setParam("scale", "minor");
   // Side-effect: scaleChanged outlet re-emit so jsui can refresh.
@@ -168,7 +218,7 @@ test("setParam scale — accepts valid scale name", () => {
 
 test("setParam scale — rejects unknown scale name", () => {
   const f = makeFakeDeps();
-  const b = new QtBridge(f.deps);
+  const b = new PointsmanBridge(f.deps);
   const before = f.outlets.length;
   b.setParam("scale", "diminished"); // not in ADR 002 §15-name list
   // No scaleChanged emit — invalid input is a silent no-op.
@@ -177,9 +227,9 @@ test("setParam scale — rejects unknown scale name", () => {
 });
 
 test("setParam root — validates 0..11 integer range", () => {
-  // ADR 002 live.* table: qt.root is `live.numbox int 0..11`.
+  // ADR 002 live.* table: root is `live.numbox int 0..11`.
   const f = makeFakeDeps();
-  const b = new QtBridge(f.deps);
+  const b = new PointsmanBridge(f.deps);
   b.setParam("root", -1);  // out of range, ignored
   b.setParam("root", 12);  // out of range, ignored
   b.setParam("root", 1.5); // not integer, ignored
@@ -198,7 +248,7 @@ test("setParam root — validates 0..11 integer range", () => {
 test("setParam humanize* — accepts 0..1 floats, clamps", () => {
   // ADR 002 live.* table: humanize* are live.dial float 0..1.
   const f = makeFakeDeps();
-  const b = new QtBridge(f.deps);
+  const b = new PointsmanBridge(f.deps);
   // Out-of-range values clamp; bridge does not throw.
   b.setParam("humanizeVelocity", 1.5); // → 1.0
   b.setParam("humanizeGate", -0.5);    // → 0.0
@@ -211,7 +261,7 @@ test("setParam humanize* — accepts 0..1 floats, clamps", () => {
 
 test("setParam triggerMode — only passthrough/root accepted", () => {
   const f = makeFakeDeps();
-  const b = new QtBridge(f.deps);
+  const b = new PointsmanBridge(f.deps);
   b.setParam("triggerMode", "auto"); // TM-only mode, invalid for QT
   // After invalid mode, behavior should still be passthrough (default).
   // Test indirectly: a controlChannel(=16) noteIn should quantize, not
@@ -229,7 +279,7 @@ test("setParam triggerMode — only passthrough/root accepted", () => {
 test("setParam controlChannel — validates 1..16 integer", () => {
   // Spec: live.numbox int 1..16, default 16.
   const f = makeFakeDeps();
-  const b = new QtBridge(f.deps);
+  const b = new PointsmanBridge(f.deps);
   b.setParam("controlChannel", 0);  // 0 not allowed (only inputChannel allows 0=omni)
   b.setParam("controlChannel", 17); // out of range
   b.setParam("controlChannel", 5);  // valid
@@ -244,7 +294,7 @@ test("setParam controlChannel — validates 1..16 integer", () => {
 
 test("setParam unknown key — silent no-op", () => {
   const f = makeFakeDeps();
-  const b = new QtBridge(f.deps);
+  const b = new PointsmanBridge(f.deps);
   // Should not throw.
   b.setParam("nope", 42);
   // No state change — next noteIn behaves as default.
@@ -255,14 +305,14 @@ test("setParam unknown key — silent no-op", () => {
 // ---------- setParam mode + chord context ----------
 
 test("setParam mode — accepts scale/chord/harmony and rejects unknown", () => {
-  // ADR 002 §QT live.* parameter surface: mode is a 3-enum
+  // ADR 002 § live.* parameter surface: mode is a 3-enum
   // (scale | chord | harmony). Bridge validates via a whitelist; an
   // unknown value is a silent no-op so a typo'd patcher message can't
   // poison host state. Default mode is `scale`, so after a rejected
   // mode update, controlChannel notes (with default
   // triggerMode=passthrough) still route to the quantize path.
   const f = makeFakeDeps();
-  const b = new QtBridge(f.deps);
+  const b = new PointsmanBridge(f.deps);
   b.setParam("mode", "polyrhythm"); // not in 3-enum
   b.noteIn(60, 100, 16); // controlChannel default = 16
   // Default mode=scale + triggerMode=passthrough → controlChannel
@@ -276,12 +326,12 @@ test("setParam mode — accepts scale/chord/harmony and rejects unknown", () => 
 });
 
 test("chord mode — controlChannel noteIn consumes the note (no MIDI emit)", () => {
-  // ADR 003 §QT quantize mode: in chord mode, controlChannel notes
+  // ADR 003 § quantize mode: in chord mode, controlChannel notes
   // form the chord context — they are NOT forwarded to the quantize
   // path (no MIDI out, no notePulse) and triggerMode=root is
   // overridden. Verifies the chord-mode short-circuit in host.noteIn.
   const f = makeFakeDeps();
-  const b = new QtBridge(f.deps);
+  const b = new PointsmanBridge(f.deps);
   b.setParam("mode", "chord");
   const beforeNotes = f.notes.length;
   const beforePulses = f.outlets.filter((o) => o.channel === "notePulse").length;
@@ -292,12 +342,12 @@ test("chord mode — controlChannel noteIn consumes the note (no MIDI emit)", ()
 });
 
 test("chord mode — controlChannel noteIn emits chordChanged with the new pc set", () => {
-  // ADR 003 §QT scale keyboard interaction: bridge emits
+  // ADR 003 §scale keyboard interaction: bridge emits
   // `chordChanged <pcs...>` so the keyboard renderer can highlight
   // currently-held chord PCs (third tier between in-scale dot and
   // pulse glow). PC = pitch % 12; arg list is the sorted PC set.
   const f = makeFakeDeps();
-  const b = new QtBridge(f.deps);
+  const b = new PointsmanBridge(f.deps);
   b.setParam("mode", "chord");
   const before = f.outlets.length;
   b.noteIn(60, 100, 16); // C → pc 0
@@ -307,12 +357,12 @@ test("chord mode — controlChannel noteIn emits chordChanged with the new pc se
 });
 
 test("chord mode — multi-octave holds dedupe by pitch class", () => {
-  // ADR 003 §QT quantize mode: chord context is the pitch-class
+  // ADR 003 § quantize mode: chord context is the pitch-class
   // projection of the held set. Holding C3 (60) and C4 (72)
   // contributes pc=0 once. Releasing C4 keeps pc=0 (C3 still held);
   // releasing C3 empties the set.
   const f = makeFakeDeps();
-  const b = new QtBridge(f.deps);
+  const b = new PointsmanBridge(f.deps);
   b.setParam("mode", "chord");
   b.noteIn(60, 100, 16);
   b.noteIn(72, 100, 16);
@@ -338,7 +388,7 @@ test("chord mode — chordChanged is sorted ascending by pc", () => {
   // deterministic regardless of the hold order. Hold E (pc=4) then
   // C (pc=0) → emitted as [0, 4].
   const f = makeFakeDeps();
-  const b = new QtBridge(f.deps);
+  const b = new PointsmanBridge(f.deps);
   b.setParam("mode", "chord");
   b.noteIn(64, 100, 16); // E
   b.noteIn(60, 100, 16); // C
@@ -353,7 +403,7 @@ test("chord mode — dedup avoids re-emitting an unchanged pc set", () => {
   // unchanged across the second add. Spamming chordChanged would
   // force redundant jsui redraws.
   const f = makeFakeDeps();
-  const b = new QtBridge(f.deps);
+  const b = new PointsmanBridge(f.deps);
   b.setParam("mode", "chord");
   b.noteIn(60, 100, 16);
   const ccCountAfterFirst = f.outlets.filter((o) => o.channel === "chordChanged").length;
@@ -364,12 +414,12 @@ test("chord mode — dedup avoids re-emitting an unchanged pc set", () => {
 });
 
 test("switching mode away from chord clears the chord context", () => {
-  // ADR 003 §QT quantize mode: the chord-context held set is
+  // ADR 003 § quantize mode: the chord-context held set is
   // chord-mode-only state. Switching to scale or harmony MUST clear
   // it (host already does this; bridge must emit chordChanged []).
   // Otherwise re-entering chord mode would resurface stale PCs.
   const f = makeFakeDeps();
-  const b = new QtBridge(f.deps);
+  const b = new PointsmanBridge(f.deps);
   b.setParam("mode", "chord");
   b.noteIn(60, 100, 16);
   b.noteIn(64, 100, 16);
@@ -384,7 +434,7 @@ test("panic in chord mode emits chordChanged []", () => {
   // ADR 002 §panic: clears all chord-mode held state. Bridge must
   // tell the keyboard renderer the highlight set is empty.
   const f = makeFakeDeps();
-  const b = new QtBridge(f.deps);
+  const b = new PointsmanBridge(f.deps);
   b.setParam("mode", "chord");
   b.noteIn(60, 100, 16);
   b.noteIn(64, 100, 16);
@@ -399,7 +449,7 @@ test("transportStop in chord mode emits chordChanged []", () => {
   // Same rationale as panic: transportStop clears chord state in
   // host (ADR 002 §transport) and bridge must mirror to the renderer.
   const f = makeFakeDeps();
-  const b = new QtBridge(f.deps);
+  const b = new PointsmanBridge(f.deps);
   b.setParam("mode", "chord");
   b.noteIn(60, 100, 16);
   const before = f.outlets.length;
@@ -413,7 +463,7 @@ test("transportStart in chord mode emits chordChanged []", () => {
   // transportStart resets host RNG/drift/lastInput AND clears
   // controlHeldPitches. Bridge must mirror the cleared chord set.
   const f = makeFakeDeps();
-  const b = new QtBridge(f.deps);
+  const b = new PointsmanBridge(f.deps);
   b.setParam("mode", "chord");
   b.noteIn(60, 100, 16);
   const before = f.outlets.length;
@@ -428,7 +478,7 @@ test("non-chord mode — no chordChanged emission for input-channel notes", () =
   // (or update root in triggerMode=root). They never affect chord
   // context, so chordChanged MUST stay silent.
   const f = makeFakeDeps();
-  const b = new QtBridge(f.deps);
+  const b = new PointsmanBridge(f.deps);
   // Default mode='scale'. Drive several notes through both control
   // and input channels.
   b.noteIn(60, 100, 1);
@@ -440,7 +490,7 @@ test("non-chord mode — no chordChanged emission for input-channel notes", () =
 
 // ---------- harmony slot collection (bridge → host harmonyVoices) ----------
 //
-// ADR 003 §QT patcher harmony voices widget cluster: 6 live.menu widgets
+// ADR 003 §Pointsman patcher harmony voices widget cluster: 6 live.menu widgets
 // (3 voice slots × 2 fields), matching inboil's QuantizerSheet two-
 // select-per-voice badge. Each emits its own setParam:
 //   harmonyV{1,2,3}Interval   ∈ {"3rd", "4th", "5th", "6th"}
@@ -454,7 +504,7 @@ test("harmony slots — defaults are 3 × {3rd, off} → empty harmonyVoices", (
   // filtered list is empty. In harmony mode this must produce a single
   // output (primary scale-snap, no voiced notes).
   const f = makeFakeDeps();
-  const b = new QtBridge(f.deps);
+  const b = new PointsmanBridge(f.deps);
   b.setParam("mode", "harmony");
   b.noteIn(60, 100, 1);
   assert.equal(f.notes.length, 1);
@@ -466,7 +516,7 @@ test("harmony slot V1 — direction='above' enables one voice (default interval=
   // direction="above" promotes V1 from off → active.
   // C major + input C(60) → primary 60 + 3rd-above-C = 64 (E).
   const f = makeFakeDeps();
-  const b = new QtBridge(f.deps);
+  const b = new PointsmanBridge(f.deps);
   b.setParam("mode", "harmony");
   b.setParam("harmonyV1Direction", "above");
   b.noteIn(60, 100, 1);
@@ -484,7 +534,7 @@ test("harmony slot — interval enum strings map to diatonic shifts", () => {
   ];
   for (const [intervalStr, expected] of cases) {
     const f = makeFakeDeps();
-    const b = new QtBridge(f.deps);
+    const b = new PointsmanBridge(f.deps);
     b.setParam("mode", "harmony");
     b.setParam("harmonyV1Interval", intervalStr);
     b.setParam("harmonyV1Direction", "above");
@@ -500,7 +550,7 @@ test("harmony slot — interval enum strings map to diatonic shifts", () => {
 test("harmony slot — direction='below' inverts the diatonic shift", () => {
   // C major. Below distances: 3rd↓ = 57 (A, 2 steps below).
   const f = makeFakeDeps();
-  const b = new QtBridge(f.deps);
+  const b = new PointsmanBridge(f.deps);
   b.setParam("mode", "harmony");
   b.setParam("harmonyV1Interval", "3rd");
   b.setParam("harmonyV1Direction", "below");
@@ -511,7 +561,7 @@ test("harmony slot — direction='below' inverts the diatonic shift", () => {
 test("harmony slot — invalid interval is silently rejected (slot unchanged)", () => {
   // Out-of-vocabulary or wrong-suffix values: silent no-op.
   const f = makeFakeDeps();
-  const b = new QtBridge(f.deps);
+  const b = new PointsmanBridge(f.deps);
   b.setParam("mode", "harmony");
   b.setParam("harmonyV1Interval", "5th");      // valid → interval=5
   b.setParam("harmonyV1Direction", "above");
@@ -525,7 +575,7 @@ test("harmony slot — invalid interval is silently rejected (slot unchanged)", 
 
 test("harmony slot — invalid direction is silently rejected (slot unchanged)", () => {
   const f = makeFakeDeps();
-  const b = new QtBridge(f.deps);
+  const b = new PointsmanBridge(f.deps);
   b.setParam("mode", "harmony");
   b.setParam("harmonyV1Direction", "above");
   b.setParam("harmonyV1Direction", "diagonal"); // unknown
@@ -535,7 +585,7 @@ test("harmony slot — invalid direction is silently rejected (slot unchanged)",
 
 test("harmony slot — direction='off' removes voice from filtered output", () => {
   const f = makeFakeDeps();
-  const b = new QtBridge(f.deps);
+  const b = new PointsmanBridge(f.deps);
   b.setParam("mode", "harmony");
   b.setParam("harmonyV1Direction", "above");
   b.setParam("harmonyV1Direction", "off");
@@ -546,7 +596,7 @@ test("harmony slot — direction='off' removes voice from filtered output", () =
 test("harmony slots — all 3 active produces primary + 3 voiced notes", () => {
   // V1=3rd above (E=64), V2=5th above (G=67), V3=3rd below (A=57). C major.
   const f = makeFakeDeps();
-  const b = new QtBridge(f.deps);
+  const b = new PointsmanBridge(f.deps);
   b.setParam("mode", "harmony");
   b.setParam("harmonyV1Direction", "above");           // interval default 3rd
   b.setParam("harmonyV2Interval", "5th");
@@ -560,7 +610,7 @@ test("harmony slots — all 3 active produces primary + 3 voiced notes", () => {
 test("harmony slots — gap-filtering preserves declared slot order (V2 only)", () => {
   // V1=off, V2 active (5th above), V3=off → filtered voices = [V2].
   const f = makeFakeDeps();
-  const b = new QtBridge(f.deps);
+  const b = new PointsmanBridge(f.deps);
   b.setParam("mode", "harmony");
   b.setParam("harmonyV2Interval", "5th");
   b.setParam("harmonyV2Direction", "above");
@@ -572,7 +622,7 @@ test("harmony slots — V1 and V3 active, V2 off (sandwich case)", () => {
   // V1 emits before V3 even with V2 as the gap.
   // V1=3rd above (64), V3=5th below (53).
   const f = makeFakeDeps();
-  const b = new QtBridge(f.deps);
+  const b = new PointsmanBridge(f.deps);
   b.setParam("mode", "harmony");
   b.setParam("harmonyV1Direction", "above");
   b.setParam("harmonyV3Interval", "5th");
@@ -584,7 +634,7 @@ test("harmony slots — V1 and V3 active, V2 off (sandwich case)", () => {
 test("harmony slot — slot config persists across modes (configure-then-switch)", () => {
   // Slot is config; persists regardless of mode.
   const f = makeFakeDeps();
-  const b = new QtBridge(f.deps);
+  const b = new PointsmanBridge(f.deps);
   b.setParam("harmonyV1Direction", "above");
   b.setParam("mode", "harmony");
   b.noteIn(60, 100, 1);
@@ -593,7 +643,7 @@ test("harmony slot — slot config persists across modes (configure-then-switch)
 
 test("harmony slot — out-of-range slot index (V4) is silent no-op", () => {
   const f = makeFakeDeps();
-  const b = new QtBridge(f.deps);
+  const b = new PointsmanBridge(f.deps);
   b.setParam("mode", "harmony");
   b.setParam("harmonyV4Interval", "3rd");
   b.setParam("harmonyV4Direction", "above");
@@ -603,15 +653,22 @@ test("harmony slot — out-of-range slot index (V4) is silent no-op", () => {
 
 // ---------- transport / panic ----------
 
-test("panic — dispatches host panic events (no-op in mono v1)", () => {
-  // mono v1: notesOn empty → host.panic() returns []. Bridge call still
-  // valid, no throw, no extra notes emitted.
+test("panic — releases sounding pitch by flushing in-flight noteOffs (B2)", () => {
+  // Pre-v1.0.1: notesOn was always empty so host.panic() returned [] and
+  // the scheduled noteOff fired on its original timer (panic had no
+  // immediate effect on a held humanizeGate).
+  // Post-fix: bridge tracks scheduled noteOffs; panic emits an immediate
+  // noteOff for every sounding pitch and cancels the original schedule.
   const f = makeFakeDeps();
-  const b = new QtBridge(f.deps);
+  const b = new PointsmanBridge(f.deps);
   b.noteIn(60, 100, 1);
   const beforeNotes = f.notes.length;
   b.panic();
-  assert.equal(f.notes.length, beforeNotes);
+  // panic must release the held pitch *now*, not at the original gate.
+  assert.equal(f.notes.length, beforeNotes + 1);
+  const released = f.notes[f.notes.length - 1];
+  assert.equal(released.pitch, 60);
+  assert.equal(released.velocity, 0);
 });
 
 test("transportStart — flushes notesOn and resets host state", () => {
@@ -620,7 +677,7 @@ test("transportStart — flushes notesOn and resets host state", () => {
   // transportStart, then re-emitting and checking the post-restart event
   // matches a fresh-host equivalent.
   const fA = makeFakeDeps();
-  const a = new QtBridge(fA.deps, {
+  const a = new PointsmanBridge(fA.deps, {
     initialParams: { humanizeVelocity: 1, seed: 42 },
   });
   fA.setNow(0);
@@ -630,7 +687,7 @@ test("transportStart — flushes notesOn and resets host state", () => {
   a.noteIn(60, 100, 1);   // post-restart event
 
   const fB = makeFakeDeps();
-  const bFresh = new QtBridge(fB.deps, {
+  const bFresh = new PointsmanBridge(fB.deps, {
     initialParams: { humanizeVelocity: 1, seed: 42 },
   });
   fB.setNow(1000);
@@ -646,7 +703,7 @@ test("transportStart — flushes notesOn and resets host state", () => {
 
 test("transportStop — host transportStop dispatched, no throw", () => {
   const f = makeFakeDeps();
-  const b = new QtBridge(f.deps);
+  const b = new PointsmanBridge(f.deps);
   b.transportStop(); // no notes in flight, just exercises the call
   assert.ok(true);   // reaching here = success
 });
@@ -658,7 +715,7 @@ test("notePulse and noteOn dispatch at same wall time (lockstep)", () => {
   // dispatches. With timing humanize > 0, both might be scheduled at
   // a positive delayMs. Both must end up at the SAME ms slot.
   const f = makeFakeDeps();
-  const b = new QtBridge(f.deps, {
+  const b = new PointsmanBridge(f.deps, {
     initialParams: { humanizeTiming: 0.5, seed: 13 },
   });
   // Establish prior input so timingOffset can be non-zero.
@@ -695,4 +752,133 @@ test("notePulse and noteOn dispatch at same wall time (lockstep)", () => {
   const totalNotesNonZero = allNotes.filter((n) => n.velocity > 0).length;
   assert.equal(totalPulses, 1, "exactly one notePulse per noteIn");
   assert.equal(totalNotesNonZero, 1, "exactly one noteOn per noteIn");
+});
+
+// ---------- in-flight noteOff cancellation (B2) ---------------------------
+//
+// Pre-fix behaviour: noteIn paired noteOn(immediate) + noteOff(scheduled).
+// transportStop / panic / setParam(scale|root|mode|triggerMode) called
+// host.flushNotesOn which was a no-op (notesOn never populated). The
+// scheduled noteOff fired regardless on its original timer. Two failure
+// modes:
+//   (a) panic during a long humanizeGate hold: synth keeps sounding for
+//       the gate remainder.
+//   (b) re-trigger of the same pitch within the gate window: the OLD
+//       scheduled noteOff fires and prematurely silences the NEW note.
+// Fix: bridge tracks scheduled noteOffs; cancellation entry points emit
+// an immediate noteOff and mark the scheduled cb as a no-op. Same-key
+// re-trigger also auto-cancels the prior pending noteOff.
+
+test("cancellation — transportStop emits immediate noteOff for sounding pitch + scheduled noteOff is a no-op", () => {
+  const f = makeFakeDeps();
+  const b = new PointsmanBridge(f.deps);
+  b.noteIn(60, 100, 1);
+  // After noteIn: 1 noteOn dispatched, 1 noteOff scheduled (default gate).
+  assert.equal(f.notes.length, 1);
+  assert.equal(f.notes[0].velocity, 100);
+  // transportStop — bridge cancels in-flight + emits immediate noteOff.
+  b.transportStop();
+  assert.equal(f.notes.length, 2, "transportStop must emit immediate noteOff for sounding pitch");
+  assert.equal(f.notes[1].pitch, 60);
+  assert.equal(f.notes[1].velocity, 0);
+  assert.equal(f.notes[1].channel, 1);
+  // Now flush the originally scheduled noteOff — must be a no-op (else
+  // it would emit a stale noteOff for an already-released pitch).
+  f.flushAll();
+  assert.equal(f.notes.length, 2, "originally scheduled noteOff must be cancelled");
+});
+
+test("cancellation — panic emits immediate noteOff for sounding pitch + scheduled noteOff is a no-op", () => {
+  const f = makeFakeDeps();
+  const b = new PointsmanBridge(f.deps);
+  b.noteIn(72, 80, 2);
+  assert.equal(f.notes.length, 1);
+  b.panic();
+  // panic() must release the held pitch immediately.
+  assert.equal(f.notes.length, 2);
+  assert.equal(f.notes[1].pitch, 72);
+  assert.equal(f.notes[1].velocity, 0);
+  assert.equal(f.notes[1].channel, 2);
+  f.flushAll();
+  assert.equal(f.notes.length, 2);
+});
+
+test("cancellation — setParam scale|root|mode|triggerMode flushes sounding pitches; setParam seed (non-flush) does not", () => {
+  // Mirror of host.setParam flushKeys list (scale, root, mode, triggerMode).
+  // A scale change while a note is held should silence it (the new scale
+  // would mismatch the held pitch); a seed change should NOT (it doesn't
+  // affect any in-flight quantize result).
+  const flushKeys: Array<{ key: string; value: unknown }> = [
+    { key: "scale", value: "minor" },
+    { key: "root", value: 5 },
+    { key: "mode", value: "harmony" },
+    { key: "triggerMode", value: "root" },
+  ];
+  for (const { key, value } of flushKeys) {
+    const f = makeFakeDeps();
+    const b = new PointsmanBridge(f.deps);
+    b.noteIn(60, 100, 1);
+    const before = f.notes.length;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (b as any).setParam(key, value);
+    assert.ok(
+      f.notes.length > before,
+      `setParam ${key} must flush sounding pitches (before=${before}, after=${f.notes.length})`,
+    );
+    const off = f.notes[f.notes.length - 1];
+    assert.equal(off.velocity, 0, `setParam ${key} must emit noteOff (velocity 0)`);
+  }
+  // Non-flush key: seed change. The bridge does NOT cancel pending
+  // noteOffs because seed doesn't affect any in-flight quantize result.
+  const f = makeFakeDeps();
+  const b = new PointsmanBridge(f.deps);
+  b.noteIn(60, 100, 1);
+  const before = f.notes.length;
+  b.setParam("seed", 99);
+  assert.equal(f.notes.length, before, "setParam seed must NOT flush sounding pitches");
+});
+
+test("cancellation — re-triggering same pitch+channel cancels the prior pending noteOff", () => {
+  // Mash the same key twice within the gate window. Without cancellation
+  // the first scheduled noteOff would fire mid-second-note and silence
+  // it. With cancellation: only the second-note's noteOff fires.
+  const f = makeFakeDeps();
+  const b = new PointsmanBridge(f.deps);
+  b.noteIn(60, 100, 1);
+  // First noteOn dispatched, first noteOff scheduled.
+  assert.equal(f.notes.length, 1);
+  // Second noteIn for the same pitch+channel before the first gate elapsed.
+  // Bridge should cancel the prior pending noteOff so flushAll only fires
+  // the second note's noteOff.
+  f.setNow(50);
+  b.noteIn(60, 100, 1);
+  assert.equal(f.notes.length, 2, "second noteOn dispatched");
+  // Flush all scheduled — should yield exactly ONE more note (the second
+  // noteOff). The first noteOff is cancelled.
+  f.flushAll();
+  const noteOffs = f.notes.filter((n) => n.velocity === 0);
+  assert.equal(noteOffs.length, 1, `expected 1 noteOff (second note's), got ${noteOffs.length}`);
+});
+
+test("cancellation — channel scope: same pitch on different channels is independent", () => {
+  // A flush on a held pitch+channel must not affect a parallel held
+  // pitch+different-channel. Defensive — the cancellation key must
+  // include channel.
+  const f = makeFakeDeps();
+  const b = new PointsmanBridge(f.deps);
+  // Space the noteIns 100 ms apart so sourceStepDuration > 0 → both
+  // noteOffs are scheduled (not dispatched immediately at delay=0,
+  // which would leave nothing pending to flush).
+  f.setNow(0);
+  b.noteIn(60, 100, 1);
+  f.setNow(100);
+  b.noteIn(60, 100, 2);
+  // 2 noteOns dispatched, 2 noteOffs scheduled.
+  assert.equal(f.notes.length, 2);
+  b.transportStop();
+  // Both pitches must be released (one per channel).
+  const offs = f.notes.filter((n) => n.velocity === 0);
+  assert.equal(offs.length, 2, "transportStop must release both channels");
+  const channels = offs.map((n) => n.channel).sort();
+  assert.deepEqual(channels, [1, 2]);
 });

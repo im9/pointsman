@@ -1,6 +1,6 @@
-// Stencil QT host — pure logic per ADR 002 §Stencil QT.
+// Pointsman host — pure logic per ADR 002 §Pointsman.
 //
-// Owns QtHostState (scalePitches cache, humanizeRng, driftState, params,
+// Owns PointsmanHostState (scalePitches cache, humanizeRng, driftState, params,
 // notesOn, lastInputTime) and exposes methods the Max bridge calls.
 // Returns NoteEvent arrays with delayMs already in ms (humanize already
 // computed timingOffset against sourceStepDuration). The bridge schedules
@@ -25,9 +25,9 @@ import {
 
 export type Channel = number; // 1..16
 export type TriggerMode = "passthrough" | "root";
-export type QtMode = "scale" | "chord" | "harmony";
+export type PointsmanMode = "scale" | "chord" | "harmony";
 
-const QT_MODES: readonly QtMode[] = ["scale", "chord", "harmony"];
+const POINTSMAN_MODES: readonly PointsmanMode[] = ["scale", "chord", "harmony"];
 
 // First-event step fallback. With no prior input, there is no rhythmic
 // gap to derive sourceStepDuration from; 250 ms is generic across common
@@ -39,10 +39,10 @@ export type NoteEvent =
   | { type: "noteOff"; pitch: MidiNote; channel: Channel; delayMs: number }
   | { type: "notePulse"; pitch: MidiNote; velocity: number; delayMs: number };
 
-export interface QtParams {
+export interface PointsmanParams {
   scale: ScaleName;
   root: number; // 0..11
-  mode: QtMode;
+  mode: PointsmanMode;
   humanizeVelocity: number; // 0..1
   humanizeGate: number; // 0..1
   humanizeTiming: number; // 0..1
@@ -55,7 +55,7 @@ export interface QtParams {
   seed: number; // u31
 }
 
-export const DEFAULT_PARAMS: QtParams = {
+export const DEFAULT_PARAMS: PointsmanParams = {
   scale: "major",
   root: 0,
   mode: "scale",
@@ -71,14 +71,14 @@ export const DEFAULT_PARAMS: QtParams = {
   seed: 42,
 };
 
-export type ParamKey = keyof QtParams;
+export type ParamKey = keyof PointsmanParams;
 
 function noteKey(pitch: number, channel: number): string {
   return `${pitch}:${channel}`;
 }
 
-export class QtHost {
-  private params: QtParams;
+export class PointsmanHost {
+  private params: PointsmanParams;
   private scalePitches: MidiNote[];
   private humanizeRng: RngState;
   private driftState: DriftState;
@@ -90,7 +90,7 @@ export class QtHost {
   // leaves the chord context when ALL its octave-instances are released.
   private controlHeldPitches: Set<MidiNote>;
 
-  constructor(params: QtParams = DEFAULT_PARAMS) {
+  constructor(params: PointsmanParams = DEFAULT_PARAMS) {
     this.params = { ...params, harmonyVoices: [...params.harmonyVoices] };
     this.scalePitches = buildScalePitches(this.params.scale, this.params.root);
     this.humanizeRng = seedRng(BigInt(this.params.seed));
@@ -254,7 +254,7 @@ export class QtHost {
     return events;
   }
 
-  setParam<K extends ParamKey>(key: K, value: QtParams[K]): NoteEvent[] {
+  setParam<K extends ParamKey>(key: K, value: PointsmanParams[K]): NoteEvent[] {
     const events: NoteEvent[] = [];
     const flushKeys: ParamKey[] = ["scale", "root", "triggerMode", "mode"];
     if (flushKeys.includes(key)) {
@@ -265,8 +265,8 @@ export class QtHost {
       // defense-in-depth here). Switching away from chord clears the
       // held set: chord context is meaningless outside chord mode and
       // would resurface stale on a later switch back.
-      const v = value as QtMode;
-      if (!QT_MODES.includes(v)) return events;
+      const v = value as PointsmanMode;
+      if (!POINTSMAN_MODES.includes(v)) return events;
       if (this.params.mode === "chord" && v !== "chord") {
         this.controlHeldPitches.clear();
       }
@@ -308,7 +308,7 @@ export class QtHost {
   getDriftState(): Readonly<DriftState> {
     return this.driftState;
   }
-  getParams(): Readonly<QtParams> {
+  getParams(): Readonly<PointsmanParams> {
     return this.params;
   }
   getChordContext(): readonly number[] {

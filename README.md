@@ -24,8 +24,12 @@ User parameters:
 - **mode** — `scale` (snap to scale degree), `chord` (snap to
   chord-tone with scale fallback), `harmony` (input plus a diatonic
   voice stack of up to 3 voices)
-- **controlChannel** — held MIDI notes on this channel form the
-  current chord context for `chord` / `harmony` modes
+- **controlChannel** — in `chord` mode, held MIDI notes on this
+  channel form the current chord context (consumed, not output).
+  In any mode with `triggerMode = root`, single notes on this
+  channel set the root and are also consumed. In `harmony` mode
+  (without `root` triggerMode) and `scale` mode, controlChannel
+  notes pass straight through the quantize path.
 - **humanizeVelocity / Gate / Timing / Drift** — signed-noise
   amplitudes per axis; `drift` smooths the draws over time
 - **outputLevel** — global multiplier on output velocity
@@ -102,9 +106,10 @@ Per-target build commands:
 | `m4l/` (workspace) | `cd m4l && pnpm install` | `pnpm -r build` | `pnpm -r test` |
 | `vst/` (VST3 + AU) | `git submodule update --init --recursive` | `cd vst && make build` | `cd vst && make test` |
 
-m4l rebake after source edits: `cd m4l && pnpm bake` (refreshes
-`Pointsman.amxd` from `Pointsman.maxpat`; pre-bundles
-`pointsman.entry.mjs` into `pointsman.mjs` via esbuild).
+m4l rebake after source edits: `cd m4l && pnpm bake` (chains
+`pnpm -r build` for engine/host TS → esbuild for the
+`pointsman.mjs` bundle → `Pointsman.amxd` rewrite from
+`Pointsman.maxpat`).
 
 m4l distribution build: `make release` (from repo root) runs
 build + bake and prepares `dist/`. The baked dev `.amxd`

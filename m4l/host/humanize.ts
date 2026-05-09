@@ -1,4 +1,4 @@
-// QT humanize layer — pure functions per ADR 002 §QT humanize.
+// Pointsman humanize layer — pure functions per ADR 002 §Pointsman humanize.
 // Composes per-event velocity / gate / timing perturbations from a single
 // shared RNG, with optional EMA drift smoothing across consecutive events.
 
@@ -27,7 +27,7 @@ export function draw(
 }
 
 // EMA smoothing: factor*prev + (1-factor)*raw. Single-pole low-pass over the
-// per-event raw draws, parameterized by the qt.humanizeDrift dial.
+// per-event raw draws, parameterized by the humanizeDrift dial.
 export function drift(prev: number, raw: number, factor: number): number {
   return factor * prev + (1 - factor) * raw;
 }

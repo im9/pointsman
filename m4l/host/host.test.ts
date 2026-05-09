@@ -1,4 +1,4 @@
-// Tests for host/host.ts — pure logic per ADR 002 §Stencil QT.
+// Tests for host/host.ts — pure logic per ADR 002 §Pointsman.
 //
 // State-machine tests, no Max API, no timers. nowMs is injected per
 // noteIn call so tests deliver deterministic time deltas.
@@ -12,15 +12,15 @@ import assert from "node:assert/strict";
 import {
   DEFAULT_PARAMS,
   FIRST_EVENT_STEP_MS,
-  QtHost,
+  PointsmanHost,
   type NoteEvent,
-  type QtParams,
+  type PointsmanParams,
 } from "./host.ts";
 import { buildScalePitches, diatonicShift, snapToScale } from "../engine/quantizer.ts";
 import { nextU32, seedRng } from "../engine/rng.ts";
 
-function makeHost(overrides: Partial<QtParams> = {}): QtHost {
-  return new QtHost({ ...DEFAULT_PARAMS, ...overrides });
+function makeHost(overrides: Partial<PointsmanParams> = {}): PointsmanHost {
+  return new PointsmanHost({ ...DEFAULT_PARAMS, ...overrides });
 }
 
 function partition(events: NoteEvent[]): {
@@ -40,7 +40,7 @@ function partition(events: NoteEvent[]): {
 test("constructor — defaults match ADR 002 live.* table", () => {
   const host = makeHost();
   const p = host.getParams();
-  // Defaults from ADR 002 §live.* parameter surface — Stencil QT.
+  // Defaults from ADR 002 §live.* parameter surface — Pointsman.
   assert.equal(p.scale, "major");
   assert.equal(p.root, 0);
   assert.equal(p.humanizeVelocity, 0);
@@ -94,7 +94,7 @@ test("noteIn — out-of-scale pitch snaps to nearest in-scale", () => {
 
 test("noteIn — output channel preserves input channel", () => {
   // Spec: 'emit on the same channel as the input event (preserves
-  // multi-channel routing). qt.outputChannel is *not* a parameter.'
+  // multi-channel routing). outputChannel is *not* a parameter.'
   const host = makeHost();
   const r = partition(host.noteIn(60, 100, 7, 0));
   assert.equal(r.noteOns[0].channel, 7);
@@ -187,7 +187,7 @@ test("passthrough mode — controlChannel events ARE quantized (root mode only c
 
 // ---------- chord mode ----------
 //
-// ADR 003 §QT quantize mode: when mode='chord', held notes on
+// ADR 003 § quantize mode: when mode='chord', held notes on
 // controlChannel form chord context. Each noteIn adds pitch%12; each
 // noteOff removes. Input notes get snapToChordTones (within 2 semis,
 // scale fallback). Replaces inboil's offline chords[] / chordSource —
@@ -373,7 +373,7 @@ test("setParam mode — switching away from chord clears chord context", () => {
 
 // ---------- harmony mode ----------
 //
-// ADR 003 §QT quantize mode: when mode='harmony', input note + N parallel
+// ADR 003 § quantize mode: when mode='harmony', input note + N parallel
 // diatonic voices (harmonyVoices[], 0..3, each {interval, direction}).
 // Engine logic: snap input to scale first, then compute each voice via
 // diatonicShift from snapped. All voices share one humanize draw — the

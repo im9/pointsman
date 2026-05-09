@@ -51,7 +51,7 @@ test("snapToScale — exact, nearest, ties, edges, identity", () => {
 //
 // Stencil departs from inboil's `expandPcsToRange(pcs, octLo, octHi)` by
 // expanding chord PCs across the full 0..127 MIDI range — see ADR 003
-// §QT scale keyboard ("Stencil QT does not constrain output to a 3-5
+// §scale keyboard ("Pointsman does not constrain output to a 3-5
 // oct band the way inboil's reference UI did") and the
 // chord_mode_rule meta entry in quantizer-test-vectors.json. Default
 // tolerance = 2 semitones (matches inboil's hardcoded value).

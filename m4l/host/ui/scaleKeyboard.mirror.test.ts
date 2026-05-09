@@ -22,6 +22,7 @@ import { dirname, join } from "node:path";
 import {
   BLACK_KEY_HEIGHT_RATIO,
   BLACK_KEY_WIDTH_RATIO,
+  CHORD_DOT_RADIUS_RATIO,
   DOT_INSET_RATIO,
   DOT_RADIUS_RATIO,
   NUM_PITCH_CLASSES,
@@ -93,6 +94,10 @@ test("renderer mirrors DOT_RADIUS_RATIO", () => {
   assert.equal(findVarDecl("DOT_RADIUS_RATIO"), DOT_RADIUS_RATIO);
 });
 
+test("renderer mirrors CHORD_DOT_RADIUS_RATIO", () => {
+  assert.equal(findVarDecl("CHORD_DOT_RADIUS_RATIO"), CHORD_DOT_RADIUS_RATIO);
+});
+
 test("renderer SCALE_INTERVALS matches engine for every scale name", () => {
   // The engine is the source of truth for scale definitions. The renderer
   // duplicates the table out of necessity (jsui can't import); this test
@@ -122,12 +127,13 @@ test("renderer is ASCII-only (Max classic JS parser constraint)", () => {
 });
 
 test("renderer dispatches the message names the bridge emits", () => {
-  // bridge.ts emits `scaleChanged` and `notePulse` outlets. The renderer
-  // must dispatch those names. Cheap text check: a typo on either side
-  // breaks the link silently in Live, so catch it here before manual
-  // verification time.
+  // bridge.ts emits `scaleChanged`, `notePulse`, and `chordChanged`
+  // outlets. The renderer must dispatch all three. Cheap text check: a
+  // typo on either side breaks the link silently in Live, so catch it
+  // here before manual verification time.
   assert.match(RENDERER_SRC, /msg === ['"]scaleChanged['"]/);
   assert.match(RENDERER_SRC, /msg === ['"]notePulse['"]/);
+  assert.match(RENDERER_SRC, /msg === ['"]chordChanged['"]/);
 });
 
 test("renderer handles 'chromatic-half' as the all-true case", () => {
@@ -138,9 +144,9 @@ test("renderer handles 'chromatic-half' as the all-true case", () => {
 });
 
 test("renderer defines onclick and emits setRoot on hit", () => {
-  // Slice #4 (ADR 003 §QT scale keyboard interaction): the keyboard
+  // Slice #4 (ADR 003 §scale keyboard interaction): the keyboard
   // must hit-test clicks and emit `setRoot <pc>` to outlet 0 so the
-  // patcher can route it into qt.root's [live.menu]. Cheap text check
+  // patcher can route it into root's [live.menu]. Cheap text check
   // so a typo on either side breaks the link here, not in Live.
   assert.match(RENDERER_SRC, /function\s+onclick\s*\(/);
   assert.match(RENDERER_SRC, /outlet\s*\(\s*0\s*,\s*['"]setRoot['"]/);

@@ -1,4 +1,4 @@
-// Tests for host/humanize.ts — pure layer per ADR 002 §QT humanize.
+// Tests for host/humanize.ts — pure layer per ADR 002 §Pointsman humanize.
 // Spec: docs/ai/adr/002-m4l-architecture.md
 //
 // Threshold derivation rule (CLAUDE.md global): every numeric assertion
@@ -204,7 +204,7 @@ test("composeHumanize — timing scaled by 0.5 step then sourceStepDuration", ()
 });
 
 test("composeHumanize — draw order is velocity → gate → timing", () => {
-  // Binding for cross-target reproducibility (ADR 002 §QT humanize). Verify
+  // Binding for cross-target reproducibility (ADR 002 §Pointsman humanize). Verify
   // by comparing the velocity-axis perturbation against the FIRST nextU32
   // sample, the gate axis against the SECOND, and timing against the THIRD.
   const seed = 99n;

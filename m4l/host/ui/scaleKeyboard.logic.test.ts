@@ -17,6 +17,7 @@ import {
   isBlackKey,
   keyBoundsAt,
   recomputeInScale,
+  setChord,
   setScale,
   updatePulses,
 } from "./scaleKeyboard.logic.ts";
@@ -135,6 +136,14 @@ test("createModel — pulses starts empty", () => {
   assert.deepEqual(m.pulses, []);
 });
 
+test("createModel — chordPcs starts all-false (no chord context held)", () => {
+  // Mode=chord with no controlChannel notes held: the third highlight
+  // tier is fully off. Bridge fires chordChanged on the first held note.
+  const m = createModel("major", 0);
+  assert.equal(m.chordPcs.length, NUM_PITCH_CLASSES);
+  assert.ok(m.chordPcs.every((v) => v === false));
+});
+
 // ---- setScale -------------------------------------------------------------
 
 test("setScale — updates inScale to match new scale/root", () => {
@@ -162,6 +171,68 @@ test("setScale — does not mutate input model", () => {
   const before = m.inScale.slice();
   setScale(m, "minor", 0);
   assert.deepEqual(m.inScale, before);
+});
+
+test("setScale — preserves active chord PCs", () => {
+  // Scale change while a chord is held shouldn't drop the chord-tier
+  // highlight; chord context lifecycle is bound to controlChannel
+  // hold/release, not to scale changes.
+  const m0 = createModel("major", 0);
+  const m1 = setChord(m0, [0, 4, 7]); // C major triad
+  const m2 = setScale(m1, "minor", 0);
+  assert.equal(m2.chordPcs[0], true);
+  assert.equal(m2.chordPcs[4], true);
+  assert.equal(m2.chordPcs[7], true);
+  assert.equal(m2.chordPcs.filter(Boolean).length, 3);
+});
+
+// ---- setChord -------------------------------------------------------------
+
+test("setChord — sets exactly the listed PCs to true", () => {
+  // Bridge emits chordChanged <pc...> with the held controlChannel PCs.
+  const m = createModel("major", 0);
+  const next = setChord(m, [0, 4, 7]);
+  const expected = [true, false, false, false, true, false, false, true, false, false, false, false];
+  assert.deepEqual(next.chordPcs, expected);
+});
+
+test("setChord — empty list clears the chord tier", () => {
+  // controlChannel: all notes released → bridge emits chordChanged with
+  // no args; renderer must drop back to in-scale-only display.
+  const m0 = createModel("major", 0);
+  const m1 = setChord(m0, [2, 5, 9]);
+  const m2 = setChord(m1, []);
+  assert.ok(m2.chordPcs.every((v) => v === false));
+});
+
+test("setChord — replaces (not unions) prior PC set", () => {
+  // Each chordChanged carries the *current* held set, not a diff. The
+  // renderer must forget the previous set entirely and replace it.
+  const m0 = createModel("major", 0);
+  const m1 = setChord(m0, [0, 4, 7]);
+  const m2 = setChord(m1, [2, 5]);
+  assert.equal(m2.chordPcs[0], false);
+  assert.equal(m2.chordPcs[4], false);
+  assert.equal(m2.chordPcs[7], false);
+  assert.equal(m2.chordPcs[2], true);
+  assert.equal(m2.chordPcs[5], true);
+});
+
+test("setChord — out-of-range PCs are silently dropped", () => {
+  // Defensive against a malformed chordChanged message. Bridge already
+  // collapses to PCs 0..11, but the renderer is not allowed to throw.
+  const m = createModel("major", 0);
+  const next = setChord(m, [-1, 12, 100, 5]);
+  assert.equal(next.chordPcs[5], true);
+  // No PC=12 (out of range) and array remains length 12.
+  assert.equal(next.chordPcs.length, NUM_PITCH_CLASSES);
+});
+
+test("setChord — does not mutate input model", () => {
+  const m = createModel("major", 0);
+  const before = m.chordPcs.slice();
+  setChord(m, [0, 4, 7]);
+  assert.deepEqual(m.chordPcs, before);
 });
 
 // ---- addPulse -------------------------------------------------------------
@@ -213,7 +284,7 @@ test("addPulse — out-of-range pitchClass is ignored", () => {
 });
 
 test("addPulse — multiple pulses on different pitch classes stack", () => {
-  // ADR §QT scale keyboard: "Pulses stack visually (the most recent
+  // ADR §scale keyboard: "Pulses stack visually (the most recent
   // dominates)." The model preserves all of them; the renderer picks how
   // to combine when drawing.
   let m = createModel("major", 0);
@@ -507,7 +578,7 @@ test("dotCenterAt — black-key dots sit higher on canvas than white-key dots", 
 
 // ---- hitTest --------------------------------------------------------------
 //
-// Slice #4 (ADR 003 §QT scale keyboard): a click anywhere on a key surface
+// Slice #4 (ADR 003 §scale keyboard): a click anywhere on a key surface
 // returns that key's pitch class; black keys overlay white keys in the
 // upper blackKeyHeight band, so a click in the black-key column above
 // blackKeyHeight returns the black pc; below blackKeyHeight it falls

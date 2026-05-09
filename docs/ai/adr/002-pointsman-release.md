@@ -140,7 +140,7 @@ enforced by `m4l/scripts/patcher.test.mjs` (oedipa ADR 007
 
 ### Cross-path verification
 
-- [ ] Run the full flow: `make release` → open
+- [x] Run the full flow: `make release` → open
       `m4l/Pointsman.amxd` in Max → click snowflake → Save As
       `dist/Pointsman.amxd`. Copy the frozen file to a path
       outside the repo (e.g. `~/Downloads/Pointsman.amxd`) and
@@ -155,55 +155,61 @@ Manual checks against Ableton Live. Items reference the
 **dev-side** baked `m4l/Pointsman.amxd`; the frozen
 distribution file is verified in §Phase 0 above.
 
-- [ ] Each `live.*` parameter visible in Live's Device parameter
+- [x] Each `live.*` parameter visible in Live's Device parameter
       list
-- [ ] Each `live.*` parameter responds to MIDI map (Cmd-M) and
+- [x] Each `live.*` parameter responds to MIDI map (Cmd-M) and
       automation
-- [ ] Saving a Live set, closing, reopening preserves every
+- [x] Saving a Live set, closing, reopening preserves every
       parameter value
-- [ ] Right-click → "Show in Browser" / preset save round-trips
+- [x] Right-click → "Show in Browser" / preset save round-trips
       values
-- [ ] At Live 100% UI scale, the Pointsman device renders within
+- [x] At Live 100% UI scale, the Pointsman device renders within
       the 1000×180 presentation strip without truncation or
       scrollbars
-- [ ] At Live 150% UI scale, no widget label or jsui content is
+- [x] At Live 150% UI scale, no widget label or jsui content is
       clipped (or document that 150% is out of v1 scope if Max
       can't handle it)
-- [ ] In Live's Light theme, the inboil palette reads correctly
-- [ ] In Live's Dark theme, the inboil palette remains readable
+- [x] In Live's Light theme, the inboil palette reads correctly
+- [x] In Live's Dark theme, the inboil palette remains readable
       (or decision recorded that v1 ships Light-theme-tuned and
       Dark is v2)
-- [ ] Scale keyboard: in-scale dots correct, pulse animation
+- [x] Scale keyboard: in-scale dots correct, pulse animation
       visible and decays, multi-pulse stacks readable
-- [ ] mode = `scale`: input quantized to scale-snap, no chord
+- [x] mode = `scale`: input quantized to scale-snap, no chord
       context, no harmony voicing
-- [ ] mode = `chord`: held notes on `controlChannel` form chord
+- [x] mode = `chord`: held notes on `controlChannel` form chord
       context (visible on keyboard as a third highlight tier
       between in-scale and pulse), input notes snap to chord
       tones with scale fallback. Releasing all controlChannel
       notes clears context.
-- [ ] mode = `harmony`: each input note produces input + N
+- [x] mode = `harmony`: each input note produces input + N
       voiced notes per `harmonyVoices[]`. Empty `harmonyVoices`
       reverts to scale-snap behaviour.
-- [ ] controlChannel: in `mode = chord`, controlChannel notes
+- [x] controlChannel: in `mode = chord`, controlChannel notes
       are consumed (do NOT appear in noteOut). In
       `mode = scale | harmony` with `triggerMode = root`,
       controlChannel single notes set root and are also
       consumed.
-- [ ] `Pointsman.amxd` loads in Live without console errors
-- [ ] `pnpm bake:check` passes on a fresh checkout
-- [ ] Smoke: mode = `scale` / `chord` / `harmony` each produce
+- [x] `Pointsman.amxd` loads in Live without console errors
+- [x] `pnpm bake:check` passes on a fresh checkout
+- [x] Smoke: mode = `scale` / `chord` / `harmony` each produce
       sound in Live (covers Pointsman host behavior in the real
       device)
-- [ ] Transport stop / start / scrub leaves no hung notes on the
+- [x] Transport stop / start / scrub leaves no hung notes on the
       Pointsman device
 
 ## Distribution
 
 Per-channel release work.
 
-- [ ] Choose distribution channel
+- [x] Choose distribution channel — per-product GitHub repo
+      [im9/pointsman-m4l](https://github.com/im9/pointsman-m4l)
+      Releases (binary + README only; source repo stays
+      separate)
 - [ ] Prepare screenshot at channel-required dimensions
 - [ ] Record audio demo (Pointsman solo) and export MP3
 - [ ] Write description copy
-- [ ] Upload Pointsman v1; first public version live
+- [x] Upload Pointsman v1; first public version live —
+      [v1.0.0](https://github.com/im9/pointsman-m4l/releases/tag/v1.0.0)
+      released 2026-05-09 with `Pointsman.amxd` (sha256
+      `3d902bf2e20a06fb035e37268d58a25b99fce804743d524e07c55f8aad78bb05`)

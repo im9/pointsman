@@ -20,7 +20,7 @@ export type ScaleName =
   | "chromatic"
   | "chromatic-half";
 
-// Exported so the QT scale-keyboard renderer's mirror test
+// Exported so the scale-keyboard renderer's mirror test
 // (host/ui/scaleKeyboard.mirror.test.ts) can verify the renderer's
 // hand-mirrored copy matches this canonical table.
 export const SCALE_INTERVALS: Record<Exclude<ScaleName, "chromatic-half">, number[]> = {

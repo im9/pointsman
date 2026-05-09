@@ -21,15 +21,14 @@
 //       string-enum + int-enum) including ranges, defaults, dispatch
 //       wires to node.script
 //     - chordChanged / scaleChanged / notePulse outlets reach the jsui
-//     - jsui setRoot outlet routes through [route setRoot] into qt.root
+//     - jsui setRoot outlet routes through [route setRoot] into root
 //     - node.script "ready" outlet bangs each live.* for value bootstrap
 //
-// NOTE on widget naming: the patcher carries `StencilQt*` parameter
-// longnames inherited from the bootstrap clone. Renaming them to
-// `Pointsman*` is a patcher-side surgery deferred to a follow-up
-// (out of ADR 001 §7 scope, which only simplifies the bake pipeline).
-// The longname strings below match what's on disk, not what the device
-// will eventually carry.
+// NOTE on widget naming: parameter_longnames are `Pointsman*` (renamed
+// in v1.0.1 from the bootstrap clone's `StencilQt*`). v1.0.0 sessions
+// with MIDI maps / automation bound to the old longnames need to be
+// re-mapped on upgrade — this is the breaking change documented in
+// the v1.0.1 release notes.
 //
 // Out-of-scope (manual): visual quality, host-loading behavior in Live,
 // font / palette correctness, audio output. These are pre-release manual
@@ -134,45 +133,45 @@ const LIVE_PARAMS = [
   // Humanize shortnames are bare (VEL/GATE/TIME/DRIFT) — these are
   // rendered by live.dial as the knob's built-in label, so a separate
   // comment label is unnecessary.
-  ['StencilQtHumanizeVelocity',  'VEL',     'humanizeVelocity',  0, 0,    1,          0],
-  ['StencilQtHumanizeGate',      'GATE',    'humanizeGate',      0, 0,    1,          0],
-  ['StencilQtHumanizeTiming',    'TIME',    'humanizeTiming',    0, 0,    1,          0],
-  ['StencilQtHumanizeDrift',     'DRIFT',   'humanizeDrift',     0, 0,    1,          0],
-  ['StencilQtOutputLevel',       'LVL',     'outputLevel',       0, 0,    1,          1.0],
-  ['StencilQtInputChannel',      'InCh',    'inputChannel',      1, 0,    16,         0],
-  ['StencilQtControlChannel',    'CtlCh',   'controlChannel',    1, 1,    16,         16],
-  ['StencilQtSeed',              'Seed',    'seed',              1, 0,    2147483647, 42],
+  ['PointsmanHumanizeVelocity',  'VEL',     'humanizeVelocity',  0, 0,    1,          0],
+  ['PointsmanHumanizeGate',      'GATE',    'humanizeGate',      0, 0,    1,          0],
+  ['PointsmanHumanizeTiming',    'TIME',    'humanizeTiming',    0, 0,    1,          0],
+  ['PointsmanHumanizeDrift',     'DRIFT',   'humanizeDrift',     0, 0,    1,          0],
+  ['PointsmanOutputLevel',       'LVL',     'outputLevel',       0, 0,    1,          1.0],
+  ['PointsmanInputChannel',      'InCh',    'inputChannel',      1, 0,    16,         0],
+  ['PointsmanControlChannel',    'CtlCh',   'controlChannel',    1, 1,    16,         16],
+  ['PointsmanSeed',              'Seed',    'seed',              1, 0,    2147483647, 42],
 ]
 
 // String enums mirror m4l/host/bridge.ts SCALE_NAMES / TRIGGER_MODES /
 // MODES exactly. Drift in either list is what this test catches.
 const LIVE_ENUMS = [
   // longname,              shortname, bridgeKey,     enumStrings, initialIdx
-  ['StencilQtScale',        'Scl',     'scale',
+  ['PointsmanScale',        'Scl',     'scale',
     ['major', 'minor', 'dorian', 'phrygian', 'lydian', 'mixolydian',
      'locrian', 'pentatonic', 'minor-pentatonic', 'blues', 'harmonic',
      'melodic', 'whole', 'chromatic', 'chromatic-half'], 0],
-  ['StencilQtTriggerMode',  'Trig',    'triggerMode', ['passthrough', 'root'], 0],
+  ['PointsmanTriggerMode',  'Trig',    'triggerMode', ['passthrough', 'root'], 0],
   // mode: 3-enum (scale | chord | harmony). Bridge dispatches per-value
   // setParam messages through the standard [sel]+[message] fanout.
   // controlChannel held notes form the chord context in chord mode.
-  ['StencilQtMode',         'Mode',    'mode',        ['scale', 'chord', 'harmony'], 0],
+  ['PointsmanMode',         'Mode',    'mode',        ['scale', 'chord', 'harmony'], 0],
   // Harmony voice cluster (3 rows × 2 menus): per voice slot, an
   // Interval menu and a Direction menu. Direction enum adds "off" as
   // the per-slot disabled state. Bridge maps interval string → int 3..6
   // and validates direction; slots set to "off" are filtered out of
   // the projected harmonyVoices list.
-  ['StencilQtHarmonyV1Interval',  'V1Iv', 'harmonyV1Interval',
+  ['PointsmanHarmonyV1Interval',  'V1Iv', 'harmonyV1Interval',
     ['3rd', '4th', '5th', '6th'], 0],
-  ['StencilQtHarmonyV1Direction', 'V1Dr', 'harmonyV1Direction',
+  ['PointsmanHarmonyV1Direction', 'V1Dr', 'harmonyV1Direction',
     ['off', 'above', 'below'], 0],
-  ['StencilQtHarmonyV2Interval',  'V2Iv', 'harmonyV2Interval',
+  ['PointsmanHarmonyV2Interval',  'V2Iv', 'harmonyV2Interval',
     ['3rd', '4th', '5th', '6th'], 0],
-  ['StencilQtHarmonyV2Direction', 'V2Dr', 'harmonyV2Direction',
+  ['PointsmanHarmonyV2Direction', 'V2Dr', 'harmonyV2Direction',
     ['off', 'above', 'below'], 0],
-  ['StencilQtHarmonyV3Interval',  'V3Iv', 'harmonyV3Interval',
+  ['PointsmanHarmonyV3Interval',  'V3Iv', 'harmonyV3Interval',
     ['3rd', '4th', '5th', '6th'], 0],
-  ['StencilQtHarmonyV3Direction', 'V3Dr', 'harmonyV3Direction',
+  ['PointsmanHarmonyV3Direction', 'V3Dr', 'harmonyV3Direction',
     ['off', 'above', 'below'], 0],
 ]
 // Int-enum widgets: live.menu showing labels but emitting the int
@@ -181,7 +180,7 @@ const LIVE_ENUMS = [
 // takes the int.
 const LIVE_INT_ENUMS = [
   // longname,        shortname, bridgeKey, enumValues, initialIdx
-  ['StencilQtRoot',   'Root',    'root',
+  ['PointsmanRoot',   'Root',    'root',
     ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'], 0],
 ]
 
@@ -414,7 +413,7 @@ test('Pointsman.maxpat — all live.* parameters present per LIVE_PARAMS + LIVE_
   const liveWidgets = boxes.filter((b) => {
     const cls = b.box?.maxclass
     return (cls === 'live.numbox' || cls === 'live.dial' || cls === 'live.slider' || cls === 'live.menu')
-      && b.box?.saved_attribute_attributes?.valueof?.parameter_longname?.startsWith('StencilQt')
+      && b.box?.saved_attribute_attributes?.valueof?.parameter_longname?.startsWith('Pointsman')
   })
   const expected = LIVE_PARAMS.length + LIVE_ENUMS.length + LIVE_INT_ENUMS.length
   assert.equal(liveWidgets.length, expected, `expected ${expected} live.* widgets`)
@@ -482,7 +481,7 @@ test('Pointsman.maxpat — jsui setRoot outlet routes through [route setRoot] in
   // for the keyboard's own dot pattern). Wiring:
   //   [jsui scaleKeyboard.jsui.js] outlet 0
   //     -> [route setRoot]
-  //     -> [live.menu parameter_longname StencilQtRoot] inlet 0
+  //     -> [live.menu parameter_longname PointsmanRoot] inlet 0
   // The route box strips the "setRoot" symbol so the bare int reaches
   // the live.menu (which sets its parameter to that index).
   const { boxes, lines } = loadPatcher(POINTSMAN_MAXPAT)
@@ -498,9 +497,9 @@ test('Pointsman.maxpat — jsui setRoot outlet routes through [route setRoot] in
     (b) =>
       b.box?.maxclass === 'live.menu' &&
       b.box?.saved_attribute_attributes?.valueof?.parameter_longname ===
-        'StencilQtRoot',
+        'PointsmanRoot',
   )
-  assert.ok(rootMenu, 'live.menu StencilQtRoot missing')
+  assert.ok(rootMenu, 'live.menu PointsmanRoot missing')
   const jsuiToRoute = lines.some(
     (l) =>
       l.patchline?.source?.[0] === jsui.box.id &&
@@ -556,3 +555,108 @@ test('Pointsman.maxpat — node.script "ready" outlet bangs each live.* widget f
     assert.ok(ok, `ready -> ${longname} (${w.box.id}) chain missing`)
   }
 })
+
+test('Pointsman.maxpat — panic button chain: live.text PANIC -> "panic" message -> node.script', () => {
+  // Manual panic in §Verification (transport hung-note hygiene). A
+  // hand-edit that drops the message wiring would silently disable
+  // panic with no test signal — guard the chain end-to-end.
+  const { boxes, lines } = loadPatcher(POINTSMAN_MAXPAT)
+  const panicBtn = boxes.find(
+    (b) =>
+      b.box?.maxclass === 'live.text' &&
+      b.box?.text === 'PANIC',
+  )
+  assert.ok(panicBtn, 'expected [live.text] with text "PANIC"')
+  const panicMsg = boxes.find(
+    (b) =>
+      b.box?.maxclass === 'message' &&
+      b.box?.text === 'panic',
+  )
+  assert.ok(panicMsg, 'expected [message panic]')
+  const nodeScript = boxes.find((b) => /^node\.script\b/.test(b.box?.text ?? ''))
+  assert.ok(nodeScript, 'expected [node.script]')
+  assert.ok(
+    followsLineFromTo(lines, panicBtn.box.id, panicMsg.box.id),
+    'panic button -> [message panic] wire missing',
+  )
+  assert.ok(
+    followsLineFromTo(lines, panicMsg.box.id, nodeScript.box.id),
+    '[message panic] -> node.script wire missing',
+  )
+})
+
+test('Pointsman.maxpat — transport observer chain: live.path -> live.observer is_playing -> [sel 0 1] -> tstart/tstop -> node.script', () => {
+  // Live transport state is mirrored to the host via [live.path live_set]
+  // -> [live.observer is_playing]. is_playing flips 0/1 on transport
+  // stop/start and the [sel 0 1] cracker dispatches transportStop /
+  // transportStart messages. ADR 002 §Verification line 198 (no hung
+  // notes on transport) depends on this chain reaching node.script — a
+  // patcher hand-edit could break it silently.
+  const { boxes, lines } = loadPatcher(POINTSMAN_MAXPAT)
+  const liveObs = boxes.find(
+    (b) =>
+      b.box?.maxclass === 'newobj' &&
+      b.box?.text === 'live.observer is_playing',
+  )
+  assert.ok(liveObs, 'expected [live.observer is_playing]')
+  const livePath = boxes.find(
+    (b) =>
+      b.box?.maxclass === 'newobj' &&
+      /^live\.path\b/.test(b.box?.text ?? ''),
+  )
+  assert.ok(livePath, 'expected [live.path live_set]')
+  const selPlaying = boxes.find(
+    (b) =>
+      b.box?.maxclass === 'newobj' &&
+      b.box?.text === 'sel 0 1',
+  )
+  assert.ok(selPlaying, 'expected [sel 0 1] cracker')
+  const tStart = boxes.find(
+    (b) =>
+      b.box?.maxclass === 'message' &&
+      b.box?.text === 'transportStart',
+  )
+  assert.ok(tStart, 'expected [message transportStart]')
+  const tStop = boxes.find(
+    (b) =>
+      b.box?.maxclass === 'message' &&
+      b.box?.text === 'transportStop',
+  )
+  assert.ok(tStop, 'expected [message transportStop]')
+  const nodeScript = boxes.find((b) => /^node\.script\b/.test(b.box?.text ?? ''))
+  assert.ok(nodeScript, 'expected [node.script]')
+
+  assert.ok(
+    followsLineFromTo(lines, livePath.box.id, liveObs.box.id),
+    'live.path -> live.observer wire missing',
+  )
+  assert.ok(
+    followsLineFromTo(lines, liveObs.box.id, selPlaying.box.id),
+    'live.observer -> [sel 0 1] wire missing',
+  )
+  // [sel 0 1] outlet 0 fires on value=0 (stopped) -> tstop;
+  // outlet 1 fires on value=1 (playing) -> tstart.
+  const stopWire = lines.find(
+    (l) =>
+      l.patchline?.source?.[0] === selPlaying.box.id &&
+      l.patchline?.source?.[1] === 0 &&
+      l.patchline?.destination?.[0] === tStop.box.id,
+  )
+  assert.ok(stopWire, '[sel 0 1] outlet 0 -> [message transportStop] wire missing')
+  const startWire = lines.find(
+    (l) =>
+      l.patchline?.source?.[0] === selPlaying.box.id &&
+      l.patchline?.source?.[1] === 1 &&
+      l.patchline?.destination?.[0] === tStart.box.id,
+  )
+  assert.ok(startWire, '[sel 0 1] outlet 1 -> [message transportStart] wire missing')
+  assert.ok(
+    followsLineFromTo(lines, tStart.box.id, nodeScript.box.id),
+    '[message transportStart] -> node.script wire missing',
+  )
+  assert.ok(
+    followsLineFromTo(lines, tStop.box.id, nodeScript.box.id),
+    '[message transportStop] -> node.script wire missing',
+  )
+})
+

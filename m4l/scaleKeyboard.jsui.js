@@ -1,5 +1,5 @@
-// Stencil QT scale-keyboard renderer (jsui).
-// Spec: docs/ai/adr/003-m4l-ui-design.md "QT scale keyboard".
+// Pointsman scale-keyboard renderer (jsui).
+// Spec: docs/ai/adr/003-m4l-ui-design.md "scale keyboard".
 // Reference: inboil's QuantizerSheet.svelte one-octave keyboard.
 //
 // One-octave (12-key) piano keyboard. White keys flat, black keys raised
@@ -10,10 +10,10 @@
 // separation between black and white in-scale membership for free. On a
 // notePulse from the bridge the corresponding key glows briefly and
 // decays back over PULSE_DECAY_MS. Keyboard is display-only in v1 (no
-// click-to-edit-scale -- ADR 003 "QT scale keyboard").
+// click-to-edit-scale -- ADR 003 "scale keyboard").
 //
 // Pure layout, scale-membership, and pulse-decay logic live in
-// m4l/host-qt/ui/scaleKeyboard.logic.ts (with unit tests). Max's [jsui]
+// m4l/host/ui/scaleKeyboard.logic.ts (with unit tests). Max's [jsui]
 // runs Max's bundled JS engine (no module system), so the formulas are
 // re-implemented here as plain JS rather than imported. Keep
 // NUM_PITCH_CLASSES / PULSE_DECAY_MS / WHITE_KEYS_PER_OCTAVE /
@@ -36,7 +36,7 @@ mgraphics.autofill = 0
 
 post('scaleKeyboard.jsui.js loaded build=2026-05-04\n')
 
-// --- Constants (mirror m4l/host-qt/ui/scaleKeyboard.logic.ts) ---
+// --- Constants (mirror m4l/host/ui/scaleKeyboard.logic.ts) ---
 
 var NUM_PITCH_CLASSES = 12
 var WHITE_KEYS_PER_OCTAVE = 7
@@ -46,6 +46,10 @@ var BLACK_KEY_HEIGHT_RATIO = 0.6
 var DOT_INSET_RATIO = 0.15
 var DOT_RADIUS_RATIO = 0.08
 var DOT_RADIUS_MIN_PX = 1.5
+// Chord-context dot radius ratio. Drawn at the same position as the
+// in-scale dot but ~2x the radius so chord-tone PCs read as the
+// "third tier" between in-scale and pulse (ADR 002 line 184).
+var CHORD_DOT_RADIUS_RATIO = 0.16
 
 // Pitch-class intervals per scale, root-relative. Mirror of
 // SCALE_INTERVALS in m4l/engine/quantizer.ts. The drift test
@@ -90,6 +94,14 @@ var COL_HIGHLIGHT   = [0.95, 0.55, 0.40] // warm peach / coral (pulse glow)
 var inScale = []
 for (var i = 0; i < NUM_PITCH_CLASSES; i++) inScale.push(false)
 
+// chordPcs: length-12 boolean array, true for PCs in the current chord
+// context (held controlChannel notes in mode=chord). Replaced wholesale
+// on each chordChanged message -- the bridge emits the *current* held
+// set, not a diff. Same shape as KeyboardModel.chordPcs in
+// scaleKeyboard.logic.ts.
+var chordPcs = []
+for (var ci = 0; ci < NUM_PITCH_CLASSES; ci++) chordPcs.push(false)
+
 // pulses: array of { pitchClass, intensity, ageMs }. Same shape as
 // scaleKeyboard.logic.ts Pulse type. Pruned in tick() when ageMs >=
 // PULSE_DECAY_MS.
@@ -103,6 +115,7 @@ animTask.interval = 16
 //
 // scaleChanged <scale-name> <root>   replace inScale[]
 // notePulse <pitch> <velocity>       append pulse, start anim
+// chordChanged <pc...>               replace chordPcs[]
 //
 // `anything` so unhandled messages get a clear post().
 
@@ -111,6 +124,7 @@ function anything() {
   var args = arrayfromargs(arguments)
   if (msg === 'scaleChanged') { handleScaleChanged(args[0], args[1]); return }
   if (msg === 'notePulse')    { handleNotePulse(args[0], args[1]); return }
+  if (msg === 'chordChanged') { handleChordChanged(args); return }
   post('scaleKeyboard.jsui.js: unhandled message ' + msg + '\n')
 }
 
@@ -131,6 +145,23 @@ function handleNotePulse(pitch, velocity) {
   if (intensity > 1) intensity = 1
   pulses.push({ pitchClass: pc, intensity: intensity, ageMs: 0 })
   startAnim()
+  mgraphics.redraw()
+}
+
+// chordChanged carries the *current* held controlChannel PC set (sorted,
+// deduped by the bridge). Replace chordPcs wholesale; an empty list
+// clears the tier (all controlChannel notes released). Mirrors
+// scaleKeyboard.logic.ts setChord.
+function handleChordChanged(args) {
+  var next = []
+  for (var i = 0; i < NUM_PITCH_CLASSES; i++) next.push(false)
+  for (var j = 0; j < args.length; j++) {
+    var v = Number(args[j])
+    if (isFinite(v) && Math.floor(v) === v && v >= 0 && v < NUM_PITCH_CLASSES) {
+      next[v] = true
+    }
+  }
+  chordPcs = next
   mgraphics.redraw()
 }
 
@@ -337,7 +368,7 @@ function paint() {
   }
 
   // In-scale dots, drawn INSIDE each in-scale key (no out-of-scale dots
-  // -- ADR 003 sec QT scale keyboard). Black-key dots are cream so they
+  // -- ADR 003 sec scale keyboard). Black-key dots are cream so they
   // read against the near-black fill; white-key dots are olive
   // (COL_ACTIVE_FILL) for contrast against the cream background.
   // Drawn last so the dots stay visible on top of any pulse glow.
@@ -351,12 +382,27 @@ function paint() {
     }
     fillCircle(d.cx, d.cy, g.dotRadius)
   }
+
+  // Chord-tier dots: third highlight tier (between in-scale dot and
+  // pulse glow) for PCs in the current chord context. Drawn AFTER the
+  // in-scale dot so the larger chord dot covers the smaller in-scale
+  // marker for chord PCs. Coral (COL_HIGHLIGHT) shares the pulse hue
+  // so the visual reads as "armed for resolution" -- distinct from
+  // pulse only by being persistent + non-glowing.
+  var chordDotRadius = g.whiteKeyWidth * CHORD_DOT_RADIUS_RATIO
+  if (chordDotRadius < DOT_RADIUS_MIN_PX) chordDotRadius = DOT_RADIUS_MIN_PX
+  for (var pc4 = 0; pc4 < NUM_PITCH_CLASSES; pc4++) {
+    if (!chordPcs[pc4]) continue
+    var dc = dotCenterAt(pc4, g)
+    setRgb(COL_HIGHLIGHT)
+    fillCircle(dc.cx, dc.cy, chordDotRadius)
+  }
 }
 
 // --- Mouse interaction ---
 //
 // Single primary-button click on any key surface emits `setRoot <pc>`
-// to outlet 0. The patcher routes this into qt.root's [live.menu] so
+// to outlet 0. The patcher routes this into root's [live.menu] so
 // Live's parameter state stays the single source of truth -- the menu
 // then fires the existing setParam root chain. Mirrors inboil's
 // tapKey UX (QuantizerSheet.svelte:165-167). Out-of-bounds or modifier

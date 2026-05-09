@@ -18,7 +18,6 @@
     "host.ts",
     "humanize.ts",
     "bridge.ts",
-    "ui/scaleKeyboard.logic.ts",
     "../engine/rng.ts",
     "../engine/quantizer.ts"
   ],

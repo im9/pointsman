@@ -1,4 +1,4 @@
-// Pointsman n4m entry source. Thin wrapper over QtBridge — wires the
+// Pointsman n4m entry source. Thin wrapper over PointsmanBridge — wires the
 // Max API (Max.outlet, Max.addHandler, Date.now, setTimeout) into the
 // bridge's injected deps. No musical logic lives here.
 //
@@ -50,16 +50,16 @@
 //     ready                                fired once after all handlers
 //                                          are installed; the patcher gates
 //                                          its initial live.* dump on this
-//                                          (ADR 003 §Stencil-QT patcher)
+//                                          (ADR 003 §Stencil-Pointsman patcher)
 //     scaleChanged <scale> <root>          for jsui keyboard refresh
 //     notePulse <pitch> <velocity>         per quantized noteOn (lockstep)
 
 import Max from "max-api";
-import { QtBridge } from "./host/dist/host/bridge.js";
+import { PointsmanBridge } from "./host/dist/host/bridge.js";
 
 Max.post("pointsman: pointsman.mjs loaded");
 
-const bridge = new QtBridge({
+const bridge = new PointsmanBridge({
   emitNote: (pitch, velocity, channel) =>
     Max.outlet("note", pitch, velocity, channel),
   emitOutlet: (channel, ...args) => Max.outlet(channel, ...args),
@@ -78,6 +78,7 @@ Max.addHandler("transportStop", () => bridge.transportStop());
 
 // Signal the patcher that node.script is up and every handler is wired.
 // The patcher's [route ... ready ...] outlet bangs each live.* widget on
-// this so the 12 setParam dispatches arrive AFTER addHandler installation,
-// not before (which would drop them with "Node script not ready").
-Max.outlet("ready", 1);
+// this so the setParam dispatches arrive AFTER addHandler installation,
+// not before (which would drop them with "Node script not ready"). The
+// downstream [t b] consumes only the message head; no argument needed.
+Max.outlet("ready");

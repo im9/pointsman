@@ -1,10 +1,10 @@
-// Stencil QT bridge — Max protocol layer per ADR 002 §Host ↔ Max protocol.
+// Pointsman bridge — Max protocol layer per ADR 002 §Host ↔ Max protocol.
 //
-// Pure JS/TS routing between the Max patch and the QtHost class. All
+// Pure JS/TS routing between the Max patch and the PointsmanHost class. All
 // Max-specific I/O (Max.outlet, Max.addHandler, Date.now, setTimeout)
 // is injected via deps so this module is testable under node:test.
 //
-// QT differs from TM in two ways:
+// Pointsman differs from TM in two ways:
 // - No `step` driver: events are MIDI-driven. The bridge passes
 //   `deps.now()` per noteIn so the host can derive sourceStepDuration
 //   from input timing.
@@ -21,10 +21,10 @@ import {
 } from "../engine/quantizer.ts";
 import {
   DEFAULT_PARAMS,
-  QtHost,
+  PointsmanHost,
   type NoteEvent,
-  type QtMode,
-  type QtParams,
+  type PointsmanMode,
+  type PointsmanParams,
   type TriggerMode,
 } from "./host.ts";
 
@@ -36,7 +36,7 @@ export interface BridgeDeps {
 }
 
 export interface BridgeOptions {
-  initialParams?: Partial<QtParams>;
+  initialParams?: Partial<PointsmanParams>;
 }
 
 const SCALE_NAMES: readonly ScaleName[] = [
@@ -59,9 +59,9 @@ const SCALE_NAMES: readonly ScaleName[] = [
 
 const TRIGGER_MODES: readonly TriggerMode[] = ["passthrough", "root"];
 
-const QT_MODES: readonly QtMode[] = ["scale", "chord", "harmony"];
+const POINTSMAN_MODES: readonly PointsmanMode[] = ["scale", "chord", "harmony"];
 
-// ADR 003 §QT patcher harmony voices widget cluster: 6 live.menu widgets
+// ADR 003 §Pointsman patcher harmony voices widget cluster: 6 live.menu widgets
 // in the VOICES panel (3 voice slots × 2 fields), matching inboil's
 // QuantizerSheet two-select-per-voice badge. Bridge maintains the
 // 3-slot state and projects the dense HarmonyVoice[] to the host.
@@ -86,8 +86,43 @@ interface HarmonySlot {
   direction: HarmonySlotDirection;
 }
 
-export class QtBridge {
-  private host: QtHost;
+// MIDI domain guards: pitch 0..127, velocity 0..127, channel 0..16. Live's
+// [midiparse] guarantees these ranges, but defense-in-depth here keeps the
+// host from emitting pitch>127 to noteout (would silently truncate). Two
+// notable looseness choices, both validated empirically against Live in
+// v1.0.1:
+// - NOT strict integer (Number.isFinite, not Number.isInteger): max-api
+//   has been observed to drop the integer type tag on the way through,
+//   even though midiparse upstream is int. Strict-integer dropped
+//   notes silently.
+// - Channel allows 0: track-internal MIDI from an upstream M4L device
+//   (e.g. Stencil → Pointsman on the same track) arrives with
+//   channel=0. Rejecting that drops every note from such a chain. The
+//   host's channelMatches() already treats 0 as omni, so 0 is the
+//   correct boundary value.
+const isMidiPitch = (n: number): boolean =>
+  Number.isFinite(n) && n >= 0 && n <= 127;
+const isMidiVelocity = (n: number): boolean =>
+  Number.isFinite(n) && n >= 0 && n <= 127;
+const isMidiChannel = (n: number): boolean =>
+  Number.isFinite(n) && n >= 0 && n <= 16;
+
+const noteKey = (pitch: number, channel: number): string =>
+  `${pitch}:${channel}`;
+
+// setParam keys that require flushing in-flight noteOffs (mirror of the
+// host's flushKeys list — these are the params whose change invalidates
+// any held quantize result). Non-flush keys (humanize*, seed, output,
+// harmonyV*, channels) leave sounding pitches alone.
+const FLUSH_PARAM_KEYS: ReadonlySet<string> = new Set([
+  "scale",
+  "root",
+  "mode",
+  "triggerMode",
+]);
+
+export class PointsmanBridge {
+  private host: PointsmanHost;
   private deps: BridgeDeps;
   // Last emitted chord-context signature ("0,4,7" form). Dedups
   // chordChanged so unchanged sets don't trigger redundant jsui
@@ -102,9 +137,21 @@ export class QtBridge {
     () => ({ interval: 3, direction: "off" }),
   );
 
+  // In-flight noteOff tracking. Each entry is keyed `${pitch}:${channel}`
+  // and carries a `cancelled` flag the scheduled callback checks before
+  // emitting. Cancellation entry points (transportStop / panic / setParam
+  // on a flush-key) walk the map: emit immediate noteOff, set cancelled,
+  // delete. Same-key noteOn re-trigger also auto-cancels — otherwise the
+  // first scheduled noteOff fires mid-second-note and prematurely
+  // silences it. See ADR 002 §B2 (audit fix landed in v1.0.1).
+  private pendingNoteOffs: Map<
+    string,
+    { pitch: number; channel: number; cancelled: boolean }
+  > = new Map();
+
   constructor(deps: BridgeDeps, options: BridgeOptions = {}) {
     this.deps = deps;
-    this.host = new QtHost({ ...DEFAULT_PARAMS, ...options.initialParams });
+    this.host = new PointsmanHost({ ...DEFAULT_PARAMS, ...options.initialParams });
     // Seed initial UI state for the jsui keyboard. The "node.script ready"
     // handshake is NOT emitted here — that signal must fire only after
     // every Max.addHandler() in the entry script (pointsman.mjs),
@@ -118,11 +165,7 @@ export class QtBridge {
   // ---- Max → host handlers ----------------------------------------------
 
   noteIn(pitch: number, velocity: number, channel: number): void {
-    if (
-      !Number.isFinite(pitch) ||
-      !Number.isFinite(velocity) ||
-      !Number.isFinite(channel)
-    ) {
+    if (!isMidiPitch(pitch) || !isMidiVelocity(velocity) || !isMidiChannel(channel)) {
       return;
     }
     const wasRoot =
@@ -138,12 +181,13 @@ export class QtBridge {
   }
 
   noteOff(pitch: number, channel: number): void {
-    if (!Number.isFinite(pitch) || !Number.isFinite(channel)) return;
+    if (!isMidiPitch(pitch) || !isMidiChannel(channel)) return;
     for (const ev of this.host.noteOff(pitch, channel)) this.dispatch(ev);
     this.maybeEmitChordChanged();
   }
 
   panic(): void {
+    this.flushInFlightNoteOffs();
     for (const ev of this.host.panic()) this.dispatch(ev);
     this.maybeEmitChordChanged();
   }
@@ -154,11 +198,18 @@ export class QtBridge {
   }
 
   transportStop(): void {
+    this.flushInFlightNoteOffs();
     for (const ev of this.host.transportStop()) this.dispatch(ev);
     this.maybeEmitChordChanged();
   }
 
   setParam(key: string, value: unknown): void {
+    // Mode / scale / root / triggerMode invalidate any in-flight quantize
+    // result — release sounding pitches before applying. Non-flush keys
+    // (humanize*, seed, channels, harmonyV*, output) leave them alone.
+    if (FLUSH_PARAM_KEYS.has(key)) {
+      this.flushInFlightNoteOffs();
+    }
     let scaleChanged = false;
     let modeChanged = false;
     let events: NoteEvent[] | null = null;
@@ -179,12 +230,12 @@ export class QtBridge {
         break;
       }
       case "mode": {
-        // ADR 003 §QT quantize mode — 3-enum (scale | chord | harmony).
+        // ADR 003 § quantize mode — 3-enum (scale | chord | harmony).
         // Host clears controlHeldPitches when switching away from chord;
         // the chordChanged emit below mirrors that to the renderer.
         const v = String(value);
-        if (!QT_MODES.includes(v as QtMode)) return;
-        events = this.host.setParam("mode", v as QtMode);
+        if (!POINTSMAN_MODES.includes(v as PointsmanMode)) return;
+        events = this.host.setParam("mode", v as PointsmanMode);
         modeChanged = true;
         break;
       }
@@ -260,11 +311,68 @@ export class QtBridge {
     // Negative delays are clamped to 0 (immediate dispatch). The input
     // event has already arrived, so the bridge cannot dispatch in the past.
     const delay = ev.delayMs > 0 ? ev.delayMs : 0;
+    if (ev.type === "noteOn") {
+      // Same pitch+channel re-trigger: cancel any pending noteOff so it
+      // doesn't fire mid-new-note. Without this, mash-the-same-key within
+      // the gate window prematurely silences the second hit.
+      this.cancelPending(noteKey(ev.pitch, ev.channel));
+      if (delay === 0) {
+        this.emit(ev);
+        return;
+      }
+      this.deps.scheduleAfter(delay, () => this.emit(ev));
+      return;
+    }
+    if (ev.type === "noteOff") {
+      const key = noteKey(ev.pitch, ev.channel);
+      if (delay === 0) {
+        // Immediate noteOff: covers any pending noteOff for the same
+        // key (e.g., a flushed in-flight emission).
+        this.cancelPending(key);
+        this.emit(ev);
+        return;
+      }
+      const entry = {
+        pitch: ev.pitch,
+        channel: ev.channel,
+        cancelled: false,
+      };
+      this.pendingNoteOffs.set(key, entry);
+      this.deps.scheduleAfter(delay, () => {
+        if (entry.cancelled) return;
+        this.pendingNoteOffs.delete(key);
+        this.emit(ev);
+      });
+      return;
+    }
+    // notePulse: not tracked (display-only side-channel).
     if (delay === 0) {
       this.emit(ev);
       return;
     }
     this.deps.scheduleAfter(delay, () => this.emit(ev));
+  }
+
+  // Cancel a pending noteOff for `key` (no-op if none). Does NOT emit a
+  // noteOff — caller decides whether the cancellation is paired with a
+  // replacement emit (re-trigger / immediate noteOff) or a flush.
+  private cancelPending(key: string): void {
+    const entry = this.pendingNoteOffs.get(key);
+    if (!entry) return;
+    entry.cancelled = true;
+    this.pendingNoteOffs.delete(key);
+  }
+
+  // Cancellation entry point: emit immediate noteOff for every sounding
+  // pitch and clear the pending map. Called from transportStop / panic /
+  // setParam (on a flush-key) so the host doesn't have to track which
+  // noteOns were emitted but not yet released.
+  private flushInFlightNoteOffs(): void {
+    for (const [, entry] of this.pendingNoteOffs) {
+      entry.cancelled = true;
+      this.deps.emitNote(entry.pitch, 0, entry.channel);
+    }
+    this.pendingNoteOffs.clear();
   }
 
   private emit(ev: NoteEvent): void {
@@ -286,7 +394,7 @@ export class QtBridge {
   }
 
   // Emit `chordChanged <pcs...>` when the controlChannel-held pitch-class
-  // set changes (ADR 003 §QT scale keyboard interaction). Sorted ascending
+  // set changes (ADR 003 §scale keyboard interaction). Sorted ascending
   // for determinism. Dedups on the joined-string signature to avoid
   // redundant jsui redraws when the underlying held pitches change but
   // their pitch-class projection does not (e.g., re-trigger of a held
