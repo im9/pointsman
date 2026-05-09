@@ -211,5 +211,14 @@ Per-channel release work.
 - [ ] Write description copy
 - [x] Upload Pointsman v1; first public version live —
       [v1.0.0](https://github.com/im9/pointsman-m4l/releases/tag/v1.0.0)
-      released 2026-05-09 with `Pointsman.amxd` (sha256
-      `3d902bf2e20a06fb035e37268d58a25b99fce804743d524e07c55f8aad78bb05`)
+      released 2026-05-09. Asset refreshed in-place 2026-05-10
+      (canary stage, downloads = 1) with audit-fix dist —
+      `Pointsman.amxd` (sha256
+      `2bc5e9356e6c817e1833f83ec407d5d2729ac39a608d4bc09368ed1824275c9d`).
+      The audit-fix iteration covers chord-tier rendering,
+      in-flight noteOff cancellation, MIDI range guards
+      (channel 0..16 for track-internal Live MIDI), and the
+      bake pipeline now chains `pnpm -r build`.
+      `parameter_longname` was renamed `StencilQt*` →
+      `Pointsman*`; canary download (1) is the author's own
+      verification, no external user breakage.
