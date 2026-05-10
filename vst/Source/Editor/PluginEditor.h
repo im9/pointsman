@@ -1,8 +1,12 @@
 #pragma once
-#include <JuceHeader.h>
-#include "../Plugin/PluginProcessor.h"
 
-// ADR 003 Phase 0 stub — inboil-derived keyboard + right rail land in Phase 3.
+#include <juce_audio_processors/juce_audio_processors.h>
+#include <juce_gui_basics/juce_gui_basics.h>
+
+#include "Plugin/PluginProcessor.h"
+
+// ADR 003 Phase 2 keeps the editor as a placeholder; inboil-derived keyboard
+// + right rail land in Phase 3.
 class PointsmanEditor : public juce::AudioProcessorEditor
 {
 public:

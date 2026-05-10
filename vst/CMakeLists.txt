@@ -57,6 +57,33 @@ function(_pointsman_assert_engine_pure)
 endfunction()
 cmake_language(DEFER CALL _pointsman_assert_engine_pure)
 
+# --- Plugin core static library (ADR 003 §"Plugin core boundary") -------------
+# AudioProcessor + APVTS + state serialization + editor, separated from the
+# JUCE plugin bundle so the test binary can link it without pulling in
+# juce_audio_plugin_client (the AU / VST3 wrappers, plugin-only).
+add_library(pointsman_plugin_core STATIC
+    Source/Plugin/Parameters.cpp
+    Source/Plugin/Parameters.h
+    Source/Plugin/PluginProcessor.cpp
+    Source/Plugin/PluginProcessor.h
+    Source/Editor/PluginEditor.cpp
+    Source/Editor/PluginEditor.h
+)
+target_include_directories(pointsman_plugin_core PUBLIC Source)
+target_link_libraries(pointsman_plugin_core PUBLIC
+    pointsman_engine
+    juce::juce_audio_basics
+    juce::juce_audio_processors
+    juce::juce_audio_utils
+    juce::juce_gui_basics
+    juce::juce_gui_extra
+)
+target_compile_definitions(pointsman_plugin_core PUBLIC
+    JUCE_USE_CURL=0
+    JUCE_WEB_BROWSER=0
+    JUCE_STANDALONE_APPLICATION=0
+)
+
 # --- Plugin -------------------------------------------------------------------
 juce_add_plugin(Pointsman
     COMPANY_NAME "im9"
@@ -72,14 +99,22 @@ juce_add_plugin(Pointsman
     COPY_PLUGIN_AFTER_BUILD TRUE
 )
 
+# The plugin sources also compile into Pointsman directly so the linker
+# can resolve createPluginFilter() (called by juce_audio_plugin_client) and
+# the AudioProcessor symbol via the plugin target's own object files. The
+# static lib pointsman_plugin_core is linked for shared deps + for the
+# tests target's plugin-core access.
 target_sources(Pointsman PRIVATE
+    Source/Plugin/Parameters.cpp
+    Source/Plugin/Parameters.h
     Source/Plugin/PluginProcessor.cpp
     Source/Plugin/PluginProcessor.h
     Source/Editor/PluginEditor.cpp
     Source/Editor/PluginEditor.h
 )
-
+target_include_directories(Pointsman PRIVATE Source)
 target_link_libraries(Pointsman PRIVATE
+    pointsman_engine
     juce::juce_audio_basics
     juce::juce_audio_processors
     juce::juce_audio_utils
@@ -91,8 +126,6 @@ target_link_libraries(Pointsman PRIVATE
 target_compile_definitions(Pointsman PRIVATE
     JUCE_IGNORE_VST3_MISMATCHED_PARAMETER_ID_WARNING=1
 )
-
-juce_generate_juce_header(Pointsman)
 
 # CLAP wrapper (ADR 003 §"Plugin format"): clap-juce-extensions derives
 # Pointsman_CLAP from the existing Pointsman target, producing
@@ -107,25 +140,22 @@ clap_juce_extensions_plugin(TARGET Pointsman
 
 # --- Tests --------------------------------------------------------------------
 # Custom main (tests/main.cpp) wraps the Catch2 session with explicit
-# juce::initialiseJuce_GUI() / shutdownJuce_GUI() so JUCE-dependent tests
-# added in Phase 2 / 3 can co-exist in the same binary.
+# juce::initialiseJuce_GUI() / shutdownJuce_GUI() so the plugin / editor
+# tests get the JUCE singletons (MessageManager, etc.) they need.
 add_executable(pointsman_tests
     tests/main.cpp
     tests/test_Rng.cpp
     tests/test_Quantizer.cpp
     tests/test_Humanize.cpp
+    tests/test_Plugin.cpp
 )
 target_link_libraries(pointsman_tests PRIVATE
-    pointsman_engine
+    pointsman_plugin_core
     Catch2::Catch2
     nlohmann_json::nlohmann_json
-    juce::juce_gui_basics
 )
 target_compile_features(pointsman_tests PRIVATE cxx_std_17)
 target_compile_definitions(pointsman_tests PRIVATE
-    JUCE_USE_CURL=0
-    JUCE_WEB_BROWSER=0
-    JUCE_STANDALONE_APPLICATION=0
     POINTSMAN_RNG_VECTORS_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../docs/ai/rng-test-vectors.json"
     POINTSMAN_QUANTIZER_VECTORS_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../docs/ai/quantizer-test-vectors.json"
 )

@@ -221,7 +221,14 @@ format and may **only be appended**, never reordered.
 | `triggerMode` | Choice | `passthrough` / `root`, default `passthrough` |
 | `inputChannel` | Int | `0..16` (0 = omni), default `0` |
 | `controlChannel` | Int | `1..16`, default `1` |
-| `seed` | Int | `0..2^31-1`, default `0` |
+| `seed` | Int | `0..2^24-1`, default `0` |
+
+The `seed` upper bound is `2^24-1`, not `2^31-1`, because APVTS stores
+parameter values as IEEE-754 single-precision floats. Every integer in
+`[0, 2^24]` is exactly representable; values above `2^24` quantise on
+host save/reopen. 16,777,216 unique seeds is more than sufficient for a
+humanize seed selector, and constraining the range here makes the
+round-trip in `test_Plugin.cpp` bit-exact rather than approximate.
 
 `harmonyVoices` is variable-length (0..3 entries) and serializes into
 a child `ValueTree` of `apvts.state` under tag `PointsmanState` with
@@ -511,24 +518,35 @@ not host-runtime behaviour
 
 ### Phase 2 — Plugin (APVTS + processor)
 
-- [ ] Add `pointsman_plugin_core` STATIC library target to
+- [x] Add `pointsman_plugin_core` STATIC library target to
       `CMakeLists.txt` (links juce_audio_*, juce_gui_*, NOT
-      juce_audio_plugin_client). Update `Pointsman` and
-      `pointsman_tests` to depend on it.
-- [ ] Write `tests/test_Plugin.cpp`: APVTS round-trip
+      juce_audio_plugin_client). `Pointsman` re-compiles the same
+      Plugin/Editor sources directly so `juce_audio_plugin_client`
+      can resolve `createPluginFilter()`; `pointsman_tests` links
+      `pointsman_plugin_core` for wrapper-free processor access.
+- [x] Write `tests/test_Plugin.cpp`: APVTS round-trip
       (default-construct → mutate every pid → `getStateInformation`
       → fresh processor → `setStateInformation` → assert all values
       match), `harmonyVoices` ValueTree round-trip, panic on
       transport stop, controlChannel chord-context maintenance,
       `mode = chord` controlChannel notes consumed (do not appear
-      on output).
-- [ ] Implement `Source/Plugin/Parameters.{h,cpp}` (pid namespace,
+      on output), plus `triggerMode=root` consumes + sets root and a
+      mode=scale tie-to-lower quantize sanity check.
+- [x] Implement `Source/Plugin/Parameters.{h,cpp}` (pid namespace,
       Choice arrays, defaults namespace, `makeParameterLayout()`).
-- [ ] Implement `Source/Plugin/PluginProcessor.{h,cpp}`: APVTS
-      construction, MIDI in / out, panic discipline,
-      controlChannel chord-context maintenance, state I/O.
-- [ ] Confirm `test_Plugin` passes.
-- [ ] Manual gate: load the Pointsman AU in Logic and the CLAP /
+      `seed` range constrained to `[0, 2^24-1]` to keep round-trip
+      bit-exact under APVTS's float32 storage (see §"Parameter
+      persistence (APVTS)" above).
+- [x] Implement `Source/Plugin/PluginProcessor.{h,cpp}`: APVTS
+      construction, MIDI in / out, panic discipline (transport
+      stop → flush all in-flight outputs + clear chord context;
+      drift state preserved per concept.md), controlChannel
+      chord-context maintenance, state I/O via standard
+      get/setStateInformation with the `PointsmanState` child tree.
+- [x] Confirm `test_Plugin` passes (622 assertions across 36 test
+      cases — 8 plugin-layer cases on top of the engine vector
+      iteration).
+- [x] Manual gate: load the Pointsman AU in Logic and the CLAP /
       VST3 in Bitwig. All canonical parameters appear in the host
       parameter list, accept automation, and round-trip across a
       save / close / reopen of the host project. MIDI input on a
