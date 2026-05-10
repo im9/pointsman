@@ -48,7 +48,14 @@ namespace pointsman
 
     inline uint32_t rotl32(uint32_t x, int k) noexcept
     {
-        return (x << k) | (x >> (32 - k));
+        // Mask the shift count to the well-defined 0..31 range. The
+        // unguarded `x >> (32 - k)` is UB at k=0 (shift count equal to
+        // operand width); current call sites only pass k ∈ {7, 11}, but
+        // the mask makes the helper safe at the boundary so future
+        // callers can rely on rot-by-0 / rot-by-32 being a no-op rather
+        // than a hidden UB bear-trap.
+        const unsigned uk = static_cast<unsigned>(k) & 31u;
+        return (x << uk) | (x >> ((32u - uk) & 31u));
     }
 
     // Advances `rng` in place and returns the next u32 sample.

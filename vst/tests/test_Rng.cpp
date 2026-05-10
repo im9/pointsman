@@ -65,6 +65,21 @@ TEST_CASE("xoshiro128++ first-N draws match vectors", "[rng]")
     }
 }
 
+TEST_CASE("rotl32: identity rotations are well-defined for k in {0, 32}",
+          "[rng]")
+{
+    // The naive `(x << k) | (x >> (32 - k))` is UB at k=0 (shift count
+    // equal to operand width is undefined for unsigned shift in C++).
+    // Today's call sites only pass k ∈ {7, 11}, so the bug is latent —
+    // this test pins the safety guard so future use of the helper at
+    // k=0 / k=32 stays well-defined and a no-op rotation. Threshold:
+    // k=0 and k=32 are the only inputs where the unguarded form is UB
+    // (boundary of the 0..31 well-defined shift range).
+    const uint32_t x = 0xDEADBEEFu;
+    REQUIRE(rotl32(x, 0)  == x);
+    REQUIRE(rotl32(x, 32) == x);
+}
+
 TEST_CASE("xoshiro128++ state advances on each draw", "[rng]")
 {
     // Spec sanity: nextU32 must mutate the in/out state. A static state

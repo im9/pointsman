@@ -663,7 +663,7 @@ Mechanical items already merged or queued:
 - [x] **#1 buffer overflow on preset load** — `syncHarmonyVoicesFromTree`
       now clamps to `kHarmonyVoicesMax` (matches the
       `setHarmonyVoices()` setter). Commit `fea334e`.
-- [ ] **#12 `rotl32(x, 0)` UB guard** — never invoked with `k=0`
+- [x] **#12 `rotl32(x, 0)` UB guard** — never invoked with `k=0`
       today, but the `x >> (32 - k)` form is UB at `k=0`. Mask the
       shift count.
 - [ ] **#5 `snapToChordTones` per-call vector alloc** — replace the
