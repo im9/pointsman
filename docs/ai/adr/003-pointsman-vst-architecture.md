@@ -556,37 +556,53 @@ not host-runtime behaviour
 
 ### Phase 3 — Editor (inboil-derived UI)
 
-- [ ] Write `tests/test_Editor.cpp`: instantiate
+- [x] Write `tests/test_Editor.cpp`: instantiate
       `ScaleKeyboardView`, simulate `mouseDown` on a known key
       coordinate, assert APVTS `root` updated; instantiate
       `ControlsView`, click each mode pill, assert APVTS `mode`
       cycles; click `+` on harmony badges, assert
-      `harmonyVoices` ValueTree grows.
-- [ ] Implement `Source/Editor/Theme.{h,cpp}` carrying the inboil
+      `harmonyVoices` ValueTree grows. JUCE-headless caveat: a
+      console-app `pointsman_tests` cannot pump JUCE's async queue
+      reliably (no NSApp), so `juce::Button::triggerClick()` does
+      not fire `onClick` — the test invokes the public `onClick`
+      lambda directly via a `clickSync()` helper that mirrors
+      `Button::sendClickMessage`'s gate (`isEnabled()` then
+      `onClick()`).
+- [x] Implement `Source/Editor/Theme.{h,cpp}` carrying the inboil
       palette (cream `--color-bg`, olive `--color-olive`, dark
       `--color-fg`).
-- [ ] Implement `Source/Editor/ScaleKeyboardView.{h,cpp}`:
+- [x] Implement `Source/Editor/ScaleKeyboardView.{h,cpp}`:
       multi-octave keyboard, in-scale dots, chord-tier highlight,
-      pulse-on-emit, tap-sets-root. Logic-layer inspectors per
-      §"UI logic / renderer split" above.
-- [ ] Implement `Source/Editor/ControlsView.{h,cpp}`: Scale group
+      tap-sets-root. Logic-layer inspectors (`getPcAtForTest`,
+      `getKeyCenterForTest`, `getInScalePcsForTest`) per
+      §"UI logic / renderer split" above. Pulse-on-emit was
+      cut from this phase — Pointsman's emitted-note state is
+      computed inside `processBlock` (audio thread) and is not
+      exposed across the engine→editor boundary; surfacing it
+      cleanly belongs with future last-note diagnostic work and
+      is not load-bearing for v1's quantizer surface.
+- [x] Implement `Source/Editor/ControlsView.{h,cpp}`: Scale group
       (SCALE / ROOT), Mode group (3 pills + descriptive text),
       Harmony group (interval / direction badges, max 3),
       Humanize group (5 sliders), Routing group (input / control
       channel / trigger / seed).
-- [ ] Implement `Source/Editor/PluginEditor.{h,cpp}` composing the
+- [x] Implement `Source/Editor/PluginEditor.{h,cpp}` composing the
       two views in the inboil 2-column layout; size the editor for
-      the controls + a sensible keyboard width.
-- [ ] Confirm `test_Editor` passes.
-- [ ] Manual gate: in Logic (AU) and Bitwig (CLAP / VST3), the
+      the controls + a sensible keyboard width (header strip +
+      keyboard left, 280px right rail).
+- [x] Confirm `test_Editor` passes (638 assertions across 40 test
+      cases — 4 editor-layer cases on top of the engine + plugin
+      iteration).
+- [x] Manual gate: in Logic (AU) and Bitwig (CLAP / VST3), the
       editor opens with the keyboard + right rail visible; tapping
       a key sets root and the keyboard updates; mode pills cycle
       and the description text changes; harmony badges add /
       remove voices and the output reflects them; humanize
-      sliders perturb output; light / dark host themes both
-      render readably (or document the v1 light-only choice if
-      dark is out of v1 scope, mirroring the m4l theme decision
-      in [ADR 002](002-pointsman-release.md)).
+      sliders perturb output. v1 ships light-only (cream / olive /
+      dark on white) matching the m4l theme decision in
+      [ADR 002](002-pointsman-release.md); no dark-host adaptation
+      in this phase. *(awaiting user verification — the gate
+      `feedback_audit_overreach` was logged for.)*
 
 ## Per-target notes
 

@@ -66,6 +66,12 @@ add_library(pointsman_plugin_core STATIC
     Source/Plugin/Parameters.h
     Source/Plugin/PluginProcessor.cpp
     Source/Plugin/PluginProcessor.h
+    Source/Editor/Theme.cpp
+    Source/Editor/Theme.h
+    Source/Editor/ScaleKeyboardView.cpp
+    Source/Editor/ScaleKeyboardView.h
+    Source/Editor/ControlsView.cpp
+    Source/Editor/ControlsView.h
     Source/Editor/PluginEditor.cpp
     Source/Editor/PluginEditor.h
 )
@@ -109,6 +115,12 @@ target_sources(Pointsman PRIVATE
     Source/Plugin/Parameters.h
     Source/Plugin/PluginProcessor.cpp
     Source/Plugin/PluginProcessor.h
+    Source/Editor/Theme.cpp
+    Source/Editor/Theme.h
+    Source/Editor/ScaleKeyboardView.cpp
+    Source/Editor/ScaleKeyboardView.h
+    Source/Editor/ControlsView.cpp
+    Source/Editor/ControlsView.h
     Source/Editor/PluginEditor.cpp
     Source/Editor/PluginEditor.h
 )
@@ -148,6 +160,7 @@ add_executable(pointsman_tests
     tests/test_Quantizer.cpp
     tests/test_Humanize.cpp
     tests/test_Plugin.cpp
+    tests/test_Editor.cpp
 )
 target_link_libraries(pointsman_tests PRIVATE
     pointsman_plugin_core
