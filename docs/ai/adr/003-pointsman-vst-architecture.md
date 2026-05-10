@@ -705,7 +705,14 @@ Spec-decision items (TBD):
       root changes can spam host listeners. Options: (A) keep — the
       use case is one root pulse per phrase, not per 16th; (B) route
       through an `AsyncUpdater` with a single-slot pending PC.
-- [ ] **#10 `rebuildHarmonyBadges` double-fire.** `onAddHarmonyClicked`
+- [x] **#10 `rebuildHarmonyBadges` double-fire.** Resolved with option (A):
+      direct `rebuildHarmonyBadges()` calls dropped from
+      `onAddHarmonyClicked` / `onRemoveHarmonyClicked`; rebuild now
+      flows only through the `valueTreeChildAdded/Removed` →
+      `callAsync` path. Halves the badge teardowns per add/remove.
+      Headless test now relies on the in-handler cap guard rather
+      than the (deferred) disabled-button gate. Original detail:
+      `onAddHarmonyClicked`
       calls `rebuildHarmonyBadges()` directly *and* the
       `setHarmonyVoices()` → `syncHarmonyVoicesToTree` path triggers
       the editor's `valueTreeChildAdded` listener which posts

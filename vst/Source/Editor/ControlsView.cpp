@@ -321,7 +321,11 @@ namespace pointsman::editor
         if ((int) voices.size() >= kHarmonyVoicesMax) return;
         voices.push_back({3, HarmonyDirection::Above});
         processor_.setHarmonyVoices(std::move(voices));
-        rebuildHarmonyBadges();
+        // rebuildHarmonyBadges() comes via valueTreeChildAdded → callAsync.
+        // The prior direct call destroyed-and-recreated badge subcomponents
+        // before the async rebuild ran the same destroy-recreate again, so
+        // every add/remove fired two rebuilds. Async-only avoids the
+        // duplicate teardown.
     }
 
     void ControlsView::onRemoveHarmonyClicked(int idx)
@@ -330,7 +334,7 @@ namespace pointsman::editor
         if (idx < 0 || idx >= (int) voices.size()) return;
         voices.erase(voices.begin() + idx);
         processor_.setHarmonyVoices(std::move(voices));
-        rebuildHarmonyBadges();
+        // See onAddHarmonyClicked: rebuild via the async listener path only.
     }
 
     void ControlsView::onHarmonyVoiceEdited(int idx, HarmonyVoice v)

@@ -211,8 +211,11 @@ TEST_CASE("ControlsView: harmony + grows the voice list, capped at 3",
     REQUIRE(proc.getHarmonyVoices().size() == 3);
 
     // Fourth click is a no-op — concept.md caps harmonyVoices at 3.
-    // The editor disables the + button at the cap; clickSync skips
-    // disabled buttons (matching JUCE's handleCommandMessage gate).
+    // In Live the + button is disabled by the async rebuild (fired from
+    // valueTreeChildAdded → callAsync); in this headless runner the
+    // async queue does not pump, so the button stays enabled and the
+    // cap is enforced instead by the in-handler guard at the top of
+    // ControlsView::onAddHarmonyClicked.
     clickSync(addBtn);
     REQUIRE(proc.getHarmonyVoices().size() == 3);
 }
