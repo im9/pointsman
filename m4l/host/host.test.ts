@@ -618,6 +618,44 @@ test("setParam harmonyVoices — replaces voice list, takes effect immediately",
   );
 });
 
+test("setParam harmonyVoices — over-cap input is clamped at MAX_HARMONY_VOICES", () => {
+  // concept.md §"Parameter surface" pins harmonyVoices length at 0..3.
+  // The bridge today projects from a 3-slot widget cluster (so the cap
+  // is naturally enforced upstream), but host.setParam is a public API
+  // — initialParams or any future direct caller could bypass the
+  // bridge. Defense-in-depth at the host boundary, mirroring the vst
+  // setHarmonyVoices() clamp. Threshold (3): concept.md §"Parameter
+  // surface" + m4l/host/host.ts harmonyVoices comment "length 0..3".
+  const host = makeHost();
+  host.setParam("harmonyVoices", [
+    { interval: 3, direction: "above" },
+    { interval: 4, direction: "above" },
+    { interval: 5, direction: "above" },
+    { interval: 6, direction: "above" }, // 4th — must be dropped
+  ]);
+  const stored = host.getParams().harmonyVoices;
+  assert.equal(stored.length, 3);
+  assert.deepEqual(
+    stored.map((v) => v.interval),
+    [3, 4, 5],
+  );
+});
+
+test("constructor — over-cap initialParams.harmonyVoices is clamped", () => {
+  // Same boundary as setParam: an initialParams payload from the
+  // bridge / tests / future preset loader must not slip a 4th voice
+  // past the host's contract.
+  const host = makeHost({
+    harmonyVoices: [
+      { interval: 3, direction: "above" },
+      { interval: 4, direction: "above" },
+      { interval: 5, direction: "above" },
+      { interval: 6, direction: "below" },
+    ],
+  });
+  assert.equal(host.getParams().harmonyVoices.length, 3);
+});
+
 // ---------- source step / timing ----------
 
 test("noteIn first event — uses FIRST_EVENT_STEP_MS as sourceStepDuration", () => {

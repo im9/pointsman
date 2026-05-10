@@ -34,6 +34,12 @@ const POINTSMAN_MODES: readonly PointsmanMode[] = ["scale", "chord", "harmony"];
 // tempos (16th at 60 BPM, 8th at 120 BPM, quarter at 240 BPM).
 export const FIRST_EVENT_STEP_MS = 250;
 
+// concept.md §"Parameter surface": harmonyVoices length is 0..3. The
+// bridge's 3-slot widget cluster naturally caps emitted voices at 3,
+// but setParam / initialParams are public ingress and must clamp too —
+// mirrors the vst setHarmonyVoices() boundary.
+export const MAX_HARMONY_VOICES = 3;
+
 export type NoteEvent =
   | { type: "noteOn"; pitch: MidiNote; velocity: number; channel: Channel; delayMs: number }
   | { type: "noteOff"; pitch: MidiNote; channel: Channel; delayMs: number }
@@ -91,7 +97,10 @@ export class PointsmanHost {
   private controlHeldPitches: Set<MidiNote>;
 
   constructor(params: PointsmanParams = DEFAULT_PARAMS) {
-    this.params = { ...params, harmonyVoices: [...params.harmonyVoices] };
+    this.params = {
+      ...params,
+      harmonyVoices: [...params.harmonyVoices].slice(0, MAX_HARMONY_VOICES),
+    };
     this.scalePitches = buildScalePitches(this.params.scale, this.params.root);
     this.humanizeRng = seedRng(BigInt(this.params.seed));
     this.driftState = { ...NEUTRAL_DRIFT };
@@ -275,8 +284,11 @@ export class PointsmanHost {
     }
     if (key === "harmonyVoices") {
       // Defensive copy so external mutation of the bridge-side array does
-      // not silently shift voicing on the host.
-      this.params.harmonyVoices = [...(value as HarmonyVoice[])];
+      // not silently shift voicing on the host. Clamp to MAX_HARMONY_VOICES
+      // — the bridge caps at 3 today via its slot widget, but this is
+      // public API and must enforce the contract independently.
+      this.params.harmonyVoices = [...(value as HarmonyVoice[])]
+        .slice(0, MAX_HARMONY_VOICES);
       return events;
     }
     this.params[key] = value;
