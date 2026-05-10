@@ -327,6 +327,31 @@ test("updatePulses — half PULSE_DECAY_MS halves intensity (linear decay)", () 
   assert.equal(m2.pulses[0].ageMs, PULSE_DECAY_MS / 2);
 });
 
+test("updatePulses — linear decay holds across multi-tick decomposition", () => {
+  // Linear decay (per the public contract on PULSE_DECAY_MS / Pulse) means
+  // intensity(age) = intensity_0 * (1 - age/PULSE_DECAY_MS). The single-tick
+  // half-decay test above passes regardless of how the decay is recomputed
+  // each tick; this test pins the contract under multi-tick decomposition,
+  // where a "current intensity × (1 - new-age/decay)" recurrence quietly
+  // multiplies through and yields exponential decay.
+  //
+  // Two ticks of dt = decay/4 (= 62.5 ms) each → cumulative age = decay/2,
+  // expected intensity exactly 0.5. A buggy recurrence would give
+  //   1.0 * (1 - 62.5/250) * (1 - 125/250) = 0.75 * 0.5 = 0.375.
+  // Tolerance: 1e-9 is plenty for the linear formula evaluated at exact
+  // rational points; widen only if floating-point shows up here.
+  const m0 = createModel("major", 0);
+  let m = addPulse(m0, 5, 127); // intensity_0 = 1.0
+  m = updatePulses(m, PULSE_DECAY_MS / 4);
+  m = updatePulses(m, PULSE_DECAY_MS / 4);
+  assert.equal(m.pulses.length, 1);
+  assert.ok(
+    Math.abs(m.pulses[0].intensity - 0.5) < 1e-9,
+    `expected 0.5, got ${m.pulses[0].intensity}`,
+  );
+  assert.equal(m.pulses[0].ageMs, PULSE_DECAY_MS / 2);
+});
+
 test("updatePulses — pulse drops out at age >= PULSE_DECAY_MS", () => {
   // Decayed pulses must be pruned so the array stays bounded under a
   // continuous note stream. (At 16th notes / 120 BPM, ~8 noteOuts per

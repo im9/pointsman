@@ -69,8 +69,9 @@ const BLACK_PCS_BY_BOUNDARY: number[] = [1, 3, 6, 8, 10];
 
 export interface Pulse {
   pitchClass: number;
-  intensity: number; // 0..1, normalized from MIDI velocity
-  ageMs: number;     // 0..PULSE_DECAY_MS; >= PULSE_DECAY_MS is pruned
+  baseIntensity: number; // 0..1, fixed at creation from MIDI velocity
+  intensity: number;     // 0..1, current decayed value derived from base
+  ageMs: number;         // 0..PULSE_DECAY_MS; >= PULSE_DECAY_MS is pruned
 }
 
 export interface KeyboardModel {
@@ -169,9 +170,9 @@ export function addPulse(
     return model;
   }
   if (!Number.isFinite(velocity) || velocity <= 0) return model;
-  const intensity = Math.min(1, velocity / 127);
+  const base = Math.min(1, velocity / 127);
   const next: Pulse[] = model.pulses.map((p) => ({ ...p }));
-  next.push({ pitchClass, intensity, ageMs: 0 });
+  next.push({ pitchClass, baseIntensity: base, intensity: base, ageMs: 0 });
   return { ...model, pulses: next };
 }
 
@@ -184,8 +185,17 @@ export function updatePulses(
   for (const p of model.pulses) {
     const ageMs = p.ageMs + dtMs;
     if (ageMs >= PULSE_DECAY_MS) continue; // prune fully-decayed
-    const intensity = p.intensity * (1 - ageMs / PULSE_DECAY_MS);
-    next.push({ pitchClass: p.pitchClass, intensity, ageMs });
+    // Linear decay against the original (velocity-derived) intensity.
+    // Multiplying p.intensity (already-decayed) by (1 - newAge/decay)
+    // each tick compounds into exponential decay, breaking the
+    // PULSE_DECAY_MS contract under multi-tick frame timing.
+    const intensity = p.baseIntensity * (1 - ageMs / PULSE_DECAY_MS);
+    next.push({
+      pitchClass: p.pitchClass,
+      baseIntensity: p.baseIntensity,
+      intensity,
+      ageMs,
+    });
   }
   return { ...model, pulses: next };
 }

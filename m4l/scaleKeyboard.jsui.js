@@ -102,9 +102,14 @@ for (var i = 0; i < NUM_PITCH_CLASSES; i++) inScale.push(false)
 var chordPcs = []
 for (var ci = 0; ci < NUM_PITCH_CLASSES; ci++) chordPcs.push(false)
 
-// pulses: array of { pitchClass, intensity, ageMs }. Same shape as
-// scaleKeyboard.logic.ts Pulse type. Pruned in tick() when ageMs >=
-// PULSE_DECAY_MS.
+// pulses: array of { pitchClass, baseIntensity, intensity, ageMs }. Same
+// shape as scaleKeyboard.logic.ts Pulse type. baseIntensity is the
+// velocity-derived value at age=0 and never changes; intensity is the
+// current decayed value, recomputed each tick from
+// baseIntensity * (1 - ageMs / PULSE_DECAY_MS). Storing the base
+// separately avoids the "current * (1 - newAge/decay)" recurrence,
+// which compounds into exponential decay under multi-tick frames.
+// Pruned in tick() when ageMs >= PULSE_DECAY_MS.
 var pulses = []
 
 var lastTickMs = 0
@@ -141,9 +146,9 @@ function handleNotePulse(pitch, velocity) {
   var v = Number(velocity)
   if (!isFinite(p) || !isFinite(v) || v <= 0) return
   var pc = ((Math.floor(p) % NUM_PITCH_CLASSES) + NUM_PITCH_CLASSES) % NUM_PITCH_CLASSES
-  var intensity = v / 127
-  if (intensity > 1) intensity = 1
-  pulses.push({ pitchClass: pc, intensity: intensity, ageMs: 0 })
+  var base = v / 127
+  if (base > 1) base = 1
+  pulses.push({ pitchClass: pc, baseIntensity: base, intensity: base, ageMs: 0 })
   startAnim()
   mgraphics.redraw()
 }
@@ -210,7 +215,8 @@ function tick() {
     if (ageMs >= PULSE_DECAY_MS) continue
     next.push({
       pitchClass: p.pitchClass,
-      intensity: p.intensity * (1 - ageMs / PULSE_DECAY_MS),
+      baseIntensity: p.baseIntensity,
+      intensity: p.baseIntensity * (1 - ageMs / PULSE_DECAY_MS),
       ageMs: ageMs
     })
   }
