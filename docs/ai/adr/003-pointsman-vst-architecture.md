@@ -691,7 +691,7 @@ Mechanical items already merged or queued:
 
 Spec-decision items (TBD):
 
-- [ ] **#6 `pending_` / `sounding_` reserve cap.** Current `reserve(64)`
+- [x] **#6 `pending_` / `sounding_` reserve cap.** Current `reserve(64)`
       saturates at ~8 input noteOns when harmony=3 (`(1+3) × 2`
       events per noteOn). The right answer depends on the worst-case
       polyphony × harmony × in-flight gate length the v1 surface
@@ -699,6 +699,10 @@ Spec-decision items (TBD):
       reallocation. Options: (A) leave as-is and accept rare
       reallocs; (B) bump to a generous fixed reserve (e.g. 512); (C)
       fixed-capacity ring buffer with documented overflow policy.
+      Resolved with option (B): `pending_.reserve(512)` /
+      `sounding_.reserve(128)` in prepareToPlay. Headroom for ~64
+      in-flight noteOns at the 3-voice harmony max without an
+      audio-thread realloc.
 - [ ] **#8 `setValueNotifyingHost` from `processBlock`.** `triggerMode
       = Root` writes the `root` parameter from the audio thread on
       every matching noteOn. JUCE tolerates this, but rapid-fire

@@ -49,9 +49,15 @@ void PointsmanProcessor::prepareToPlay(double sampleRate, int)
     lastInputSampleAbs_ = 0;
     haveLastInput_ = false;
     pending_.clear();
-    pending_.reserve(64);    // typical bound: a few notes in flight
+    // Cap headroom: each input noteOn schedules 2 events × (1 + harmony
+    // voices), so a generous reserve covers ~64 in-flight noteOns at the
+    // 3-voice harmony max without a heap reallocation on the audio
+    // thread. v1 surface does not promise a hard polyphony bound; if a
+    // future use case exceeds this we revisit option C (fixed-capacity
+    // ring) per ADR 003 §"Post-Phase 4 audit follow-ups".
+    pending_.reserve(512);
     sounding_.clear();
-    sounding_.reserve(32);
+    sounding_.reserve(128);
 }
 
 void PointsmanProcessor::releaseResources() {}
