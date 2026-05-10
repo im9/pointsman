@@ -646,6 +646,99 @@ silently violating the contract in concept.md §"Per-event humanize".
       on all three axes). No hung notes after transport stop or
       bypass with non-zero humanize.
 
+## Post-Phase 4 audit follow-ups
+
+A bug / RT-safety / threading audit on 2026-05-10 produced two
+classes of follow-ups: **mechanical** items (RT-safety refactors,
+UB guards, numerical-stability tweaks) handled in subsequent
+commits without re-opening the spec; and **spec-decision** items
+listed below, where the right fix depends on a product call about
+acceptable bounds, behaviour, or trade-offs that this ADR has not
+made yet. These are tracked here (rather than in a private TODO
+file) so they surface in any future ADR pass that touches the same
+surface.
+
+Mechanical items already merged or queued:
+
+- [x] **#1 buffer overflow on preset load** — `syncHarmonyVoicesFromTree`
+      now clamps to `kHarmonyVoicesMax` (matches the
+      `setHarmonyVoices()` setter). Commit `fea334e`.
+- [ ] **#12 `rotl32(x, 0)` UB guard** — never invoked with `k=0`
+      today, but the `x >> (32 - k)` form is UB at `k=0`. Mask the
+      shift count.
+- [ ] **#5 `snapToChordTones` per-call vector alloc** — replace the
+      `std::vector<int>` build with a fixed `std::array<int, 128>`
+      + count.
+- [ ] **#4 `buildScalePitches` per-block alloc** — cache the result
+      keyed on `(scale, root)`; rebuild only when either changes.
+- [ ] **#7 `juce::MidiBuffer out;` per block** — make `out` a
+      processor member, `clear()` and reuse.
+- [ ] **#9 pulse-decay numerical stability** — store a stable
+      `baseIntensity` per pulse; compute current intensity as
+      `base × (1 − ageMs / kPulseDecayMs)` on demand, not by
+      reciprocal-multiply each tick.
+- [ ] **#2 / #3 UI ↔ audio data race on `harmonyVoices` and
+      `chordContext.pitchClasses`** — adopt a `juce::SpinLock`
+      with try-lock on the audio side and a UI-side snapshot copy.
+      Conservative-mechanical: this pins the behaviour without
+      committing to a lock-free design.
+
+Spec-decision items (TBD):
+
+- [ ] **#6 `pending_` / `sounding_` reserve cap.** Current `reserve(64)`
+      saturates at ~8 input noteOns when harmony=3 (`(1+3) × 2`
+      events per noteOn). The right answer depends on the worst-case
+      polyphony × harmony × in-flight gate length the v1 surface
+      promises to handle without an audio-thread `push_back`
+      reallocation. Options: (A) leave as-is and accept rare
+      reallocs; (B) bump to a generous fixed reserve (e.g. 512); (C)
+      fixed-capacity ring buffer with documented overflow policy.
+- [ ] **#8 `setValueNotifyingHost` from `processBlock`.** `triggerMode
+      = Root` writes the `root` parameter from the audio thread on
+      every matching noteOn. JUCE tolerates this, but rapid-fire
+      root changes can spam host listeners. Options: (A) keep — the
+      use case is one root pulse per phrase, not per 16th; (B) route
+      through an `AsyncUpdater` with a single-slot pending PC.
+- [ ] **#10 `rebuildHarmonyBadges` double-fire.** `onAddHarmonyClicked`
+      calls `rebuildHarmonyBadges()` directly *and* the
+      `setHarmonyVoices()` → `syncHarmonyVoicesToTree` path triggers
+      the editor's `valueTreeChildAdded` listener which posts
+      another `rebuildHarmonyBadges` via `callAsync`. Two rebuilds
+      per click. Visual effect today is benign but the sync rebuild
+      destroys and recreates badge subcomponents — a user mid-edit
+      on an interval combo gets the combo torn down. Options: (A)
+      drop the direct call (async-only); (B) suppress the listener
+      from internal setter paths.
+- [ ] **#11 pulse-poll loss on burst noteOns.** The `lastEmittedPulse`
+      atomic is a single-slot edge: if multiple noteOns are emitted
+      within one editor poll (~16 ms), only the most recent is
+      visualised. This is documented as an intentional simplification
+      ("lossy single-shot signal") and is fine for the visual-glow
+      role, but a 16th-note burst @ 240 BPM = 16 ms/event so it sits
+      right at the boundary. Options: (A) accept lossiness; (B)
+      replace with an SPSC FIFO of recent pulses (bounded depth, no
+      audio-side alloc).
+- [ ] **#13 preset XML field validation.** `syncHarmonyVoicesFromTree`
+      reads `interval` without validating against the canonical set
+      `{3, 4, 5, 6}`, and `direction` falls back to `above` on any
+      unrecognised string. A hand-edited or forward-incompatible
+      preset can therefore inject out-of-range intervals (which
+      `diatonicShift` will treat as scale-step counts and clamp at
+      extremes — defined behaviour, but not the spec). Options: (A)
+      silent clamp at the boundary; (B) drop the offending voice;
+      (C) refuse the preset and log. Decision interacts with how
+      forward-compatibility for future interval values is framed.
+- [ ] **#14 `gateLenSamples` overflow guard.** Theoretical overflow
+      at `static_cast<uint64_t>(hr.gateFinal * sourceStepSamples)`
+      if the input rate degenerates (e.g. two noteOns minutes apart
+      makes `sourceStepSamples` enormous, then `gateFinal=1.0`
+      schedules a noteOff that far in the future). Practically not
+      reachable in normal use; the question is whether v1 wants a
+      hard cap on gate length in seconds for predictability when
+      something upstream goes wrong. Options: (A) no cap; (B) clamp
+      `sourceStepDuration` to a max (e.g. 5 s) at the bridge
+      boundary; (C) clamp the final scheduled offset to a max.
+
 ## Per-target notes
 
 The shared test vectors at
