@@ -677,11 +677,17 @@ Mechanical items already merged or queued:
       `baseIntensity` per pulse; compute current intensity as
       `base × (1 − ageMs / kPulseDecayMs)` on demand, not by
       reciprocal-multiply each tick.
-- [ ] **#2 / #3 UI ↔ audio data race on `harmonyVoices` and
-      `chordContext.pitchClasses`** — adopt a `juce::SpinLock`
-      with try-lock on the audio side and a UI-side snapshot copy.
-      Conservative-mechanical: this pins the behaviour without
-      committing to a lock-free design.
+- [x] **#2 / #3 UI ↔ audio data race on `harmonyVoices` and
+      `chordContext.pitchClasses`** — `harmonyVoices` is UI-writer /
+      audio-reader: `juce::SpinLock` on the writer, audio-thread
+      try-lock with version-counter refresh into a fixed-size cache
+      (last-known-good on contention). `chordContext` was
+      audio-writer / UI-reader: replaced the vector with
+      `std::atomic<uint16_t>` (12-bit pitch-class mask) and added a
+      mask overload to `snapToChordTones` — fully lock-free, no
+      try-lock retry needed. The chord-context inspector now
+      returns by value (sorted ascending), which is a behavioural
+      change the existing tests align with.
 
 Spec-decision items (TBD):
 

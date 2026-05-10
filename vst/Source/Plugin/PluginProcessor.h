@@ -108,9 +108,17 @@ public:
     // The tests/ binary needs visibility into a few normally-private bits
     // of state to assert chord-context behaviour and panic discipline
     // without instantiating a host. The plugin runtime never calls these.
-    const std::vector<int>& chordContextPcsForTest() const noexcept
+    // Returns by value: the canonical state is a 12-bit atomic mask, so
+    // we materialise a sorted-ascending vector for inspection. (Order is
+    // pitch-class-ascending, not insertion order — chord context is a
+    // set; no caller treats it as ordered.)
+    std::vector<int> chordContextPcsForTest() const
     {
-        return chordContext.pitchClasses;
+        const uint16_t mask = chordContextMask_.load(std::memory_order_acquire);
+        std::vector<int> out;
+        for (int pc = 0; pc < 12; ++pc)
+            if ((mask >> pc) & 1u) out.push_back(pc);
+        return out;
     }
     void setHostIsPlayingForTest(bool playing) noexcept { testIsPlaying = playing; }
     uint64_t getLastEmittedPulseForTest() const noexcept
@@ -137,8 +145,29 @@ private:
     bool isHostPlaying() noexcept;
     bool channelMatches(int messageChannel, int paramChannel) const noexcept;
 
-    pointsman::ChordContext chordContext;
+    // Chord context is read by paint() on the message thread and mutated
+    // (push / clear / panic) by processBlock on the audio thread. Pitch
+    // classes are 0..11, so a 12-bit mask in a single std::atomic gives
+    // lock-free SPSC without a vector or spinlock — the audio side does
+    // fetch_or / fetch_and / store(0) and the UI side does load(acquire).
+    std::atomic<uint16_t> chordContextMask_{0};
+
+    // Harmony voices: written by the message thread (UI edits, preset
+    // load), read by the audio thread on every input noteOn in
+    // mode=harmony. The canonical container `harmonyVoices` is the
+    // UI-side mutable state and is only accessed under
+    // `harmonyVoicesLock_`. The audio side keeps a private fixed-size
+    // snapshot (`harmonyVoicesAudio_` / count) refreshed via try-lock
+    // when the version atomic shows a new edit; if the try-lock fails
+    // the audio thread keeps the last-known-good cache for the block,
+    // which preserves RT-safety without dropping voices on contention.
     std::vector<pointsman::HarmonyVoice> harmonyVoices;
+    juce::SpinLock                       harmonyVoicesLock_;
+    std::atomic<uint64_t>                harmonyVoicesVersion_{0};
+    std::array<pointsman::HarmonyVoice,
+               pointsman::kHarmonyVoicesMax> harmonyVoicesAudio_{};
+    std::size_t harmonyVoicesAudioCount_   = 0;
+    uint64_t    harmonyVoicesAudioVersion_ = 0;
 
     // ── Humanize-driven output scheduler (ADR 003 Phase 4) ──
     // Pointsman's output gate is humanize-driven, NOT input-noteOff-driven

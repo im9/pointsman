@@ -108,15 +108,11 @@ namespace pointsman
     }
 
     int snapToChordTones(int note,
-                         const std::vector<int>& chordPcs,
+                         uint16_t chordPcsMask,
                          const std::vector<int>& scalePitches,
                          int tolerance)
     {
-        if (chordPcs.empty()) return snapToScale(note, scalePitches);
-
-        std::array<bool, 12> pcSet{};
-        for (int pc : chordPcs)
-            pcSet[(std::size_t) (((pc % 12) + 12) % 12)] = true;
+        if (chordPcsMask == 0) return snapToScale(note, scalePitches);
 
         // Stack buffer sized to the worst case (every pitch class lit →
         // 128 entries). Avoids a per-call heap allocation on the audio
@@ -125,13 +121,24 @@ namespace pointsman
         std::size_t chordCount = 0;
         for (int v = 0; v <= 127; ++v)
         {
-            if (pcSet[(std::size_t) (v % 12)])
+            if ((chordPcsMask >> (v % 12)) & 1u)
                 chordMidi[chordCount++] = v;
         }
 
         const int nearest = snapToScaleSpan(note, chordMidi.data(), chordCount);
         if (std::abs(nearest - note) <= tolerance) return nearest;
         return snapToScale(note, scalePitches);
+    }
+
+    int snapToChordTones(int note,
+                         const std::vector<int>& chordPcs,
+                         const std::vector<int>& scalePitches,
+                         int tolerance)
+    {
+        uint16_t mask = 0;
+        for (int pc : chordPcs)
+            mask |= static_cast<uint16_t>(1u << ((((pc % 12) + 12) % 12)));
+        return snapToChordTones(note, mask, scalePitches, tolerance);
     }
 
     int diatonicShift(int note,

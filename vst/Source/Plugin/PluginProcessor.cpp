@@ -110,7 +110,7 @@ void PointsmanProcessor::emitPanicTo(juce::MidiBuffer& out, int sampleOffset)
         writeNoteOffTracked(out, sampleOffset, s.channel, s.pitch);
     sounding_.clear();
     pending_.clear();
-    chordContext.pitchClasses.clear();
+    chordContextMask_.store(0, std::memory_order_release);
 }
 
 void PointsmanProcessor::drainPendingInto(juce::MidiBuffer& out, int numSamples)
@@ -231,6 +231,24 @@ void PointsmanProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::Mid
     }
     const auto& scalePitches = cachedScalePitches_;
 
+    // Refresh the audio-side harmony-voices snapshot if the UI bumped
+    // the version since last block. Try-lock so the audio thread never
+    // blocks on a UI-thread writer that owns the canonical container;
+    // on contention we keep the previous block's snapshot (RT-safe).
+    const uint64_t hvVer = harmonyVoicesVersion_.load(std::memory_order_acquire);
+    if (hvVer != harmonyVoicesAudioVersion_)
+    {
+        const juce::SpinLock::ScopedTryLockType tryLock(harmonyVoicesLock_);
+        if (tryLock.isLocked())
+        {
+            harmonyVoicesAudioCount_ =
+                std::min(harmonyVoices.size(), kHarmonyVoicesMax);
+            for (std::size_t i = 0; i < harmonyVoicesAudioCount_; ++i)
+                harmonyVoicesAudio_[i] = harmonyVoices[i];
+            harmonyVoicesAudioVersion_ = hvVer;
+        }
+    }
+
     // ---- Iterate input MIDI ----
     for (const auto meta : midi)
     {
@@ -254,10 +272,8 @@ void PointsmanProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::Mid
             if (controlIsChordRole)
             {
                 const int pc = ((pitch % 12) + 12) % 12;
-                if (std::find(chordContext.pitchClasses.begin(),
-                              chordContext.pitchClasses.end(), pc)
-                    == chordContext.pitchClasses.end())
-                    chordContext.pitchClasses.push_back(pc);
+                chordContextMask_.fetch_or(static_cast<uint16_t>(1u << pc),
+                                           std::memory_order_release);
                 continue;
             }
             if (controlIsRootRole)
@@ -304,23 +320,28 @@ void PointsmanProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::Mid
                 noteOnTargetAbs + static_cast<uint64_t>(gateLenSamples);
 
             // Quantize.
+            const uint16_t chordMask =
+                chordContextMask_.load(std::memory_order_acquire);
             const int quantized = (modeChoice == ModeChoice::Chord)
-                ? snapToChordTones(pitch, chordContext.pitchClasses, scalePitches)
+                ? snapToChordTones(pitch, chordMask, scalePitches)
                 : snapToScale(pitch, scalePitches);
 
             // Build output pitches: base + harmony voices. Harmony voices
             // that clamp to the base are still emitted (parity with m4l /
-            // inboil; see Batch 2 fix).
-            // Reservation note: harmonyVoices is bounded to kHarmonyVoicesMax,
-            // so this push_back chain stays within initial capacity.
+            // inboil; see Batch 2 fix). Iterate the audio-side snapshot
+            // (refreshed at the top of processBlock under try-lock) so
+            // there is no race against UI-thread setHarmonyVoices.
             int outPitches[1 + kHarmonyVoicesMax];
             int numOut = 0;
             outPitches[numOut++] = quantized;
             if (modeChoice == ModeChoice::Harmony)
             {
-                for (const auto& v : harmonyVoices)
-                    outPitches[numOut++] =
-                        diatonicShift(quantized, v.interval, v.direction, scalePitches);
+                for (std::size_t i = 0; i < harmonyVoicesAudioCount_; ++i)
+                    outPitches[numOut++] = diatonicShift(
+                        quantized,
+                        harmonyVoicesAudio_[i].interval,
+                        harmonyVoicesAudio_[i].direction,
+                        scalePitches);
             }
 
             for (int i = 0; i < numOut; ++i)
@@ -336,8 +357,9 @@ void PointsmanProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::Mid
             if (controlIsChordRole)
             {
                 const int pc = ((msg.getNoteNumber() % 12) + 12) % 12;
-                auto& v = chordContext.pitchClasses;
-                v.erase(std::remove(v.begin(), v.end(), pc), v.end());
+                chordContextMask_.fetch_and(
+                    static_cast<uint16_t>(~(1u << pc)),
+                    std::memory_order_release);
                 continue;
             }
             // controlIsRootRole and ordinary input noteOffs are silently
@@ -369,7 +391,14 @@ void PointsmanProcessor::setHarmonyVoices(std::vector<HarmonyVoice> v)
 {
     if (v.size() > kHarmonyVoicesMax)
         v.resize(kHarmonyVoicesMax);
-    harmonyVoices = std::move(v);
+    {
+        const juce::SpinLock::ScopedLockType lock(harmonyVoicesLock_);
+        harmonyVoices = std::move(v);
+        // Bump under the lock so a try-locking audio reader either sees
+        // the old (vector, version) pair or the new pair, never a torn
+        // mix. fetch_add returns the old value; we don't need it.
+        harmonyVoicesVersion_.fetch_add(1, std::memory_order_release);
+    }
     syncHarmonyVoicesToTree();
 }
 
@@ -394,24 +423,33 @@ void PointsmanProcessor::syncHarmonyVoicesToTree()
 
 void PointsmanProcessor::syncHarmonyVoicesFromTree()
 {
+    // Called from the message thread (setStateInformation). Hold the lock
+    // around the rebuild so an audio-thread try-lock either sees the old
+    // pre-load contents or the fully-rebuilt new ones, never a torn
+    // intermediate state during the clear→push_back loop.
+    const juce::SpinLock::ScopedLockType lock(harmonyVoicesLock_);
     harmonyVoices.clear();
     auto child = apvts.state.getChildWithName(kPointsmanStateTag);
-    if (!child.isValid()) return;
-    for (int i = 0; i < child.getNumChildren(); ++i)
+    if (child.isValid())
     {
-        // Cap at kHarmonyVoicesMax: processBlock writes voices into a fixed
-        // outPitches[1+kHarmonyVoicesMax] stack buffer. setHarmonyVoices()
-        // already clamps; this branch is the second ingress (preset load,
-        // hand-edited XML) and must clamp too.
-        if (harmonyVoices.size() >= kHarmonyVoicesMax) break;
-        auto node = child.getChild(i);
-        if (!node.hasType(kHarmonyVoiceTag)) continue;
-        HarmonyVoice v{};
-        v.interval = static_cast<int>(node.getProperty(kIntervalAttr, 3));
-        const auto dir = node.getProperty(kDirectionAttr, "above").toString();
-        v.direction = (dir == "below") ? HarmonyDirection::Below : HarmonyDirection::Above;
-        harmonyVoices.push_back(v);
+        for (int i = 0; i < child.getNumChildren(); ++i)
+        {
+            // Cap at kHarmonyVoicesMax: processBlock writes voices into a
+            // fixed outPitches[1+kHarmonyVoicesMax] stack buffer.
+            // setHarmonyVoices() already clamps; this branch is the
+            // second ingress (preset load, hand-edited XML) and must
+            // clamp too.
+            if (harmonyVoices.size() >= kHarmonyVoicesMax) break;
+            auto node = child.getChild(i);
+            if (!node.hasType(kHarmonyVoiceTag)) continue;
+            HarmonyVoice v{};
+            v.interval = static_cast<int>(node.getProperty(kIntervalAttr, 3));
+            const auto dir = node.getProperty(kDirectionAttr, "above").toString();
+            v.direction = (dir == "below") ? HarmonyDirection::Below : HarmonyDirection::Above;
+            harmonyVoices.push_back(v);
+        }
     }
+    harmonyVoicesVersion_.fetch_add(1, std::memory_order_release);
 }
 
 void PointsmanProcessor::getStateInformation(juce::MemoryBlock& destData)

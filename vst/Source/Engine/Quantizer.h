@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <vector>
 
 #include "State.h"
@@ -25,6 +26,15 @@ namespace pointsman
     // scale snap. Mirrors m4l/engine/quantizer.ts:98-115.
     int snapToChordTones(int note,
                          const std::vector<int>& chordPcs,
+                         const std::vector<int>& scalePitches,
+                         int tolerance = 2);
+
+    // Mask form of the same rule. Bits 0..11 of `chordPcsMask` correspond
+    // to pitch classes 0..11; bits >= 12 are ignored. Lets the audio
+    // thread carry the chord context as a single std::atomic<uint16_t>
+    // (lock-free, no allocation) instead of a std::vector<int>.
+    int snapToChordTones(int note,
+                         uint16_t chordPcsMask,
                          const std::vector<int>& scalePitches,
                          int tolerance = 2);
 
