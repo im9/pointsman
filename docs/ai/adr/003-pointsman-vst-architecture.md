@@ -477,34 +477,37 @@ not host-runtime behaviour
 
 ### Phase 1 — Engine + tests
 
-- [ ] Create [docs/ai/adr/003-pointsman-vst-architecture.md](003-pointsman-vst-architecture.md)
+- [x] Create [docs/ai/adr/003-pointsman-vst-architecture.md](003-pointsman-vst-architecture.md)
       — this file (already authored as part of starting Phase 0).
-- [ ] Add Catch2 v3 + nlohmann/json v3 via `FetchContent` in
+- [x] Add Catch2 v3 + nlohmann/json v3 via `FetchContent` in
       `CMakeLists.txt` (mirror the oedipa pattern; force
       `JSON_BuildTests OFF`).
-- [ ] Add `pointsman_engine` STATIC library target to
+- [x] Add `pointsman_engine` STATIC library target to
       `CMakeLists.txt`; assert at CMake time that no `juce_*` is in
-      its `target_link_libraries`.
-- [ ] Write `tests/main.cpp` with explicit `juce::initialiseJuce_GUI()`
+      its `target_link_libraries` (deferred call on
+      `pointsman_engine`'s `LINK_LIBRARIES` property — see CMakeLists
+      `_pointsman_assert_engine_pure`).
+- [x] Write `tests/main.cpp` with explicit `juce::initialiseJuce_GUI()`
       / `juce::shutdownJuce_GUI()` around the Catch2 session.
-- [ ] Write `tests/test_Rng.cpp` reading
+- [x] Write `tests/test_Rng.cpp` reading
       `docs/ai/rng-test-vectors.json` via nlohmann/json; expect
       bit-identical output with the m4l engine vectors.
-- [ ] Implement `Source/Engine/Rng.h` (xoshiro128++ + SplitMix64
+- [x] Implement `Source/Engine/Rng.h` (xoshiro128++ + SplitMix64
       seeding); confirm `test_Rng` passes.
-- [ ] Write `tests/test_Quantizer.cpp` reading
+- [x] Write `tests/test_Quantizer.cpp` reading
       `docs/ai/quantizer-test-vectors.json`; expect parity for
       `buildScalePitches`, `snapToScale`, `snapToChordTones`,
       `diatonicShift`.
-- [ ] Implement `Source/Engine/Quantizer.{h,cpp}` and
+- [x] Implement `Source/Engine/Quantizer.{h,cpp}` and
       `Source/Engine/State.h`; confirm `test_Quantizer` passes.
-- [ ] Write `tests/test_Humanize.cpp` with seeded fixtures asserting
+- [x] Write `tests/test_Humanize.cpp` with seeded fixtures asserting
       EMA convergence behaviour, `1.0` freeze degeneracy, and
       transport-start reset.
-- [ ] Implement `Source/Engine/Humanize.{h,cpp}`; confirm
+- [x] Implement `Source/Engine/Humanize.{h,cpp}`; confirm
       `test_Humanize` passes.
-- [ ] Manual gate: `cd vst && make test` runs all engine tests
-      green. No host involvement needed at this phase.
+- [x] Manual gate: `cd vst && make test` runs all engine tests
+      green (562 assertions across 29 test cases on first
+      end-to-end run). No host involvement needed at this phase.
 
 ### Phase 2 — Plugin (APVTS + processor)
 
