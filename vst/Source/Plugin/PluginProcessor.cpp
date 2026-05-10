@@ -167,7 +167,10 @@ void PointsmanProcessor::drainPendingInto(juce::MidiBuffer& out, int numSamples)
 
 void PointsmanProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::MidiBuffer& midi)
 {
-    juce::MidiBuffer out;
+    // Reuse the member buffer across blocks: clear() retains capacity so
+    // steady-state runs do not re-allocate the internal byte array.
+    out_.clear();
+    auto& out = out_;
     const int numSamples = audio.getNumSamples();
 
     const int seedVal = loadInt(apvts, pid::seed);

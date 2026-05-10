@@ -170,6 +170,12 @@ private:
     std::vector<PendingMidi> pending_;
     std::vector<ActiveNote>  sounding_;
 
+    // Output MIDI buffer reused across blocks. Constructing a fresh
+    // juce::MidiBuffer per processBlock allocated its internal byte array
+    // every call; clear() on a member retains capacity, so steady-state
+    // emits are amortized allocation-free on the audio thread.
+    juce::MidiBuffer out_;
+
     double   sampleRate_         = 44100.0;
     uint64_t blockStartAbs_      = 0;     // absolute sample counter from prepareToPlay
     uint64_t lastInputSampleAbs_ = 0;     // most recent input noteOn (post-channel-match)

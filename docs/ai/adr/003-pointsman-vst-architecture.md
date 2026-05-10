@@ -671,7 +671,7 @@ Mechanical items already merged or queued:
       + count.
 - [x] **#4 `buildScalePitches` per-block alloc** — cache the result
       keyed on `(scale, root)`; rebuild only when either changes.
-- [ ] **#7 `juce::MidiBuffer out;` per block** — make `out` a
+- [x] **#7 `juce::MidiBuffer out;` per block** — make `out` a
       processor member, `clear()` and reuse.
 - [ ] **#9 pulse-decay numerical stability** — store a stable
       `baseIntensity` per pulse; compute current intensity as
