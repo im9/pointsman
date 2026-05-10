@@ -182,17 +182,17 @@ namespace pointsman::editor
             const int pitch = PointsmanProcessor::unpackPulsePitch(packed);
             const int vel   = PointsmanProcessor::unpackPulseVelocity(packed);
             const int pc    = ((pitch % 12) + 12) % 12;
-            double intensity = static_cast<double>(vel) / 127.0;
-            if (intensity < 0.0) intensity = 0.0;
-            if (intensity > 1.0) intensity = 1.0;
-            pulses_.push_back({pc, intensity, 0.0});
+            double base = static_cast<double>(vel) / 127.0;
+            if (base < 0.0) base = 0.0;
+            if (base > 1.0) base = 1.0;
+            pulses_.push_back({pc, base, base, 0.0});
         }
 
         // Step 2 — age existing pulses and prune. Linear decay matching
         // m4l/scaleKeyboard.jsui.js: intensity = baseIntensity *
-        // (1 - ageMs/PULSE_DECAY_MS). We track ageMs separately and re-
-        // derive intensity each tick so the per-pulse base intensity
-        // (set from velocity) is preserved.
+        // (1 - ageMs/PULSE_DECAY_MS). Base is stored once at creation, so
+        // each tick recomputes the displayed intensity directly from the
+        // current age — no reciprocal-multiply, no error accumulation.
         const double dt = (dtMs > 0.0) ? dtMs : 0.0;
         if (dt > 0.0)
         {
@@ -202,17 +202,9 @@ namespace pointsman::editor
             {
                 const double aged = p.ageMs + dt;
                 if (aged >= kPulseDecayMs) continue;
-                // Re-derive intensity from age, but preserve the velocity-
-                // scaled base by storing the pre-decay intensity at age=0.
-                // We only stored intensity at age=0, so reconstruct via the
-                // ratio-of-remaining-life. Equivalent to m4l's
-                // intensity *= (1 - newAge/PULSE_DECAY_MS) over the prior
-                // (1 - oldAge/PULSE_DECAY_MS), simplifying to a single
-                // (1 - newAge/PULSE_DECAY_MS) scale of the original.
                 Pulse q = p;
                 q.ageMs = aged;
-                q.intensity = p.intensity / (1.0 - p.ageMs / kPulseDecayMs)
-                              * (1.0 - aged / kPulseDecayMs);
+                q.intensity = p.baseIntensity * (1.0 - aged / kPulseDecayMs);
                 next.push_back(q);
             }
             pulses_ = std::move(next);

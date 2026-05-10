@@ -673,7 +673,7 @@ Mechanical items already merged or queued:
       keyed on `(scale, root)`; rebuild only when either changes.
 - [x] **#7 `juce::MidiBuffer out;` per block** — make `out` a
       processor member, `clear()` and reuse.
-- [ ] **#9 pulse-decay numerical stability** — store a stable
+- [x] **#9 pulse-decay numerical stability** — store a stable
       `baseIntensity` per pulse; compute current intensity as
       `base × (1 − ageMs / kPulseDecayMs)` on demand, not by
       reciprocal-multiply each tick.

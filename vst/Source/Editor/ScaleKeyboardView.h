@@ -26,11 +26,19 @@ namespace pointsman::editor
     constexpr double kPulseDecayMs = 250.0;
 
     // Pulse list entry. Same shape as scaleKeyboard.logic.ts Pulse type.
+    // `baseIntensity` is the velocity-derived value at age=0 and never
+    // changes; `intensity` is the current decayed value (linear over
+    // kPulseDecayMs) and is rederived each tick from
+    // `baseIntensity * (1 - ageMs / kPulseDecayMs)`. Storing the base
+    // separately avoids reciprocal-multiply reconstruction every tick,
+    // which accumulated floating-point error as ageMs approached the
+    // decay bound.
     struct Pulse
     {
-        int    pc;        // 0..11
-        double intensity; // 0..1, decays linearly to 0 over kPulseDecayMs
-        double ageMs;     // 0..kPulseDecayMs; entries with age >= bound are pruned
+        int    pc;            // 0..11
+        double baseIntensity; // 0..1, set once at creation
+        double intensity;     // current decayed value, recomputed each tick
+        double ageMs;         // 0..kPulseDecayMs; entries with age >= bound pruned
     };
 
     class ScaleKeyboardView
