@@ -669,7 +669,7 @@ Mechanical items already merged or queued:
 - [x] **#5 `snapToChordTones` per-call vector alloc** — replace the
       `std::vector<int>` build with a fixed `std::array<int, 128>`
       + count.
-- [ ] **#4 `buildScalePitches` per-block alloc** — cache the result
+- [x] **#4 `buildScalePitches` per-block alloc** — cache the result
       keyed on `(scale, root)`; rebuild only when either changes.
 - [ ] **#7 `juce::MidiBuffer out;` per block** — make `out` a
       processor member, `clear()` and reuse.

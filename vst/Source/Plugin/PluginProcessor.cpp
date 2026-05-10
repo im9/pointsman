@@ -216,7 +216,17 @@ void PointsmanProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::Mid
         rngInitialised = true;
     }
 
-    const auto scalePitches = buildScalePitches(scale, rootPc);
+    // Rebuild the per-scale MIDI pitch span only when (scale, root)
+    // changes. Pure function of those two inputs, so the cache is always
+    // valid otherwise.
+    const int scaleIdx = static_cast<int>(scale);
+    if (scaleIdx != cachedScaleIdx_ || rootPc != cachedRootPc_)
+    {
+        cachedScalePitches_ = buildScalePitches(scale, rootPc);
+        cachedScaleIdx_ = scaleIdx;
+        cachedRootPc_   = rootPc;
+    }
+    const auto& scalePitches = cachedScalePitches_;
 
     // ---- Iterate input MIDI ----
     for (const auto meta : midi)

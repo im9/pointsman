@@ -175,6 +175,14 @@ private:
     uint64_t lastInputSampleAbs_ = 0;     // most recent input noteOn (post-channel-match)
     bool     haveLastInput_      = false;
 
+    // Cache of buildScalePitches((scale, root)). Rebuilt only when either
+    // input changes; the audio thread reads cachedScalePitches_ as a const
+    // reference. Avoids allocating a fresh std::vector<int> with up to
+    // 128 entries on every processBlock call.
+    std::vector<int> cachedScalePitches_;
+    int cachedScaleIdx_ = -1;       // sentinel; first compare forces rebuild
+    int cachedRootPc_   = -1;
+
     bool wasPlaying = false;
     uint32_t lastSeed = 0;          // re-seed RNG when seed param changes
     bool rngInitialised = false;
