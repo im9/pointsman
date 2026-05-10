@@ -703,12 +703,16 @@ Spec-decision items (TBD):
       `sounding_.reserve(128)` in prepareToPlay. Headroom for ~64
       in-flight noteOns at the 3-voice harmony max without an
       audio-thread realloc.
-- [ ] **#8 `setValueNotifyingHost` from `processBlock`.** `triggerMode
+- [x] **#8 `setValueNotifyingHost` from `processBlock`.** `triggerMode
       = Root` writes the `root` parameter from the audio thread on
       every matching noteOn. JUCE tolerates this, but rapid-fire
       root changes can spam host listeners. Options: (A) keep — the
       use case is one root pulse per phrase, not per 16th; (B) route
       through an `AsyncUpdater` with a single-slot pending PC.
+      Resolved with option (A): no code change. The musical use case
+      is sparse root pulses; deferring through an AsyncUpdater would
+      add latency between the root-trigger noteOn and the resulting
+      scale shift, which is the worse failure mode.
 - [x] **#10 `rebuildHarmonyBadges` double-fire.** Resolved with option (A):
       direct `rebuildHarmonyBadges()` calls dropped from
       `onAddHarmonyClicked` / `onRemoveHarmonyClicked`; rebuild now
@@ -726,7 +730,7 @@ Spec-decision items (TBD):
       on an interval combo gets the combo torn down. Options: (A)
       drop the direct call (async-only); (B) suppress the listener
       from internal setter paths.
-- [ ] **#11 pulse-poll loss on burst noteOns.** The `lastEmittedPulse`
+- [x] **#11 pulse-poll loss on burst noteOns.** The `lastEmittedPulse`
       atomic is a single-slot edge: if multiple noteOns are emitted
       within one editor poll (~16 ms), only the most recent is
       visualised. This is documented as an intentional simplification
@@ -735,6 +739,11 @@ Spec-decision items (TBD):
       right at the boundary. Options: (A) accept lossiness; (B)
       replace with an SPSC FIFO of recent pulses (bounded depth, no
       audio-side alloc).
+      Resolved with option (A): no code change. The pulse signal is
+      a visual glow, not functional MIDI; under burst the most-recent
+      "representative" pulse is more readable than overlapping every
+      emit. SPSC FIFO is implementation cost without UX win at v1
+      surface.
 - [x] **#13 preset XML field validation.** `syncHarmonyVoicesFromTree`
       reads `interval` without validating against the canonical set
       `{3, 4, 5, 6}`, and `direction` falls back to `above` on any
