@@ -11,6 +11,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "Editor/ControlsView.h"
@@ -135,6 +136,55 @@ TEST_CASE("ControlsView: clicking each mode pill cycles APVTS mode",
 
     clickSync(*pills[0]);
     REQUIRE(loadInt(proc.apvts, pid::mode) == 0); // back to scale
+}
+
+TEST_CASE("ScaleKeyboardView: pulse list grows when processor emits a noteOn",
+          "[editor][keyboard][pulse]")
+{
+    // ADR 003 §"Editor (inboil-derived)": pulse-on-emit is implemented as
+    // a lock-free atomic from the audio thread (PluginProcessor) to a
+    // timer-poll on the editor side. The test exercises the end-to-end
+    // path by driving processBlock and then synchronously polling the
+    // editor (the headless test runner can't drive juce::Timer reliably).
+    PointsmanProcessor proc;
+    proc.prepareToPlay(44100.0, 256);
+    proc.setHostIsPlayingForTest(true);
+
+    pointsman::editor::ScaleKeyboardView kbd(proc);
+    kbd.setSize(700, 120);
+
+    // Constructor initialises lastSeenPulseVersion_ to the current atomic
+    // version so a stale pulse from a prior run does not phantom-fire.
+    REQUIRE(kbd.getPulsesForTest().empty());
+
+    // Emit MIDI 64 (E4) → in-scale for default major root=0 → passes
+    // through pitch-unchanged. Velocity 100 → intensity = 100/127 ≈ 0.787.
+    juce::MidiBuffer midi;
+    midi.addEvent(juce::MidiMessage::noteOn(1, 64, static_cast<juce::uint8>(100)), 0);
+    juce::AudioBuffer<float> audio(0, 256);
+    proc.processBlock(audio, midi);
+
+    // Tick with dt=0 so the new pulse is picked up but no decay applies
+    // — the resulting list size and pc are deterministic.
+    kbd.pollPulseForTest(0.0);
+    REQUIRE(kbd.getPulsesForTest().size() == 1);
+    REQUIRE(kbd.getPulsesForTest()[0].pc == 4);  // 64 % 12 = 4 (E)
+    // Initial age = 0; intensity scaled from velocity.
+    REQUIRE(kbd.getPulsesForTest()[0].ageMs == 0.0);
+    REQUIRE(kbd.getPulsesForTest()[0].intensity > 0.78);
+    REQUIRE(kbd.getPulsesForTest()[0].intensity < 0.79);
+
+    // Half the decay window elapses → intensity halves linearly.
+    // baseIntensity * (1 - 125/250) = 0.787 * 0.5 ≈ 0.394.
+    kbd.pollPulseForTest(125.0);
+    REQUIRE(kbd.getPulsesForTest().size() == 1);
+    REQUIRE(kbd.getPulsesForTest()[0].ageMs == 125.0);
+    REQUIRE(kbd.getPulsesForTest()[0].intensity > 0.39);
+    REQUIRE(kbd.getPulsesForTest()[0].intensity < 0.40);
+
+    // Past the decay window → pruned.
+    kbd.pollPulseForTest(200.0);
+    REQUIRE(kbd.getPulsesForTest().empty());
 }
 
 TEST_CASE("ControlsView: harmony + grows the voice list, capped at 3",

@@ -40,6 +40,13 @@ namespace pointsman
         Below,
     };
 
+    // Canonical max length of the harmonyVoices stack per concept.md
+    // §"Parameter surface" ("HarmonyVoice[] (length 0..3)"). Enforced at
+    // the Plugin-layer boundary (PluginProcessor::setHarmonyVoices truncates)
+    // so processBlock never iterates a 4th voice from preset load or any
+    // other path that bypasses the editor `+` button.
+    constexpr std::size_t kHarmonyVoicesMax = 3;
+
     // Diatonic voice-stack entry; interval is one of 3 / 4 / 5 / 6 per
     // concept.md §"Chord and harmony modes". Validated at the parameter
     // boundary (Plugin layer) before being passed to diatonicShift.

@@ -10,7 +10,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { PointsmanBridge, type BridgeDeps } from "./bridge.ts";
+import { getHostParamsForTest, PointsmanBridge, type BridgeDeps } from "./bridge.ts";
 import { FIRST_EVENT_STEP_MS } from "./host.ts";
 
 interface NoteCall {
@@ -254,9 +254,11 @@ test("setParam humanize* — accepts 0..1 floats, clamps", () => {
   b.setParam("humanizeGate", -0.5);    // → 0.0
   b.setParam("humanizeTiming", 0.3);   // pass-through
   // No assertions on internal state here — just confirm no throw and
-  // subsequent noteIn still works.
+  // subsequent noteIn still produces output. Positive timing offsets
+  // schedule the noteOn (delay > 0); flush so the count is RNG-independent.
   b.noteIn(60, 100, 1);
-  assert.equal(f.notes.length, 1);
+  f.flushAll();
+  assert.ok(f.notes.length >= 1, "noteIn must emit at least one note");
 });
 
 test("setParam triggerMode — only passthrough/root accepted", () => {
@@ -836,6 +838,36 @@ test("cancellation — setParam scale|root|mode|triggerMode flushes sounding pit
   const before = f.notes.length;
   b.setParam("seed", 99);
   assert.equal(f.notes.length, before, "setParam seed must NOT flush sounding pitches");
+});
+
+test("setParam seed — clamps to [0, 0xffffff] (float32 round-trip bound)", () => {
+  // Range derivation: APVTS-style hosts (vst target) store parameter
+  // values as IEEE-754 single-precision floats; every integer in
+  // [0, 2^24] is exactly representable, so seed values up to 0xffffff
+  // round-trip bit-identical. The m4l bridge mirrors this bound for
+  // cross-target preset compatibility (concept.md §"Parameter surface").
+  const f = makeFakeDeps();
+  const b = new PointsmanBridge(f.deps);
+
+  // Edge of the new bound: must be accepted.
+  b.setParam("seed", 0xffffff);
+  assert.equal(getHostParamsForTest(b).seed, 0xffffff,
+    "seed = 2^24-1 must be accepted (exactly representable in float32)");
+
+  // Just above the bound: must be rejected (no host mutation).
+  b.setParam("seed", 0x1000000);
+  assert.equal(getHostParamsForTest(b).seed, 0xffffff,
+    "seed > 2^24-1 must be rejected; host.seed unchanged");
+
+  // Negative: rejected.
+  b.setParam("seed", -1);
+  assert.equal(getHostParamsForTest(b).seed, 0xffffff,
+    "negative seed must be rejected");
+
+  // Lower edge: accepted.
+  b.setParam("seed", 0);
+  assert.equal(getHostParamsForTest(b).seed, 0,
+    "seed = 0 must be accepted");
 });
 
 test("cancellation — re-triggering same pitch+channel cancels the prior pending noteOff", () => {

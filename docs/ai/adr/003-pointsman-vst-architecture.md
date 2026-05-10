@@ -182,7 +182,10 @@ The TS → C++ port targets behavioral parity, not syntactic transcription:
   with clamping (not wrapping) at scale extremes.
 - `Humanize` carries per-axis EMA accumulators reset on transport
   start; the EMA `1.0` degenerate case is documented at the call
-  site (concept.md §"Per-event humanize").
+  site (concept.md §"Per-event humanize"). Phase 4 wired the gate /
+  timing / drift axes into the processor's MIDI scheduler — every
+  humanize parameter has audible effect at the plugin boundary, on
+  parity with m4l's bridge.
 
 The shared test vectors at
 [docs/ai/quantizer-test-vectors.json](../../../docs/ai/quantizer-test-vectors.json)
@@ -603,6 +606,45 @@ not host-runtime behaviour
       [ADR 002](002-pointsman-release.md); no dark-host adaptation
       in this phase. *(awaiting user verification — the gate
       `feedback_audit_overreach` was logged for.)*
+
+### Phase 4 — Humanize gate / timing / drift parity
+
+Closes the Phase 0–3 cut originally documented in §"Engine boundary"
+(now removed): the m4l ↔ vst audit caught that vst's GATE / TIM /
+DRFT sliders advanced the RNG but did not change audible output,
+silently violating the contract in concept.md §"Per-event humanize".
+
+- [x] `tests/test_Plugin.cpp`: fixtures asserting output noteOff
+      sample-position = noteOn + sourceStep (default humanize),
+      input noteOff is silently consumed (gate-driven only, m4l
+      semantics), and `humanizeTiming = 1` shifts noteOn within
+      `[0, 0.5 × sourceStep)` (negative offset clamps to input
+      sample, parity with m4l/host/bridge.ts:313).
+- [x] `Source/Plugin/PluginProcessor`: track absolute sample
+      counter (`blockStartAbs_`) across blocks and `lastInputSampleAbs_`
+      per input event; convert sample-distance to ms via
+      `getSampleRate()` to feed `ComposeArgs::sourceStepDuration`.
+      First-event fallback `kFirstEventStepMs = 250` mirrors
+      m4l/host/host.ts FIRST_EVENT_STEP_MS.
+- [x] `Source/Plugin/PluginProcessor`: replace input-noteOff →
+      output-noteOff pairing with a humanize-gate scheduler.
+      `pending_` queue carries paired (noteOn, noteOff) entries
+      keyed by absolute sample target; `drainPendingInto` per block
+      sorts and emits entries falling in
+      `[blockStartAbs_, blockStartAbs_ + numSamples)`. Input
+      noteOffs are silently consumed (parity with m4l host.ts:222-230)
+      so the gate is purely humanize-driven. `sounding_` tracks
+      currently-emitted-but-not-yet-released output notes for panic
+      flush on transport stop.
+- [x] `Source/Plugin/PluginProcessor`: re-seed RNG and reset
+      drift on transport-start edge so each play loop reproduces
+      bit-for-bit (concept.md §"Transport"; mirrors m4l host.ts:237).
+- [ ] Manual gate: in Logic / Bitwig, set `humanizeGate = 0.5`
+      and confirm output gate length varies per event; same for
+      `humanizeTiming` (output sample position varies); same for
+      `humanizeDrift` (slow EMA smoothing across consecutive events
+      on all three axes). No hung notes after transport stop or
+      bypass with non-zero humanize.
 
 ## Per-target notes
 

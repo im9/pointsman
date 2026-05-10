@@ -51,7 +51,7 @@ test("constructor — defaults match ADR 002 live.* table", () => {
   assert.equal(p.triggerMode, "passthrough");
   assert.equal(p.inputChannel, 0);
   assert.equal(p.controlChannel, 16);
-  assert.equal(p.seed, 42);
+  assert.equal(p.seed, 0);
 });
 
 test("constructor — scalePitches matches buildScalePitches(scale, root)", () => {

@@ -15,6 +15,11 @@ namespace pointsman::editor::theme
     inline const juce::Colour fg     = juce::Colour::fromRGB(0x1E, 0x20, 0x28);
     inline const juce::Colour olive  = juce::Colour::fromRGB(0x78, 0x78, 0x45);
 
+    // Pulse-on-emit glow colour. Mirrors m4l/scaleKeyboard.jsui.js
+    // COL_HIGHLIGHT = [0.95, 0.55, 0.40] (warm peach / coral) so the
+    // emit animation reads identically across both targets.
+    inline const juce::Colour pulseGlow = juce::Colour::fromRGB(0xF2, 0x8C, 0x66);
+
     // fg-on-bg overlays. Alpha values mirror inboil's --lz-* / --olive-bg
     // tuning; do not freely tweak — they were tuned in inboil and we
     // copy 1:1 so the quantizer reads identically.

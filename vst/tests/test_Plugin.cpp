@@ -127,6 +127,27 @@ TEST_CASE("harmonyVoices: ValueTree round-trip preserves order + fields",
     REQUIRE(voices[2].direction == HarmonyDirection::Below);
 }
 
+TEST_CASE("harmonyVoices: setHarmonyVoices truncates to kHarmonyVoicesMax",
+          "[plugin][harmony]")
+{
+    // concept.md §"Parameter surface": harmonyVoices length is 0..3. The
+    // editor's `+` button blocks adds at >=3, but the processor-side API
+    // (setHarmonyVoices) is reachable from preset load and any other path
+    // that bypasses the editor. Defense-in-depth here: silently truncate
+    // to the canonical max so processBlock never iterates a 4th voice.
+    PointsmanProcessor p;
+    p.setHarmonyVoices({
+        {3, HarmonyDirection::Above},
+        {4, HarmonyDirection::Above},
+        {5, HarmonyDirection::Above},
+        {6, HarmonyDirection::Above},  // 4th — must be dropped
+    });
+    REQUIRE(p.getHarmonyVoices().size() == kHarmonyVoicesMax);
+    REQUIRE(p.getHarmonyVoices()[0].interval == 3);
+    REQUIRE(p.getHarmonyVoices()[1].interval == 4);
+    REQUIRE(p.getHarmonyVoices()[2].interval == 5);
+}
+
 TEST_CASE("harmonyVoices: empty round-trip produces empty vector",
           "[plugin][harmony]")
 {
@@ -256,6 +277,227 @@ TEST_CASE("controlChannel: triggerMode=root noteOn sets root pc, is consumed",
     REQUIRE_FALSE(any);                                  // consumed
 
     REQUIRE(getParamRawInt(p.apvts, pid::root) == 5);    // root updated
+}
+
+TEST_CASE("harmony: voice that clamps to the base pitch is still emitted "
+          "(no unison dedup)",
+          "[plugin][harmony]")
+{
+    // inboil / m4l engine semantics: when diatonicShift clamps a harmony
+    // voice to the same pitch as the base (input near the top/bottom of
+    // the scale, interval pushes past the extreme), the voice is still
+    // emitted at that pitch. m4l/host/host.ts:184-192 pushes every voice
+    // into the pitches array unconditionally. vst must match — a prior
+    // `voicePitch == quantized` skip in PluginProcessor.cpp diverged from
+    // the cross-target engine contract and was removed.
+    PointsmanProcessor p;
+    p.prepareToPlay(44100.0, 256);
+    p.setHostIsPlayingForTest(true);
+
+    setParamRaw(p.apvts, pid::scale, 0.0f); // Major
+    setParamRaw(p.apvts, pid::root,  0.0f); // C
+    setParamRaw(p.apvts, pid::mode,  2.0f); // Harmony
+    p.setHarmonyVoices({
+        {3, HarmonyDirection::Above}, // 3rd above; clamps at top of MIDI range
+    });
+
+    // MIDI 127 is the last in-scale C-major pitch (G8); diatonicShift
+    // 3rd-above (idx + 2) exceeds scalePitches.size() and returns
+    // scalePitches.back() = 127. Without the dedup, the processor emits
+    // TWO noteOns at 127 (base + clamped voice).
+    juce::MidiBuffer midi;
+    midi.addEvent(juce::MidiMessage::noteOn(1, 127, static_cast<juce::uint8>(100)), 0);
+    processOnce(p, midi);
+
+    int noteOnsAt127 = 0;
+    for (const auto meta : midi)
+    {
+        const auto m = meta.getMessage();
+        if (m.isNoteOn() && m.getNoteNumber() == 127) ++noteOnsAt127;
+    }
+    REQUIRE(noteOnsAt127 == 2);
+}
+
+TEST_CASE("humanize default: noteOff fires at noteOn + first-event sourceStep",
+          "[plugin][humanize][gate]")
+{
+    // ADR 003 Phase 4: output gate length is humanize-driven, not input-
+    // noteOff-driven. With default humanize (gate=0), gateFinal collapses
+    // to clamp01(1.0 × (1 + 0)) = 1.0, so output gate length =
+    // 1.0 × sourceStepDuration.
+    //
+    // First-event source-step fallback = kFirstEventStepMs = 250 ms
+    // (mirrors m4l/host/host.ts FIRST_EVENT_STEP_MS). At 44.1 kHz this is
+    // exactly 250 × 44.1 = 11025 samples.
+    constexpr double sampleRate          = 44100.0;
+    constexpr int    blockSize           = 256;
+    constexpr int    kSourceStepSamples  = 11025;
+    constexpr int    kBlockOfNoteOff     = kSourceStepSamples / blockSize;       // 43
+    constexpr int    kRelSampleOff       = kSourceStepSamples - kBlockOfNoteOff * blockSize; // 17
+
+    PointsmanProcessor p;
+    p.prepareToPlay(sampleRate, blockSize);
+    p.setHostIsPlayingForTest(true);
+
+    juce::AudioBuffer<float> audio(0, blockSize);
+
+    // Block 0: send noteOn at sample 0. NoteOn fires same block, noteOff
+    // is queued for sample 11025 → not in block 0.
+    juce::MidiBuffer block0;
+    block0.addEvent(juce::MidiMessage::noteOn(1, 60, static_cast<juce::uint8>(100)), 0);
+    p.processBlock(audio, block0);
+
+    int onCount = 0, offCount = 0;
+    for (const auto meta : block0)
+    {
+        const auto m = meta.getMessage();
+        if (m.isNoteOn())  ++onCount;
+        if (m.isNoteOff()) ++offCount;
+    }
+    REQUIRE(onCount  == 1);
+    REQUIRE(offCount == 0);
+
+    // Drive empty blocks until the gate elapses. Blocks 1..42 see no
+    // noteOff; block 43 sees the noteOff at sample 17.
+    int firedAtRelSample = -1;
+    for (int b = 1; b <= kBlockOfNoteOff; ++b)
+    {
+        juce::MidiBuffer mid;
+        p.processBlock(audio, mid);
+        for (const auto meta : mid)
+        {
+            const auto m = meta.getMessage();
+            if (m.isNoteOff() && m.getChannel() == 1 && m.getNoteNumber() == 60)
+            {
+                if (b != kBlockOfNoteOff)
+                    FAIL("noteOff fired in block " << b << " before sourceStep elapsed");
+                firedAtRelSample = meta.samplePosition;
+            }
+        }
+    }
+    REQUIRE(firedAtRelSample == kRelSampleOff);
+}
+
+TEST_CASE("humanize: input noteOff does not gate output "
+          "(gate-driven only, m4l semantics)",
+          "[plugin][humanize][gate]")
+{
+    // m4l/host/host.ts:222-230 ignores input noteOffs for output gating
+    // (only chord-context release matters). vst Phase 4 matches this:
+    // input noteOff is silently consumed and the output noteOff continues
+    // to fire on its humanize-scheduled sample.
+    constexpr double sampleRate = 44100.0;
+    constexpr int    blockSize  = 256;
+
+    PointsmanProcessor p;
+    p.prepareToPlay(sampleRate, blockSize);
+    p.setHostIsPlayingForTest(true);
+
+    juce::AudioBuffer<float> audio(0, blockSize);
+
+    juce::MidiBuffer block0;
+    block0.addEvent(juce::MidiMessage::noteOn(1, 60, static_cast<juce::uint8>(100)), 0);
+    p.processBlock(audio, block0);
+    // Output noteOn fires; output noteOff is queued at absolute sample
+    // 11025 (~block 43).
+
+    juce::MidiBuffer block1;
+    block1.addEvent(juce::MidiMessage::noteOff(1, 60), 0);
+    p.processBlock(audio, block1);
+
+    // Block 1 must contain NO output events: the input noteOff is
+    // consumed (m4l semantics), and the humanize-scheduled output
+    // noteOff is far in the future.
+    bool any = false;
+    for (const auto meta : block1) { (void) meta; any = true; }
+    REQUIRE_FALSE(any);
+}
+
+TEST_CASE("humanize: timing=1 shifts output noteOn within ±0.5 sourceStep "
+          "(negative clamps to input sample)",
+          "[plugin][humanize][timing]")
+{
+    // composeHumanize draws raw timing in [-1, +1) and multiplies by 0.5
+    // (humanize.cpp:50): timingOffset_ms = rawHalf × sourceStepMs ∈
+    // [-125, +125) for first-event sourceStep=250ms. Negative offset
+    // clamps to immediate (parity with m4l bridge.ts:313 `delay > 0 ?
+    // delay : 0`). Upper bound at 44.1 kHz: 0.5 × 250 ms = 125 ms ≈
+    // 5512.5 samples; we assert strict inequality to hold the half-open
+    // range.
+    constexpr double sampleRate = 44100.0;
+    constexpr int    blockSize  = 1024;
+    constexpr int    kUpperBoundSamples = 5513;
+
+    PointsmanProcessor p;
+    p.prepareToPlay(sampleRate, blockSize);
+    p.setHostIsPlayingForTest(true);
+
+    setParamRaw(p.apvts, pid::humanizeTiming, 1.0f);
+    setParamRaw(p.apvts, pid::seed,           0.0f);
+
+    juce::AudioBuffer<float> audio(0, blockSize);
+
+    juce::MidiBuffer block0;
+    block0.addEvent(juce::MidiMessage::noteOn(1, 60, static_cast<juce::uint8>(100)), 0);
+    p.processBlock(audio, block0);
+
+    int absSampleOfNoteOn = -1;
+    for (const auto meta : block0)
+    {
+        const auto m = meta.getMessage();
+        if (m.isNoteOn() && m.getChannel() == 1 && m.getNoteNumber() == 60)
+            absSampleOfNoteOn = meta.samplePosition;
+    }
+    if (absSampleOfNoteOn < 0)
+    {
+        // Offset pushed it past block 0 → keep advancing until found.
+        for (int b = 1; b * blockSize < kUpperBoundSamples + blockSize; ++b)
+        {
+            juce::MidiBuffer mid;
+            p.processBlock(audio, mid);
+            for (const auto meta : mid)
+            {
+                const auto m = meta.getMessage();
+                if (m.isNoteOn() && m.getChannel() == 1 && m.getNoteNumber() == 60)
+                    absSampleOfNoteOn = meta.samplePosition + b * blockSize;
+            }
+            if (absSampleOfNoteOn >= 0) break;
+        }
+    }
+    REQUIRE(absSampleOfNoteOn >= 0);
+    REQUIRE(absSampleOfNoteOn <  kUpperBoundSamples);
+}
+
+TEST_CASE("pulse: lastEmittedPulse advances and carries the emitted pitch",
+          "[plugin][pulse]")
+{
+    // The processor publishes a one-shot pulse signal to the editor on
+    // every output noteOn (Batch 3). The version counter monotonically
+    // increases so a UI poller can detect new edges; the pitch / vel /
+    // channel are packed alongside so unpacking gives the editor enough
+    // to colour the right key.
+    PointsmanProcessor p;
+    p.prepareToPlay(44100.0, 256);
+    p.setHostIsPlayingForTest(true);
+
+    const uint64_t before        = p.getLastEmittedPulseForTest();
+    const uint32_t versionBefore =
+        PointsmanProcessor::unpackPulseVersion(before);
+
+    juce::MidiBuffer midi;
+    // Default scale = major / root = 0 → MIDI 60 (C4) is in scale and
+    // passes through pitch-unchanged. velocity 100 is in [1, 127].
+    midi.addEvent(juce::MidiMessage::noteOn(1, 60, static_cast<juce::uint8>(100)), 0);
+    processOnce(p, midi);
+
+    const uint64_t after        = p.getLastEmittedPulseForTest();
+    const uint32_t versionAfter =
+        PointsmanProcessor::unpackPulseVersion(after);
+
+    REQUIRE(versionAfter > versionBefore);
+    REQUIRE(PointsmanProcessor::unpackPulsePitch(after)    == 60);
+    REQUIRE(PointsmanProcessor::unpackPulseVelocity(after) == 100);
+    REQUIRE(PointsmanProcessor::unpackPulseChannel(after)  == 1);
 }
 
 TEST_CASE("input quantize: mode=scale snaps non-scale notes to nearest in-scale",

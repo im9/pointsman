@@ -17,7 +17,6 @@ namespace pointsman::editor
         };
 
         constexpr std::array<int, 4> kHarmonyIntervals = {3, 4, 5, 6};
-        constexpr int kHarmonyVoicesMax = 3;
 
         const char* modeDescriptionFor(ModeChoice m)
         {

@@ -27,7 +27,9 @@ most musically useful default and the only one inboil shipped with success.
 
 ### Scales (v1)
 
-Fifteen presets matching inboil:
+Fifteen presets, derived from inboil's fourteen with two adjustments
+(rename `minor-pent` → `minor-pentatonic` for naming consistency, and
+add `chromatic-half`):
 
 `major`, `minor`, `dorian`, `phrygian`, `lydian`, `mixolydian`, `locrian`,
 `pentatonic`, `minor-pentatonic`, `blues`, `harmonic`, `melodic`, `whole`,
@@ -192,8 +194,8 @@ specifics, GUI-only state) may be added per target.
 | `outputLevel`     | float `0..1`                                         | global output velocity multiplier; default `1.0`   |
 | `triggerMode`     | `passthrough \| root`                                | input handling; default `passthrough`              |
 | `inputChannel`    | int `0..16`                                          | MIDI input channel; `0` = omni; default `0`        |
-| `controlChannel`  | int `1..16`                                          | control channel for root / chord context           |
-| `seed`            | int                                                  | RNG seed for humanize draws                        |
+| `controlChannel`  | int `1..16`                                          | control channel for root / chord context; default per target (m4l: `16` per Live side-channel convention; vst: `1` per universal-host default) |
+| `seed`            | int `0..2^24-1`                                      | RNG seed for humanize draws; default `0`. Range bounded by IEEE-754 single-precision exact-representation: APVTS-style hosts (vst) store params as float32, and every integer in `[0, 2^24]` is exactly representable, so seeds round-trip bit-identical. m4l mirrors the same range for cross-target preset compatibility. |
 
 ## Origin notes
 

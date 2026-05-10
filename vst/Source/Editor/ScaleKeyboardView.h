@@ -12,6 +12,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <cstdint>
 #include <vector>
 
 #include "Engine/State.h"
@@ -20,8 +21,21 @@ class PointsmanProcessor;
 
 namespace pointsman::editor
 {
+    // Pulse decay window. Mirrors m4l/host/ui/scaleKeyboard.logic.ts
+    // PULSE_DECAY_MS so the cross-target glow feel is identical.
+    constexpr double kPulseDecayMs = 250.0;
+
+    // Pulse list entry. Same shape as scaleKeyboard.logic.ts Pulse type.
+    struct Pulse
+    {
+        int    pc;        // 0..11
+        double intensity; // 0..1, decays linearly to 0 over kPulseDecayMs
+        double ageMs;     // 0..kPulseDecayMs; entries with age >= bound are pruned
+    };
+
     class ScaleKeyboardView
         : public juce::Component
+        , private juce::Timer
         , private juce::AudioProcessorValueTreeState::Listener
     {
     public:
@@ -46,6 +60,15 @@ namespace pointsman::editor
         // derived store.
         std::vector<int> getInScalePcsForTest() const;
 
+        // ── Pulse animation test inspectors ──
+        // Synchronously do one tick of the pulse poll/decay loop. Tests
+        // call this in place of pumping the JUCE Timer, which is not
+        // reliably driven inside the headless console-app test runner.
+        void pollPulseForTest(double dtMs);
+
+        // Snapshot of the current pulse list (size, intensity, pc).
+        const std::vector<Pulse>& getPulsesForTest() const noexcept { return pulses_; }
+
     private:
         struct KeyInfo
         {
@@ -63,7 +86,22 @@ namespace pointsman::editor
         // APVTS listener — repaint on (scale, root, mode) change.
         void parameterChanged(const juce::String&, float) override;
 
+        // Timer — drives the pulse animation. Polls the processor's
+        // lastEmittedPulse atomic and decays existing pulses at ~60fps.
+        void timerCallback() override;
+
+        // Sum of overlapping pulse intensities for `pc`, capped at 1.
+        // Mirrors scaleKeyboard.jsui.js pulseGlow().
+        double pulseGlowFor(int pc) const noexcept;
+
         PointsmanProcessor& processor_;
+
+        // Pulse animation state. Updated only from the message thread
+        // (timerCallback / pollPulseForTest). Read by paint() on the same
+        // thread.
+        std::vector<Pulse> pulses_;
+        uint32_t           lastSeenPulseVersion_ = 0;
+        double             lastTickMs_ = 0.0;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ScaleKeyboardView)
     };

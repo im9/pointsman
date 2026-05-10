@@ -68,7 +68,7 @@ export const DEFAULT_PARAMS: PointsmanParams = {
   inputChannel: 0,
   controlChannel: 16,
   harmonyVoices: [],
-  seed: 42,
+  seed: 0,
 };
 
 export type ParamKey = keyof PointsmanParams;

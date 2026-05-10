@@ -7,9 +7,23 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <set>
 
 using namespace pointsman;
+
+namespace
+{
+    // ~60 fps. Same cadence as m4l/scaleKeyboard.jsui.js (animTask.interval=16).
+    constexpr int kPulseTimerHz = 60;
+
+    double monotonicMs() noexcept
+    {
+        using namespace std::chrono;
+        return duration<double, std::milli>(
+                   steady_clock::now().time_since_epoch()).count();
+    }
+}
 
 namespace pointsman::editor
 {
@@ -45,10 +59,18 @@ namespace pointsman::editor
         processor_.apvts.addParameterListener(pid::scale, this);
         processor_.apvts.addParameterListener(pid::root,  this);
         processor_.apvts.addParameterListener(pid::mode,  this);
+
+        // Initialise pulse-version baseline so a stale value left from
+        // a prior editor instance does not trigger a phantom pulse.
+        lastSeenPulseVersion_ = PointsmanProcessor::unpackPulseVersion(
+            processor_.lastEmittedPulse.load(std::memory_order_acquire));
+        lastTickMs_ = monotonicMs();
+        startTimerHz(kPulseTimerHz);
     }
 
     ScaleKeyboardView::~ScaleKeyboardView()
     {
+        stopTimer();
         processor_.apvts.removeParameterListener(pid::scale, this);
         processor_.apvts.removeParameterListener(pid::root,  this);
         processor_.apvts.removeParameterListener(pid::mode,  this);
@@ -149,6 +171,73 @@ namespace pointsman::editor
         });
     }
 
+    void ScaleKeyboardView::pollPulseForTest(double dtMs)
+    {
+        // Step 1 — pick up any new emit from the audio thread.
+        const uint64_t packed = processor_.lastEmittedPulse.load(std::memory_order_acquire);
+        const uint32_t version = PointsmanProcessor::unpackPulseVersion(packed);
+        if (version != lastSeenPulseVersion_)
+        {
+            lastSeenPulseVersion_ = version;
+            const int pitch = PointsmanProcessor::unpackPulsePitch(packed);
+            const int vel   = PointsmanProcessor::unpackPulseVelocity(packed);
+            const int pc    = ((pitch % 12) + 12) % 12;
+            double intensity = static_cast<double>(vel) / 127.0;
+            if (intensity < 0.0) intensity = 0.0;
+            if (intensity > 1.0) intensity = 1.0;
+            pulses_.push_back({pc, intensity, 0.0});
+        }
+
+        // Step 2 — age existing pulses and prune. Linear decay matching
+        // m4l/scaleKeyboard.jsui.js: intensity = baseIntensity *
+        // (1 - ageMs/PULSE_DECAY_MS). We track ageMs separately and re-
+        // derive intensity each tick so the per-pulse base intensity
+        // (set from velocity) is preserved.
+        const double dt = (dtMs > 0.0) ? dtMs : 0.0;
+        if (dt > 0.0)
+        {
+            std::vector<Pulse> next;
+            next.reserve(pulses_.size());
+            for (const auto& p : pulses_)
+            {
+                const double aged = p.ageMs + dt;
+                if (aged >= kPulseDecayMs) continue;
+                // Re-derive intensity from age, but preserve the velocity-
+                // scaled base by storing the pre-decay intensity at age=0.
+                // We only stored intensity at age=0, so reconstruct via the
+                // ratio-of-remaining-life. Equivalent to m4l's
+                // intensity *= (1 - newAge/PULSE_DECAY_MS) over the prior
+                // (1 - oldAge/PULSE_DECAY_MS), simplifying to a single
+                // (1 - newAge/PULSE_DECAY_MS) scale of the original.
+                Pulse q = p;
+                q.ageMs = aged;
+                q.intensity = p.intensity / (1.0 - p.ageMs / kPulseDecayMs)
+                              * (1.0 - aged / kPulseDecayMs);
+                next.push_back(q);
+            }
+            pulses_ = std::move(next);
+        }
+    }
+
+    void ScaleKeyboardView::timerCallback()
+    {
+        const double now = monotonicMs();
+        const double dt  = now - lastTickMs_;
+        lastTickMs_ = now;
+        const std::size_t before = pulses_.size();
+        pollPulseForTest(dt);
+        if (!pulses_.empty() || before > 0) repaint();
+    }
+
+    double ScaleKeyboardView::pulseGlowFor(int pc) const noexcept
+    {
+        double sum = 0.0;
+        for (const auto& p : pulses_)
+            if (p.pc == pc) sum += p.intensity;
+        if (sum > 1.0) sum = 1.0;
+        return sum;
+    }
+
     void ScaleKeyboardView::mouseDown(const juce::MouseEvent& e)
     {
         const int pc = getPcAtForTest(e.getPosition());
@@ -206,6 +295,17 @@ namespace pointsman::editor
             g.setColour(fill);
             g.fillRoundedRectangle(r, 3.0f);
 
+            // Pulse-on-emit overlay. Coral glow scales with intensity so a
+            // freshly emitted note flashes and fades over kPulseDecayMs.
+            // Drawn before the border so it sits beneath the key outline
+            // (matches m4l's draw order: pulse glow under the dot/border).
+            const double whiteGlow = pulseGlowFor(k.pc);
+            if (whiteGlow > 0.0)
+            {
+                g.setColour(theme::pulseGlow.withAlpha(static_cast<float>(whiteGlow * 0.6)));
+                g.fillRoundedRectangle(r, 3.0f);
+            }
+
             g.setColour(inChord ? theme::olive : theme::lzBorder);
             g.drawRoundedRectangle(r, 3.0f, 1.0f);
 
@@ -249,6 +349,13 @@ namespace pointsman::editor
 
             g.setColour(fill);
             g.fillRoundedRectangle(r, 2.0f);
+
+            const double blackGlow = pulseGlowFor(k.pc);
+            if (blackGlow > 0.0)
+            {
+                g.setColour(theme::pulseGlow.withAlpha(static_cast<float>(blackGlow * 0.7)));
+                g.fillRoundedRectangle(r, 2.0f);
+            }
 
             if (inScale)
             {

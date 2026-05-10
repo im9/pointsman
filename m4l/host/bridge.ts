@@ -269,8 +269,14 @@ export class PointsmanBridge {
         break;
       }
       case "seed": {
+        // Range derivation: APVTS-style hosts (vst target) store
+        // parameter values as IEEE-754 single-precision floats; every
+        // integer in [0, 2^24] is exactly representable, so seed values
+        // up to 0xffffff round-trip bit-identical. The m4l bridge mirrors
+        // this bound for cross-target preset compatibility (concept.md
+        // §"Parameter surface").
         const v = Number(value);
-        if (!Number.isInteger(v) || v < 0 || v > 0x7fffffff) return;
+        if (!Number.isInteger(v) || v < 0 || v > 0xffffff) return;
         events = this.host.setParam("seed", v);
         break;
       }
@@ -426,3 +432,13 @@ export class PointsmanBridge {
 // scale state without reaching into the host. Intentional weak coupling
 // for tools that want to introspect (e.g., a future `dump` debug command).
 export { buildScalePitches };
+
+// Test-only inspector for setParam validation coverage. The bridge's
+// setParam validates inputs before dispatching to host.setParam — to
+// observe that an out-of-range value was rejected (no host mutation),
+// tests need a public read of the host's current params snapshot.
+// Mirrors the vst processor's `*ForTest` accessor convention.
+export function getHostParamsForTest(b: PointsmanBridge): Readonly<PointsmanParams> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (b as any).host.getParams();
+}
