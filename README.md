@@ -52,11 +52,14 @@ Full musical model: [`docs/ai/concept.md`](docs/ai/concept.md).
 `m4l/` is feature-complete for v1 and in distribution prep; the
 manual-Live verification gate is tracked by [ADR 002][adr2].
 
-`vst/` is paused at scaffold. The plugin builds but is not
-host-verified; the vst-internal architecture ADR is authored when vst
-work resumes.
+`vst/` architecture is set by [ADR 003][adr3]; the cloned Stencil
+scaffold has been removed and the project renamed to Pointsman.
+Phase 0 ships VST3 + AU + CLAP bundles (Logic / Bitwig / Reaper as
+named hosts, mirroring oedipa's DAW support stance). Engine, APVTS,
+and editor land in ADR 003 phases 1 / 2 / 3.
 
 [adr2]: docs/ai/adr/002-pointsman-release.md
+[adr3]: docs/ai/adr/003-pointsman-vst-architecture.md
 
 ## Use (Max for Live)
 
@@ -73,8 +76,9 @@ see [Build](#build) below.
 | Target | Status | Notes |
 |---|---|---|
 | [Max for Live](m4l/) | v1 prep | Ableton Live MIDI effect. Current primary target. |
-| [VST3](vst/) | Scaffold | Paused; resumes per a future vst-architecture ADR. |
-| [AU](vst/) | Scaffold | Same codebase as the VST3. Paused. |
+| [VST3](vst/) | Phase 0 | Scaffold removed, renamed Pointsman. Engine + UI in [ADR 003][adr3]. |
+| [AU](vst/) | Phase 0 | Same codebase as the VST3. |
+| [CLAP](vst/) | Phase 0 | Same codebase, wrapped via `clap-juce-extensions` (Bitwig's native format). |
 
 Musical logic is shared as a specification, not as code. m4l and vst
 are independent native implementations. Cross-target conformance is
@@ -82,6 +86,24 @@ verified against
 [`docs/ai/quantizer-test-vectors.json`](docs/ai/quantizer-test-vectors.json).
 RNG primitives are synchronized cross-repo with Stencil via
 [`docs/ai/rng-test-vectors.json`](docs/ai/rng-test-vectors.json).
+
+## DAW support
+
+macOS only for v1. Windows / Linux distribution is deferred. The vst
+target ships VST3 + AU + CLAP bundles together; per-host
+compatibility on macOS:
+
+| DAW | Format | Status | Notes |
+|---|---|---|---|
+| Logic Pro | AU | ✅ Primary | AU MIDI FX slot on a software-instrument track. (Logic does not host CLAP.) |
+| Bitwig Studio | VST3 / CLAP | ✅ Primary | Note FX slot in front of an instrument. CLAP is Bitwig's native plug-in format. |
+| Reaper | VST3 / CLAP | ⚠️ Best-effort | VST3 / CLAP in any FX chain. Not formally tested for v1. |
+| Ableton Live | — | Use [m4l/](m4l/) | Live does not accept third-party VST3 / AU plug-ins in its MIDI Effect rack (host design, not a format limitation) and does not host CLAP. The Max for Live device is the supported path. |
+| Cubase / Nuendo | — | ❌ Out of scope | The VST3 spec has no "MIDI Effect" sub-category and Cubase rejects third-party VST3 in its MIDI Inserts slot (Steinberg policy). |
+
+The matrix mirrors the one shipped on
+[oedipa](https://github.com/im9/oedipa) — same author, same JUCE
+conventions, same per-host stance.
 
 ## Origin
 
@@ -104,7 +126,7 @@ Per-target build commands:
 | Target | First time | Build | Test |
 |---|---|---|---|
 | `m4l/` (workspace) | `cd m4l && pnpm install` | `pnpm -r build` | `pnpm -r test` |
-| `vst/` (VST3 + AU) | `git submodule update --init --recursive` | `cd vst && make build` | `cd vst && make test` |
+| `vst/` (VST3 + AU + CLAP) | `git submodule update --init --recursive` | `cd vst && make build` | _(test infra rebuilt in [ADR 003][adr3] Phase 1)_ |
 
 m4l rebake after source edits: `cd m4l && pnpm bake` (chains
 `pnpm -r build` for engine/host TS → esbuild for the

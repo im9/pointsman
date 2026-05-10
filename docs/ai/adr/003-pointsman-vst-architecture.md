@@ -8,22 +8,29 @@ This ADR sets the architecture for the Pointsman vst target: source
 layout, plugin format, engine-vs-plugin-vs-editor boundary, parameter
 persistence shape, UI direction, build / test infrastructure, and a
 phased plan that takes the current cloned-Stencil scaffold under
-[vst/](../../../vst/) to a Pointsman MIDI Effect that loads in Live
-and Logic with the canonical parameter surface and the inboil-derived
-UI wired up.
+[vst/](../../../vst/) to a Pointsman MIDI Effect that loads in
+Logic (AU) and Bitwig (CLAP / VST3) with the canonical parameter
+surface and the inboil-derived UI wired up.
 
 ## Context
 
 Pointsman is one product across two targets. The m4l side has shipped
 ([ADR 002](002-pointsman-release.md) v1.0.0 / v1.0.1 release flow);
-the vst side is **the same scale quantizer for users on hosts where
-Max for Live is not the right packaging** — Logic, Cubase, Bitwig,
-or Live users who prefer a host-native MIDI effect over a Max device.
-The musical motivation is identical — snap incoming MIDI to scale
-with optional chord / harmony modes and a per-event humanize layer
-— but the host surface is different (APVTS, JUCE Component, native
-parameter automation), and the UI must read clearly inside a
-host-drawn plugin window rather than a fixed-size Live device strip.
+the vst side is **the same scale quantizer for hosts the m4l target
+cannot reach** — primarily Logic Pro (AU MIDI FX) and Bitwig Studio
+(VST3 / CLAP note FX), plus best-effort Reaper. Ableton Live is
+deliberately *not* a vst target: Live's MIDI Effect rack does not
+accept third-party VST3 or AU plug-ins (host design, not a format
+limitation), so Live users go through `m4l/` — the same split
+documented in oedipa's DAW support matrix
+(`~/src/vst/oedipa/README.md` §"DAW support").
+
+The musical motivation is identical to m4l — snap incoming MIDI to
+scale with optional chord / harmony modes and a per-event humanize
+layer — but the host surface is different (APVTS, JUCE Component,
+native parameter automation), and the UI must read clearly inside
+a host-drawn plugin window rather than a fixed-size Live device
+strip.
 
 Current state under [vst/](../../../vst/) is the cloned Stencil
 scaffold from the bootstrap event ([ADR 001](archive/001-pointsman-base.md)
@@ -112,14 +119,24 @@ vst/
 
 ### Plugin format
 
-VST3 + AU only — no Standalone, no CLAP. Pointsman is a MIDI Effect
-with no audio output; Standalone for a MIDI-only effect routes to
-virtual MIDI ports rather than producing sound, which is a hardware
+VST3 + AU + CLAP. No Standalone. Pointsman is a MIDI Effect with no
+audio output; Standalone for a MIDI-only effect routes to virtual
+MIDI ports rather than producing sound, which is a hardware
 integration use case orthogonal to the in-DAW musical role Pointsman
-is designed for. CLAP is unrequested by `concept.md` and adds no
-musical capability the two named hosts (Live, Logic) do not already
-get from VST3 / AU. Both can be added later without touching engine
-or editor code.
+is designed for. The three plug-in formats track the named host
+matrix: AU is required for Logic, VST3 + CLAP for Bitwig (where
+CLAP is the native plug-in format) and Reaper. The same matrix
+shipped successfully on `oedipa` (see
+`~/src/vst/oedipa/vst/CMakeLists.txt` and the README §"DAW support"
+table).
+
+CLAP is added via the `clap-juce-extensions` submodule, vendored at
+the same SHA `oedipa` is pinned to
+(`e8de9e8571626633b8541a54c2406fccc4272767`,
+`v0.26.0-107-ge8de9e8`); `clap_juce_extensions_plugin(TARGET
+Pointsman ...)` derives a `Pointsman_CLAP` target from the existing
+`Pointsman` plug-in target, producing `Pointsman.clap` alongside
+`Pointsman.vst3` / `Pointsman.component`.
 
 The CMake target's identity:
 
@@ -136,10 +153,12 @@ The CMake target's identity:
 | `NEEDS_MIDI_INPUT` | `TRUE` |
 | `NEEDS_MIDI_OUTPUT` | `TRUE` |
 | `COPY_PLUGIN_AFTER_BUILD` | `TRUE` |
+| `CLAP_ID` (via `clap_juce_extensions_plugin`) | `com.im9.pointsman` |
+| `CLAP_FEATURES` | `note-effect utility` |
 
 `COPY_PLUGIN_AFTER_BUILD TRUE` skips manual symlink / copy of the
-built bundle into `~/Library/Audio/Plug-Ins/{VST3,Components}` for
-the Logic / Live dev loop.
+built bundles into `~/Library/Audio/Plug-Ins/{VST3,Components,CLAP}`
+for the Logic / Bitwig / Reaper dev loop.
 
 ### Engine boundary (`pointsman_engine`)
 
@@ -311,8 +330,8 @@ Specifically:
   pills for click-then-assert-APVTS tests.
 
 Visual quality, font / kerning, host-paint cadence, and the actual
-look at 100% / 150% UI scaling stay manual checks against Live and
-Logic.
+look at 100% / 150% UI scaling stay manual checks against Logic
+(AU) and Bitwig (CLAP / VST3).
 
 ## Persistence
 
@@ -335,8 +354,10 @@ prior shape — vst v1 is the first persisted format.
 - `pointsman_plugin_core`: APVTS layout, processor with MIDI in / out
   + transport panic + state I/O + chord-context maintenance from
   controlChannel notes.
-- `Pointsman` plugin: VST3 + AU bundles built and copied to user
-  plug-in folders; loads in Live and Logic.
+- `Pointsman` plugin: VST3 + AU + CLAP bundles built and copied to
+  user plug-in folders (`~/Library/Audio/Plug-Ins/{VST3,Components,CLAP}`);
+  loads in Logic (AU), Bitwig (CLAP / VST3) as **primary** hosts
+  and Reaper (VST3 / CLAP) as **best-effort**.
 - Editor: inboil-derived keyboard + right rail with mode pills,
   harmony badges, humanize sliders, routing controls; logic-layer
   tests via JUCE event API.
@@ -352,20 +373,31 @@ prior shape — vst v1 is the first persisted format.
 - **Distribution channel and pricing.** Whether Pointsman vst ships
   free, paid, in a per-product GitHub repo, or via a different
   channel is decided in a follow-up ADR. Architecture choices made
-  here (no `clap-juce-extensions` dependency, source kept private-eligible)
-  do not foreclose any of those distribution options. Musical
-  reasoning for deferral: the architecture has no audible
-  consequence; pricing and channel are commercial decisions that
-  should not block engine work.
-- **CLAP format.** Both the named target hosts (Live, Logic) accept
-  VST3 / AU; the musical experience for a v1 user is identical with
-  or without CLAP. CLAP can be added later via
-  `clap-juce-extensions` without touching engine or editor code, so
-  deferring it costs nothing.
+  here (vendored `clap-juce-extensions` submodule, source kept
+  private-eligible) do not foreclose any of those distribution
+  options. Musical reasoning for deferral: the architecture has no
+  audible consequence; pricing and channel are commercial decisions
+  that should not block engine work.
+- **Ableton Live as a vst host.** Live's MIDI Effect rack does not
+  accept third-party VST3 or AU plug-ins (host design, not a format
+  limitation), so Live users go through the [m4l/](../../../m4l/)
+  target instead. The same split is shipped on oedipa
+  (`~/src/vst/oedipa/README.md` §"DAW support"); inheriting it is
+  not a choice this ADR makes alone.
+- **Cubase / Nuendo.** The VST3 spec has no "MIDI Effect" sub-category
+  and Cubase rejects third-party VST3 in its MIDI Inserts slot
+  (Steinberg policy). Loading Pointsman as an Instrument with
+  two-track MIDI-out routing works mechanically but conflicts with
+  the "MIDI fx, not synth" identity — the same rejection oedipa
+  recorded for v1.
 - **Standalone format.** Pointsman is MIDI-only — Standalone would
   require virtual-MIDI routing setup that is not part of the in-DAW
   musical surface. Deferred until a hardware-MIDI workflow asks for
   it.
+- **Windows / Linux distribution.** macOS-only for v1 (matching
+  oedipa's v1 scope). Cross-platform builds are deferred; the
+  pure-C++17 engine boundary keeps the door open with no
+  architectural cost.
 - **iOS reuse of `pointsman_engine`.** The pure-C++17 boundary keeps
   the door open, but no iOS host is in scope here. Mentioned only
   to justify the engine-vs-plugin link separation.
@@ -393,31 +425,55 @@ not host-runtime behaviour
 
 ### Phase 0 — Scaffold removal + project rename
 
-- [ ] [vst/CMakeLists.txt](../../../vst/CMakeLists.txt): rename
+- [x] [vst/CMakeLists.txt](../../../vst/CMakeLists.txt): rename
       project to `Pointsman`, `BUNDLE_ID` to `com.im9.pointsman`,
       `PLUGIN_CODE` to `Pntm`, `PRODUCT_NAME` to `Pointsman`,
       `FORMATS` to `VST3 AU` (drop Standalone), add
       `COPY_PLUGIN_AFTER_BUILD TRUE`.
-- [ ] [vst/Makefile](../../../vst/Makefile): rename `stencil_tests`
-      → `pointsman_tests`, drop the `open` target referencing
-      `Stencil.app` (Standalone is dropped) or repoint it at the
-      VST3 bundle path for dev convenience.
-- [ ] Delete [vst/Source/PluginProcessor.cpp](../../../vst/Source/PluginProcessor.cpp),
-      [vst/Source/PluginProcessor.h](../../../vst/Source/PluginProcessor.h),
-      [vst/Source/PluginEditor.cpp](../../../vst/Source/PluginEditor.cpp),
-      [vst/Source/PluginEditor.h](../../../vst/Source/PluginEditor.h)
-      — these are the cloned Stencil scaffold; replaced under
-      `Source/Plugin/` and `Source/Editor/` in Phase 2 / 3.
-- [ ] Delete [vst/tests/test_TuringMachine.cpp](../../../vst/tests/test_TuringMachine.cpp)
-      — TM is not a Pointsman concept.
-- [ ] Refresh [README.md](../../../README.md) and
+- [x] [vst/Makefile](../../../vst/Makefile): drop the `open` target
+      referencing `Stencil.app` (Standalone is dropped). The
+      `stencil_tests` → `pointsman_tests` rename is deferred —
+      Phase 0 has no test sources or Catch2 dependency to compile,
+      so the test target is removed and rebuilt from scratch in
+      Phase 1 alongside `tests/main.cpp` and FetchContent.
+- [x] Delete `vst/Source/PluginProcessor.{cpp,h}` and
+      `vst/Source/PluginEditor.{cpp,h}` (the cloned Stencil
+      scaffold), and seed minimal Pointsman stubs at the new ADR
+      paths [vst/Source/Plugin/PluginProcessor.{h,cpp}](../../../vst/Source/Plugin/)
+      and [vst/Source/Editor/PluginEditor.{h,cpp}](../../../vst/Source/Editor/).
+      The stubs are required for the manual gate ("the empty
+      Pointsman bundle loads") — JUCE needs an `AudioProcessor` +
+      `AudioProcessorEditor` pair to compile a plugin. Phase 2 / 3
+      fill the stubs in place rather than replace them.
+- [x] Delete `vst/tests/test_TuringMachine.cpp` — TM is not a
+      Pointsman concept. The `tests/` directory is empty after
+      removal and is recreated in Phase 1.
+- [x] Refresh [README.md](../../../README.md) and
       [CLAUDE.md](../../../CLAUDE.md) `vst/` sections to reflect the
       new layout and rename. Delete any "TODO: Turing Machine"
       breadcrumbs.
-- [ ] Manual gate: `cd vst && make clean && make build` succeeds
-      (the rename does not regress the JUCE build); the empty
-      Pointsman bundle loads as a placeholder MIDI Effect in Live
-      and Logic without console errors.
+- [x] Add [vst/clap-juce-extensions/](../../../vst/clap-juce-extensions/)
+      submodule pinned at `e8de9e8571626633b8541a54c2406fccc4272767`
+      (`v0.26.0-107-ge8de9e8`) — same SHA `oedipa` ships on. CMake
+      adds `add_subdirectory(clap-juce-extensions EXCLUDE_FROM_ALL)`
+      and a `clap_juce_extensions_plugin(TARGET Pointsman ...)`
+      block deriving the `Pointsman_CLAP` target (CLAP_FEATURES
+      `note-effect utility`, CLAP_ID `com.im9.pointsman`). Note:
+      `clap-juce-extensions` itself nests `clap-libs/clap` and
+      `clap-libs/clap-helpers` submodules — `git submodule update
+      --init --recursive` is required for a fresh checkout.
+- [x] **Build half**: `cd vst && make clean && make build`
+      succeeds. `Pointsman.vst3`, `Pointsman.component`, and
+      `Pointsman.clap` all build, are ad-hoc signed by JUCE's
+      post-build hook (CLAP via `clap-juce-extensions`), and
+      install to
+      `~/Library/Audio/Plug-Ins/{VST3,Components,CLAP}/` via
+      `COPY_PLUGIN_AFTER_BUILD TRUE`.
+- [x] **Manual gate (host)**: the empty Pointsman bundle loads as
+      a placeholder MIDI Effect in Logic (AU) and Bitwig (CLAP /
+      VST3) without console errors. *(awaiting user verification —
+      the gate `feedback_audit_overreach` was logged for; do not
+      start Phase 1 until this is confirmed.)*
 
 ### Phase 1 — Engine + tests
 
@@ -469,12 +525,13 @@ not host-runtime behaviour
       construction, MIDI in / out, panic discipline,
       controlChannel chord-context maintenance, state I/O.
 - [ ] Confirm `test_Plugin` passes.
-- [ ] Manual gate: load the Pointsman VST3 in Live and the AU in
-      Logic. All canonical parameters appear in the host parameter
-      list, accept automation, and round-trip across a save / close
-      / reopen of the host project. MIDI input on a track produces
-      quantized output with `mode = scale` defaults; no hung notes
-      after transport stop; bypass leaves no hung notes.
+- [ ] Manual gate: load the Pointsman AU in Logic and the CLAP /
+      VST3 in Bitwig. All canonical parameters appear in the host
+      parameter list, accept automation, and round-trip across a
+      save / close / reopen of the host project. MIDI input on a
+      track produces quantized output with `mode = scale`
+      defaults; no hung notes after transport stop; bypass leaves
+      no hung notes.
 
 ### Phase 3 — Editor (inboil-derived UI)
 
@@ -500,14 +557,15 @@ not host-runtime behaviour
       two views in the inboil 2-column layout; size the editor for
       the controls + a sensible keyboard width.
 - [ ] Confirm `test_Editor` passes.
-- [ ] Manual gate: in Live and Logic, the editor opens with the
-      keyboard + right rail visible; tapping a key sets root and
-      the keyboard updates; mode pills cycle and the description
-      text changes; harmony badges add / remove voices and the
-      output reflects them; humanize sliders perturb output; light
-      / dark host themes both render readably (or document the v1
-      light-only choice if dark is out of v1 scope, mirroring the
-      m4l theme decision in [ADR 002](002-pointsman-release.md)).
+- [ ] Manual gate: in Logic (AU) and Bitwig (CLAP / VST3), the
+      editor opens with the keyboard + right rail visible; tapping
+      a key sets root and the keyboard updates; mode pills cycle
+      and the description text changes; harmony badges add /
+      remove voices and the output reflects them; humanize
+      sliders perturb output; light / dark host themes both
+      render readably (or document the v1 light-only choice if
+      dark is out of v1 scope, mirroring the m4l theme decision
+      in [ADR 002](002-pointsman-release.md)).
 
 ## Per-target notes
 

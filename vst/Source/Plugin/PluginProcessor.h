@@ -1,11 +1,13 @@
 #pragma once
 #include <JuceHeader.h>
 
-class StencilProcessor : public juce::AudioProcessor
+// ADR 003 Phase 0 stub — APVTS, MIDI processing, panic discipline,
+// chord-context maintenance, and state I/O land in Phase 2.
+class PointsmanProcessor : public juce::AudioProcessor
 {
 public:
-    StencilProcessor();
-    ~StencilProcessor() override = default;
+    PointsmanProcessor();
+    ~PointsmanProcessor() override = default;
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
@@ -14,7 +16,7 @@ public:
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
 
-    const juce::String getName() const override { return "Stencil"; }
+    const juce::String getName() const override { return "Pointsman"; }
     bool acceptsMidi() const override { return true; }
     bool producesMidi() const override { return true; }
     bool isMidiEffect() const override { return true; }
@@ -30,5 +32,5 @@ public:
     void setStateInformation(const void*, int) override;
 
 private:
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(StencilProcessor)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PointsmanProcessor)
 };

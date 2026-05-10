@@ -21,10 +21,13 @@ one another.
   Ableton Live MIDI effect, Ableton-optimized. Fastest iteration
   path and matches the author's primary DAW workflow; ships as a
   standalone product.
-- `vst/` — **VST3 + AU MIDI Effect** plugin (C++17/JUCE).
-  DAW-native, cross-platform. Ships as a standalone product
-  alongside m4l, on a slower cadence. Single-purpose MIDI Effect
-  format (VST3 + AU).
+- `vst/` — **VST3 + AU + CLAP MIDI Effect** plugin (C++17/JUCE).
+  DAW-native. Ships as a standalone product alongside m4l, on a
+  slower cadence. Primary hosts: Logic (AU) and Bitwig (CLAP /
+  VST3); Reaper is best-effort. Ableton Live uses `m4l/`
+  instead — Live's MIDI Effect rack does not accept third-party
+  VST3 / AU plug-ins. macOS only for v1. Same DAW support stance
+  as oedipa.
 
 Core logic, parameter design, and ADRs are shared across this
 repo's targets via `docs/ai/`. Code is not shared between
@@ -73,11 +76,16 @@ m4l/                 — Max for Live device
   scripts/
     maxpat-to-amxd.mjs   bake script (single product, no argv)
   package.json, pnpm-workspace.yaml
-vst/                 — VST3 + AU MIDI Effect plugin (C++17/JUCE)
-  Source/            — Plugin source (post per-product
-                       vst-architecture ADR)
+vst/                 — VST3 + AU + CLAP MIDI Effect plugin (C++17/JUCE)
+  Source/
+    Engine/          — pure C++17, NO juce_* link (added in ADR 003 Phase 1)
+    Plugin/          — APVTS + AudioProcessor; links juce_*
+      PluginProcessor.{h,cpp}
+    Editor/          — JUCE UI; links juce_gui_*
+      PluginEditor.{h,cpp}
   JUCE/              — JUCE framework (git submodule)
-  tests/             — Catch2 unit tests
+  clap-juce-extensions/  — CLAP wrapper, pinned at oedipa SHA (git submodule)
+  tests/             — Catch2 unit tests (rebuilt in ADR 003 Phase 1)
   CMakeLists.txt, Makefile
 docs/ai/             — design docs, ADRs, test vectors
   concept.md
@@ -89,7 +97,7 @@ docs/ai/             — design docs, ADRs, test vectors
 ## Setup
 
 ```bash
-git clone --recursive <repo-url>   # fetches the JUCE submodule under vst/
+git clone --recursive <repo-url>   # fetches JUCE + clap-juce-extensions submodules under vst/
 ```
 
 ## Build
@@ -173,7 +181,7 @@ cd vst
 make build     # configure + build (Release)
 make debug     # configure + build (Debug)
 make clean     # remove build directory
-make test      # build + run tests
+make test      # rebuilt in ADR 003 Phase 1 (Catch2 v3 + nlohmann/json v3)
 ```
 
 ## Design
