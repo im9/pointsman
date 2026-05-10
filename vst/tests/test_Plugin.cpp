@@ -148,6 +148,48 @@ TEST_CASE("harmonyVoices: setHarmonyVoices truncates to kHarmonyVoicesMax",
     REQUIRE(p.getHarmonyVoices()[2].interval == 5);
 }
 
+TEST_CASE("harmonyVoices: preset with >kHarmonyVoicesMax HarmonyVoice nodes "
+          "is clamped on load",
+          "[plugin][harmony]")
+{
+    // Defense-in-depth at the preset boundary. setHarmonyVoices() truncates
+    // at kHarmonyVoicesMax, but setStateInformation → syncHarmonyVoicesFromTree
+    // previously read every <HarmonyVoice> child unbounded. processBlock
+    // writes harmony voices into a fixed-size outPitches[1+kHarmonyVoicesMax]
+    // buffer; a corrupt or hand-edited preset with 4+ HarmonyVoice nodes
+    // would overflow it. Mirror the setter's clamp at the load boundary.
+    //
+    // Threshold (3): from concept.md §"Parameter surface" ("HarmonyVoice[]
+    // length 0..3") and Engine/State.h kHarmonyVoicesMax.
+    struct CopyXmlExposer : public PointsmanProcessor
+    {
+        using AudioProcessor::copyXmlToBinary;
+    };
+    CopyXmlExposer src;
+    auto state = src.apvts.copyState();
+    auto child = state.getOrCreateChildWithName(
+        juce::Identifier("PointsmanState"), nullptr);
+    child.removeAllChildren(nullptr);
+    for (int i = 0; i < 5; ++i)   // 5 voices, exceeds the cap of 3
+    {
+        juce::ValueTree node(juce::Identifier("HarmonyVoice"));
+        node.setProperty(juce::Identifier("interval"), 3 + (i % 4), nullptr);
+        node.setProperty(juce::Identifier("direction"),
+                         juce::String("above"), nullptr);
+        child.appendChild(node, nullptr);
+    }
+
+    juce::MemoryBlock blob;
+    auto xml = state.createXml();
+    REQUIRE(xml != nullptr);
+    CopyXmlExposer::copyXmlToBinary(*xml, blob);
+
+    PointsmanProcessor dst;
+    dst.setStateInformation(blob.getData(), static_cast<int>(blob.getSize()));
+
+    REQUIRE(dst.getHarmonyVoices().size() == kHarmonyVoicesMax);
+}
+
 TEST_CASE("harmonyVoices: empty round-trip produces empty vector",
           "[plugin][harmony]")
 {

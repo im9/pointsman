@@ -386,6 +386,11 @@ void PointsmanProcessor::syncHarmonyVoicesFromTree()
     if (!child.isValid()) return;
     for (int i = 0; i < child.getNumChildren(); ++i)
     {
+        // Cap at kHarmonyVoicesMax: processBlock writes voices into a fixed
+        // outPitches[1+kHarmonyVoicesMax] stack buffer. setHarmonyVoices()
+        // already clamps; this branch is the second ingress (preset load,
+        // hand-edited XML) and must clamp too.
+        if (harmonyVoices.size() >= kHarmonyVoicesMax) break;
         auto node = child.getChild(i);
         if (!node.hasType(kHarmonyVoiceTag)) continue;
         HarmonyVoice v{};
