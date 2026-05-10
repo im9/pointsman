@@ -457,7 +457,13 @@ void PointsmanProcessor::syncHarmonyVoicesFromTree()
             auto node = child.getChild(i);
             if (!node.hasType(kHarmonyVoiceTag)) continue;
             HarmonyVoice v{};
-            v.interval = static_cast<int>(node.getProperty(kIntervalAttr, 3));
+            // concept.md §"Chord and harmony modes" pins interval to
+            // {3, 4, 5, 6}. Silently clamp out-of-range values from a
+            // hand-edited or forward-incompatible preset rather than
+            // refusing the load (forward-compat for v1↔future migration).
+            const int rawInterval = static_cast<int>(
+                node.getProperty(kIntervalAttr, 3));
+            v.interval = juce::jlimit(3, 6, rawInterval);
             const auto dir = node.getProperty(kDirectionAttr, "above").toString();
             v.direction = (dir == "below") ? HarmonyDirection::Below : HarmonyDirection::Above;
             harmonyVoices.push_back(v);

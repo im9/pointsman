@@ -190,6 +190,53 @@ TEST_CASE("harmonyVoices: preset with >kHarmonyVoicesMax HarmonyVoice nodes "
     REQUIRE(dst.getHarmonyVoices().size() == kHarmonyVoicesMax);
 }
 
+TEST_CASE("harmonyVoices: preset with out-of-range interval is silently clamped",
+          "[plugin][harmony]")
+{
+    // concept.md §"Chord and harmony modes": HarmonyVoice.interval ∈
+    // {3, 4, 5, 6}. setStateInformation → syncHarmonyVoicesFromTree
+    // previously read the integer with no range check, letting a
+    // hand-edited or forward-incompatible preset inject e.g. 2 or 99
+    // (defined-but-not-spec behaviour in diatonicShift's clamping).
+    // ADR 003 §"Post-Phase 4 audit follow-ups" #13 option (A): silent
+    // clamp at the load boundary. Mirrors the interval enum bounds.
+    struct CopyXmlExposer : public PointsmanProcessor
+    {
+        using AudioProcessor::copyXmlToBinary;
+    };
+    CopyXmlExposer src;
+    auto state = src.apvts.copyState();
+    auto child = state.getOrCreateChildWithName(
+        juce::Identifier("PointsmanState"), nullptr);
+    child.removeAllChildren(nullptr);
+    // Three voices: under-low / above-high / valid, in that order so
+    // the assertion catches both out-of-range branches.
+    auto add = [&](int interval) {
+        juce::ValueTree node(juce::Identifier("HarmonyVoice"));
+        node.setProperty(juce::Identifier("interval"), interval, nullptr);
+        node.setProperty(juce::Identifier("direction"),
+                         juce::String("above"), nullptr);
+        child.appendChild(node, nullptr);
+    };
+    add(2);   // below the 3..6 range → clamp to 3
+    add(99);  // above → clamp to 6
+    add(5);   // valid → unchanged
+
+    juce::MemoryBlock blob;
+    auto xml = state.createXml();
+    REQUIRE(xml != nullptr);
+    CopyXmlExposer::copyXmlToBinary(*xml, blob);
+
+    PointsmanProcessor dst;
+    dst.setStateInformation(blob.getData(), static_cast<int>(blob.getSize()));
+
+    const auto& voices = dst.getHarmonyVoices();
+    REQUIRE(voices.size() == 3);
+    REQUIRE(voices[0].interval == 3);
+    REQUIRE(voices[1].interval == 6);
+    REQUIRE(voices[2].interval == 5);
+}
+
 TEST_CASE("harmonyVoices: empty round-trip produces empty vector",
           "[plugin][harmony]")
 {

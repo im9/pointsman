@@ -735,7 +735,7 @@ Spec-decision items (TBD):
       right at the boundary. Options: (A) accept lossiness; (B)
       replace with an SPSC FIFO of recent pulses (bounded depth, no
       audio-side alloc).
-- [ ] **#13 preset XML field validation.** `syncHarmonyVoicesFromTree`
+- [x] **#13 preset XML field validation.** `syncHarmonyVoicesFromTree`
       reads `interval` without validating against the canonical set
       `{3, 4, 5, 6}`, and `direction` falls back to `above` on any
       unrecognised string. A hand-edited or forward-incompatible
@@ -745,6 +745,10 @@ Spec-decision items (TBD):
       silent clamp at the boundary; (B) drop the offending voice;
       (C) refuse the preset and log. Decision interacts with how
       forward-compatibility for future interval values is framed.
+      Resolved with option (A): silent clamp to [3, 6] in
+      `syncHarmonyVoicesFromTree` via `juce::jlimit`. Refusing the
+      preset would break any v1↔future migration; drop-voice would
+      silently change the voicing count.
 - [x] **#14 `gateLenSamples` overflow guard.** Theoretical overflow
       at `static_cast<uint64_t>(hr.gateFinal * sourceStepSamples)`
       if the input rate degenerates (e.g. two noteOns minutes apart
