@@ -666,7 +666,7 @@ Mechanical items already merged or queued:
 - [x] **#12 `rotl32(x, 0)` UB guard** — never invoked with `k=0`
       today, but the `x >> (32 - k)` form is UB at `k=0`. Mask the
       shift count.
-- [ ] **#5 `snapToChordTones` per-call vector alloc** — replace the
+- [x] **#5 `snapToChordTones` per-call vector alloc** — replace the
       `std::vector<int>` build with a fixed `std::array<int, 128>`
       + count.
 - [ ] **#4 `buildScalePitches` per-block alloc** — cache the result

@@ -80,20 +80,31 @@ namespace pointsman
         return out;
     }
 
+    namespace
+    {
+        // Pointer + count form of the snap rule, so callers that build
+        // their pitch span on the stack (snapToChordTones) avoid a
+        // heap-allocating std::vector on the audio thread. Same tie-to-
+        // lower / empty → identity contract as the public overload.
+        int snapToScaleSpan(int note, const int* pitches, std::size_t n) noexcept
+        {
+            if (n == 0) return note;
+            if (note <= pitches[0])     return pitches[0];
+            if (note >= pitches[n - 1]) return pitches[n - 1];
+
+            const auto* it = std::lower_bound(pitches, pitches + n, note);
+            const int upper = *it;
+            if (upper == note) return upper;
+            const int lower = *(it - 1);
+            const int dUp = upper - note;
+            const int dDn = note - lower;
+            return dDn <= dUp ? lower : upper; // tie → lower
+        }
+    }
+
     int snapToScale(int note, const std::vector<int>& pitches)
     {
-        if (pitches.empty()) return note;
-        if (note <= pitches.front()) return pitches.front();
-        if (note >= pitches.back())  return pitches.back();
-
-        // Smallest index i with pitches[i] >= note.
-        const auto it = std::lower_bound(pitches.begin(), pitches.end(), note);
-        const int upper = *it;
-        if (upper == note) return upper;
-        const int lower = *(it - 1);
-        const int dUp = upper - note;
-        const int dDn = note - lower;
-        return dDn <= dUp ? lower : upper; // tie → lower
+        return snapToScaleSpan(note, pitches.data(), pitches.size());
     }
 
     int snapToChordTones(int note,
@@ -107,14 +118,18 @@ namespace pointsman
         for (int pc : chordPcs)
             pcSet[(std::size_t) (((pc % 12) + 12) % 12)] = true;
 
-        std::vector<int> chordMidi;
-        chordMidi.reserve(128);
+        // Stack buffer sized to the worst case (every pitch class lit →
+        // 128 entries). Avoids a per-call heap allocation on the audio
+        // thread; this function runs on every input noteOn in mode=chord.
+        std::array<int, 128> chordMidi{};
+        std::size_t chordCount = 0;
         for (int v = 0; v <= 127; ++v)
         {
-            if (pcSet[(std::size_t) (v % 12)]) chordMidi.push_back(v);
+            if (pcSet[(std::size_t) (v % 12)])
+                chordMidi[chordCount++] = v;
         }
 
-        const int nearest = snapToScale(note, chordMidi);
+        const int nearest = snapToScaleSpan(note, chordMidi.data(), chordCount);
         if (std::abs(nearest - note) <= tolerance) return nearest;
         return snapToScale(note, scalePitches);
     }
