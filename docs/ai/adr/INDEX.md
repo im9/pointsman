@@ -31,10 +31,9 @@ only when relevant to the current task.
 
 ## VST
 
-VST is post-v1. The target is paused at the cloned scaffold state
-while m4l v1 ships; it gets its own per-product vst-architecture
-ADR when picked up. The engine spec carries over from existing
-Pointsman m4l code.
+VST is post-v1. The engine spec carries over from existing Pointsman
+m4l code; the per-product vst-architecture ADR is below.
 
 | #   | Title | Status | Notes |
 |-----|-------|--------|-------|
+| 003 | [Pointsman vst — architecture](003-pointsman-vst-architecture.md) | Proposed | Three-layer source split (`Source/Engine/` pure C++17, `Source/Plugin/` APVTS+Processor, `Source/Editor/` JUCE UI). VST3+AU MIDI Effect, COPY_PLUGIN_AFTER_BUILD. Engine ports m4l Quantizer/Rng/Humanize against shared JSON test vectors. UI is inboil-derived (keyboard + right rail with Scale/Mode/Harmony/Humanize/Routing — Target/Track/Preset dropped as scene-graph-only). Phased: scaffold removal → engine → plugin → editor with manual-host gates between phases. Distribution + CLAP + Standalone explicitly deferred. |
