@@ -745,7 +745,7 @@ Spec-decision items (TBD):
       silent clamp at the boundary; (B) drop the offending voice;
       (C) refuse the preset and log. Decision interacts with how
       forward-compatibility for future interval values is framed.
-- [ ] **#14 `gateLenSamples` overflow guard.** Theoretical overflow
+- [x] **#14 `gateLenSamples` overflow guard.** Theoretical overflow
       at `static_cast<uint64_t>(hr.gateFinal * sourceStepSamples)`
       if the input rate degenerates (e.g. two noteOns minutes apart
       makes `sourceStepSamples` enormous, then `gateFinal=1.0`
@@ -755,6 +755,10 @@ Spec-decision items (TBD):
       something upstream goes wrong. Options: (A) no cap; (B) clamp
       `sourceStepDuration` to a max (e.g. 5 s) at the bridge
       boundary; (C) clamp the final scheduled offset to a max.
+      Resolved with option (B): `kMaxSourceStepMs = 5000.0` clamps
+      the derived sourceStepSamples in `processBlock` before it
+      flows into humanize. 5 s = half-note at 24 BPM, well outside
+      any normal play context.
 
 ## Per-target notes
 

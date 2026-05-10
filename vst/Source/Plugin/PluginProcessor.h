@@ -196,6 +196,14 @@ private:
     // tempos (16th @ 60 BPM, 8th @ 120 BPM, quarter @ 240 BPM).
     static constexpr double kFirstEventStepMs = 250.0;
 
+    // Defensive cap on derived sourceStepDuration. A pathologically slow
+    // input rate (multi-second gaps between noteOns) would otherwise
+    // schedule a default-gate noteOff that far in the future — non-
+    // musical and a uint64 cast hazard. 5 s is a half-note at 24 BPM,
+    // well outside any normal play context. ADR 003 §"Post-Phase 4
+    // audit follow-ups" #14, option (B): clamp at the bridge boundary.
+    static constexpr double kMaxSourceStepMs = 5000.0;
+
     std::vector<PendingMidi> pending_;
     std::vector<ActiveNote>  sounding_;
 

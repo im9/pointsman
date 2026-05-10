@@ -510,6 +510,73 @@ TEST_CASE("humanize: timing=1 shifts output noteOn within ±0.5 sourceStep "
     REQUIRE(absSampleOfNoteOn <  kUpperBoundSamples);
 }
 
+TEST_CASE("humanize: source-step duration clamped at kMaxSourceStepMs (5 s)",
+          "[plugin][humanize][gate]")
+{
+    // Defensive bound (ADR 003 §"Post-Phase 4 audit follow-ups" #14).
+    // A pathologically slow input rate (multi-second gaps between
+    // noteOns) would otherwise schedule a default-gate noteOff that far
+    // in the future. Threshold (5 s = 5000 ms): half-note at 24 BPM,
+    // well outside any normal play context.
+    //
+    // Setup: noteOn at t=0, then ~10 s of empty blocks, then a second
+    // noteOn. With humanize gate=0, gateFinal = 1.0, so the second
+    // noteOff is scheduled at sample (current + sourceStepSamples).
+    // Without clamp: ~10 s out → not observable inside a 5.5 s search
+    // window. With clamp: ~5 s out → observable.
+    constexpr double sampleRate    = 44100.0;
+    constexpr int    blockSize     = 4096;
+    constexpr int    kGapSamples   = static_cast<int>(10.0 * sampleRate);
+    constexpr int    kClampSamples = static_cast<int>(5.0  * sampleRate);
+
+    PointsmanProcessor p;
+    p.prepareToPlay(sampleRate, blockSize);
+    p.setHostIsPlayingForTest(true);
+
+    juce::AudioBuffer<float> audio(0, blockSize);
+
+    // First noteOn at t=0.
+    {
+        juce::MidiBuffer m;
+        m.addEvent(juce::MidiMessage::noteOn(1, 60, juce::uint8{100}), 0);
+        p.processBlock(audio, m);
+    }
+
+    // Advance ~10 seconds of empty audio.
+    const int kGapBlocks = (kGapSamples + blockSize - 1) / blockSize;
+    for (int i = 0; i < kGapBlocks; ++i)
+    {
+        juce::MidiBuffer m;
+        p.processBlock(audio, m);
+    }
+
+    // Second noteOn at the start of the next block.
+    {
+        juce::MidiBuffer m;
+        m.addEvent(juce::MidiMessage::noteOn(1, 60, juce::uint8{100}), 0);
+        p.processBlock(audio, m);
+    }
+
+    // Search forward up to ~5.5 s for the second noteOff. With the
+    // clamp it lands ≈ 5 s after the second noteOn; without the clamp
+    // it would land ≈ 10 s out and the loop exits before observing it.
+    const int kSearchBlocks =
+        (kClampSamples + blockSize) / blockSize + 4;
+    bool sawSecondNoteOff = false;
+    for (int b = 0; b < kSearchBlocks && !sawSecondNoteOff; ++b)
+    {
+        juce::MidiBuffer m;
+        p.processBlock(audio, m);
+        for (const auto meta : m)
+        {
+            const auto msg = meta.getMessage();
+            if (msg.isNoteOff() && msg.getNoteNumber() == 60)
+                sawSecondNoteOff = true;
+        }
+    }
+    REQUIRE(sawSecondNoteOff);
+}
+
 TEST_CASE("pulse: lastEmittedPulse advances and carries the emitted pitch",
           "[plugin][pulse]")
 {

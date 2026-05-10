@@ -297,9 +297,17 @@ void PointsmanProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::Mid
 
             // ── Humanize-driven scheduling ─────────────────────────
             const uint64_t absInputSample = blockStartAbs_ + static_cast<uint64_t>(sample);
-            const double sourceStepSamples = haveLastInput_
+            const double rawSourceStepSamples = haveLastInput_
                 ? static_cast<double>(absInputSample - lastInputSampleAbs_)
                 : (kFirstEventStepMs * sampleRate_ / 1000.0);
+            // Cap at kMaxSourceStepMs: a multi-second input gap would
+            // otherwise schedule a default-gate noteOff that far out
+            // and risk uint64 cast pathology. Clamp at the bridge
+            // boundary so every downstream calculation (gate length,
+            // timing offset, drift smoothing) sees the same bound.
+            const double maxSourceStepSamples = kMaxSourceStepMs * sampleRate_ / 1000.0;
+            const double sourceStepSamples =
+                std::min(rawSourceStepSamples, maxSourceStepSamples);
             lastInputSampleAbs_ = absInputSample;
             haveLastInput_ = true;
 
