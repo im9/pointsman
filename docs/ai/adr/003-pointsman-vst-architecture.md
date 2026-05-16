@@ -13,8 +13,13 @@ audible output on a default single-channel DAW track because
 was consumed as chord context; (2) the right-rail control surface was
 opaque even to the author. Phase 5 collapses the parameter surface
 (see §"Parameter persistence (APVTS)" below for the new shape) and
-moves the chord-context source from `controlChannel` to held notes on
-`inputChannel` itself. Phases 0–4 history is preserved as-is for the
+re-purposes `chord` mode as **single-note-becomes-chord expansion**:
+each input attack emits the scale-snapped input plus N diatonic
+voices configured by `harmonyVoices` (default `[{3 above}, {5 above}]`
+= 1-3-5 triad). The pre-merge 3-mode (scale / chord / harmony)
+surface collapses to 2 modes (scale / chord) — the former harmony
+mode's voice-stack semantics are absorbed into chord with a
+pre-populated default. Phases 0–4 history is preserved as-is for the
 audit trail; the §"Editor (inboil-derived)" and §"Parameter
 persistence (APVTS)" sections below have been rewritten in place to
 describe the v2 surface that Phase 5 implements. m4l receives the
@@ -22,6 +27,20 @@ same redesign on a parallel branch — both targets bump to v2.0.0
 with no on-disk preset migration from v1 (m4l v1.0.0 was a canary
 release with effectively zero installed base; vst v1 has not been
 released).
+
+> **Mid-Phase 5 course correction (2026-05-17).** Phase 5's initial
+> direction was "chord context derived from held notes on
+> `inputChannel`" — a 1-in-1-out snap-to-derived-chord-tone semantic.
+> Manual gate caught that this was indistinguishable from scale mode
+> in any realistic use; the actual intent was "single note becomes a
+> chord (1-in-N-out)". The held-input chord-context infrastructure
+> (`synthesizeTriadFromRoot`, `deriveChordContextMask`,
+> `kChordContextRetentionMs`, per-pc reference counts + decay timer,
+> related JSON sections) was added, then removed in a cleanup pass
+> when the merge-with-harmony approach replaced it. Paragraphs below
+> that still describe the chord-context-from-input direction are
+> superseded by this note and by Phase 5's §"Mid-phase course
+> correction" callout further down.
 
 This ADR sets the architecture for the Pointsman vst target: source
 layout, plugin format, engine-vs-plugin-vs-editor boundary, parameter
