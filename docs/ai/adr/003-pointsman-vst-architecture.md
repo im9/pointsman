@@ -4,6 +4,25 @@
 
 **Created**: 2026-05-10
 
+**Revised**: 2026-05-16 — parameter surface redesign (Phase 5). The
+2026-05-10 ↔ 2026-05-15 phases (0–4) shipped a working vst against
+the original 12-parameter surface inherited from inboil. Live test in
+Logic / Bitwig revealed two failures: (1) `mode = chord` produced no
+audible output on a default single-channel DAW track because
+`controlChannel = 1` collided with `inputChannel = 1` and all input
+was consumed as chord context; (2) the right-rail control surface was
+opaque even to the author. Phase 5 collapses the parameter surface
+(see §"Parameter persistence (APVTS)" below for the new shape) and
+moves the chord-context source from `controlChannel` to held notes on
+`inputChannel` itself. Phases 0–4 history is preserved as-is for the
+audit trail; the §"Editor (inboil-derived)" and §"Parameter
+persistence (APVTS)" sections below have been rewritten in place to
+describe the v2 surface that Phase 5 implements. m4l receives the
+same redesign on a parallel branch — both targets bump to v2.0.0
+with no on-disk preset migration from v1 (m4l v1.0.0 was a canary
+release with effectively zero installed base; vst v1 has not been
+released).
+
 This ADR sets the architecture for the Pointsman vst target: source
 layout, plugin format, engine-vs-plugin-vs-editor boundary, parameter
 persistence shape, UI direction, build / test infrastructure, and a
@@ -209,22 +228,19 @@ in a console binary without the wrapper layer trying to load.
 APVTS holds every parameter from `concept.md` §"Parameter surface
 (canonical)" that the host parameter system can natively represent.
 The pid identifiers and Choice index orderings are the on-disk
-format and may **only be appended**, never reordered.
+format. Phase 5 changes the surface shape; on-disk state moves to
+`kStateVersion = 2` with no migration from v1 (vst v1 was never
+released; m4l v1.0.0 was canary-only).
 
 | pid | APVTS type | Choices / range / default |
 |---|---|---|
 | `scale` | Choice | 15 names, default `major` (idx 0) |
 | `root` | Int | `0..11`, default `0` |
 | `mode` | Choice | `scale` / `chord` / `harmony`, default `scale` |
-| `humanizeVelocity` | Float | `0..1`, default `0` |
-| `humanizeGate` | Float | `0..1`, default `0` |
-| `humanizeTiming` | Float | `0..1`, default `0` |
-| `humanizeDrift` | Float | `0..1`, default `0` |
-| `outputLevel` | Float | `0..1`, default `1.0` |
-| `triggerMode` | Choice | `passthrough` / `root`, default `passthrough` |
+| `feel` | Float | `0..1`, default `0` |
+| `drift` | Float | `0..1`, default `0` |
 | `inputChannel` | Int | `0..16` (0 = omni), default `0` |
-| `controlChannel` | Int | `1..16`, default `1` |
-| `seed` | Int | `0..2^24-1`, default `0` |
+| `seed` | Int | `0..2^24-1`, default = random per instance |
 
 The `seed` upper bound is `2^24-1`, not `2^31-1`, because APVTS stores
 parameter values as IEEE-754 single-precision floats. Every integer in
@@ -233,12 +249,87 @@ host save/reopen. 16,777,216 unique seeds is more than sufficient for a
 humanize seed selector, and constraining the range here makes the
 round-trip in `test_Plugin.cpp` bit-exact rather than approximate.
 
+`seed` is the one parameter whose default value is not a literal —
+`PluginProcessor` picks a random integer in `[0, 2^24-1]` on
+construction so two parallel Pointsman instances default to
+independent humanize streams (concept.md §"Per-event humanize"
+rationale). The randomly chosen value is written into APVTS the same
+way any other parameter is, so preset save / load remains bit-exact;
+the only divergence from "default = 0" is on a fresh `new` of the
+processor when no state is being restored. The editor does **not**
+expose `seed`; it remains accessible through the host parameter
+automation lane.
+
 `harmonyVoices` is variable-length (0..3 entries) and serializes into
 a child `ValueTree` of `apvts.state` under tag `PointsmanState` with
-attributes `version="1"`, and per-entry `interval` (3 / 4 / 5 / 6) +
+attributes `version="2"`, and per-entry `interval` (3 / 4 / 5 / 6) +
 `direction` (`above` / `below`). `getStateInformation` /
 `setStateInformation` are implemented on the processor; the round-trip
-is validated by `test_Plugin.cpp`.
+is validated by `test_Plugin.cpp`. Loading a state tree with
+`version != "2"` resets to defaults (no migration).
+
+**Phase 5 removed parameters** (deleted from APVTS, not just hidden in
+the UI):
+
+- `humanizeVelocity`, `humanizeGate`, `humanizeTiming` → replaced by
+  `feel`, which feeds three independent draws inside the engine.
+- `humanizeDrift` → renamed to `drift` (no longer prefixed; pid
+  changes are part of the v1 → v2 break).
+- `outputLevel` → removed; downstream gain / velocity scaling is the
+  DAW's job, not a quantizer's.
+- `triggerMode` → removed; editor keyboard tap and host parameter
+  automation cover live `root` changes.
+- `controlChannel` → removed; chord context derives from
+  `inputChannel` (engine maintains the held-pcs set internally,
+  §"Chord context (engine)" below).
+
+### Chord context (engine)
+
+`pointsman_engine` exposes a `ChordContext` value carrying the current
+pitch-class mask consulted by `snapToChordTones`. The processor —
+not the engine — owns the held-pcs set and decay clock; the engine
+is pure functions over `(input pc, ChordContext, scale, root)`.
+
+The processor maintains:
+
+- `heldInputPcs : std::array<uint64_t, 12>` — per-pc reference count
+  of active `noteOn`s on `inputChannel` (omni or matching channel).
+  `noteOn` increments, `noteOff` schedules a decay timer entry.
+- `decayingPcs : ring buffer` — pcs whose count dropped to zero
+  within the retention window (`kChordContextRetentionMs = 150.0`).
+  Each entry carries an absolute sample deadline; on every
+  `processBlock` and on every input event, entries past their
+  deadline are dropped.
+- `chordContextMask : std::atomic<uint16_t>` — 12-bit mask of
+  `(heldInputPcs[pc] > 0) || (pc has a live decay entry)`,
+  republished atomically for UI poll (keyboard chord-tier highlight).
+
+On each input `noteOn` (only `mode = chord` and `mode = harmony`
+consult the context; `mode = scale` ignores it):
+
+1. Compute the chord context **at the moment of attack** from the
+   current `heldInputPcs` + `decayingPcs` snapshot.
+2. If the snapshot is empty (size 0), context = ∅.
+3. If size 1, synthesize the diatonic triad on `(scale, root)`
+   starting at that pc (concept.md §"Chord and harmony modes").
+4. If size ≥ 2, context = (literal held / decaying pcs) ∪ (diatonic
+   triad of the lowest held pc).
+5. Pass `(input pc, context, scale, root)` to `snapToChordTones`
+   for `mode = chord`, or to `snapToScale` for `mode = harmony`
+   (harmony voices are scale-step computed off the snapped output,
+   not chord-tone snapped — see concept.md §"Chord and harmony
+   modes" last paragraph).
+6. After the snap result is published, increment the input pc's
+   held count (the new note joins the context for *subsequent*
+   attacks).
+
+The retention window value (150 ms) is an engine-level constant in
+`Source/Engine/State.h`. It is short enough that the user clearing
+the room (~250 ms silence) returns to "no context" behaviour, and
+long enough that ordinary phrasing (one note at a time, ~120 BPM
+quarters = 500 ms) does **not** clear it. A test in
+`test_Plugin.cpp` exercises the boundary: `noteOff → wait 100 ms →
+noteOn` retains; `noteOff → wait 250 ms → noteOn` clears.
 
 ### Editor (inboil-derived)
 
@@ -246,7 +337,8 @@ The UI is a 2-column layout that mirrors the inboil
 `QuantizerSheet.svelte` — keyboard on the left, right-rail controls
 — with inboil-only scene-graph affordances (Target / Track / Preset
 / Merge) **removed** because Pointsman vst is a MIDI Effect, not a
-generative scene node:
+generative scene node. Phase 5 shrinks the right-rail from 11
+controls + harmony badges down to 6 controls + harmony badges:
 
 ```
 ┌────────────────────────────────────────────────────────────┐
@@ -267,17 +359,11 @@ generative scene node:
 │                                        │  [+]              │
 │                                        │                   │
 │                                        │ Humanize          │
-│                                        │  VEL  [─────●──]  │
-│                                        │  GATE [──●─────]  │
-│                                        │  TIM  [●───────]  │
-│                                        │  DRFT [●───────]  │
-│                                        │  OUT  [────────●] │
+│                                        │  FEEL  [─●─────]  │
+│                                        │  DRIFT [●──────]  │
 │                                        │                   │
 │                                        │ Routing           │
 │                                        │  IN  ch [omni ▾]  │
-│                                        │  CTL ch [ 1   ▾]  │
-│                                        │  TRIG [pass▾]     │
-│                                        │  SEED [    0   +] │
 └────────────────────────────────────────┴───────────────────┘
 ```
 
@@ -285,14 +371,18 @@ Per-pane behavior carried over from `QuantizerSheet.svelte`:
 
 - **Keyboard**: white + black keys across three octaves
   (`KBD_OCT_LO=3`..`KBD_OCT_HI=5`), with an in-scale dot under each
-  scale degree, an olive chord-tier highlight on `mode = chord` for
-  pitch classes in the current chord context, and a brief pulse on
-  the most recently emitted output note. Tap on a key sets `root` to
-  the tapped pitch class (the inboil `tapKey` semantics).
+  scale degree, an olive chord-tier highlight on `mode = chord` /
+  `mode = harmony` for pitch classes in the current chord context
+  (published from the processor's `chordContextMask` atomic), and a
+  brief pulse on the most recently emitted output note. Tap on a key
+  sets `root` to the tapped pitch class (the inboil `tapKey`
+  semantics).
 - **Mode pills**: three-button segmented control; the active pill is
   olive-bordered, others are dimmed. A one-line description below
-  ("snap to nearest scale degree" / "snap to chord tones" / "add
-  parallel diatonic voices") changes with the active mode.
+  ("snap to nearest scale degree" / "snap to chord tones from held
+  input" / "add parallel diatonic voices") changes with the active
+  mode. The chord / harmony descriptions are updated to reflect the
+  Phase 5 chord-context-from-input semantics.
 - **Harmony voices**: 0..3 badges, each with an interval select
   (3rd / 4th / 5th / 6th) and direction select (above / below);
   `+` adds, `×` removes. Visible only when `mode = harmony`.
@@ -307,18 +397,22 @@ inboil sections **dropped** for the vst port:
   nothing to "merge" or "fill". Preset slots are listed in
   concept.md "Future extensions" and are deferred until the device
   is in real use.
-- **Manual `chords[]` editor** — concept.md collapses inboil's two
-  chord-context paths into one input contract: real-time MIDI on
-  `controlChannel`. The vst editor does not need a chord-add UI.
+- **Manual `chords[]` editor** — concept.md derives chord context
+  from held notes on `inputChannel`; no chord-add UI is needed.
 
 inboil sections **added** for the vst port (not present in
 QuantizerSheet because inboil's humanize and routing live elsewhere
 in the scene graph):
 
-- **Humanize** — five sliders (velocity / gate / timing / drift /
-  outputLevel) per concept.md §"Per-event humanize".
-- **Routing** — `inputChannel`, `controlChannel`, `triggerMode`,
-  `seed` per concept.md §"MIDI semantics" and §"Parameter surface".
+- **Humanize** — two sliders (`feel` / `drift`) per concept.md
+  §"Per-event humanize". The Phase 5 collapse from five sliders
+  (`humanizeVelocity` / `humanizeGate` / `humanizeTiming` /
+  `humanizeDrift` / `outputLevel`) reflects the surface redesign
+  recorded in the §Status block.
+- **Routing** — `inputChannel` only. `controlChannel`, `triggerMode`,
+  and `seed` are no longer right-rail controls — the first two were
+  removed from APVTS, `seed` is APVTS-only with random-per-instance
+  default (§"Parameter persistence (APVTS)").
 
 ### UI logic / renderer split
 
@@ -348,8 +442,14 @@ look at 100% / 150% UI scaling stay manual checks against Logic
 APVTS state goes through JUCE's standard `getStateInformation` /
 `setStateInformation`, which serializes `apvts.state` plus the
 `PointsmanState` child ValueTree carrying `harmonyVoices`. State
-version is `kStateVersion = 1`. There is no migration from any
-prior shape — vst v1 is the first persisted format.
+version is `kStateVersion = 2` after the Phase 5 redesign. There is
+no migration from `kStateVersion = 1` shapes; vst v1 was never
+released and m4l v1.0.0 is canary-only, so a hard break is
+acceptable. A v1 state tree (recognised by missing `feel` /
+present `humanizeVelocity` pids, or `PointsmanState.version="1"`)
+is discarded silently and defaults are restored — the processor
+logs a one-line "discarding pre-v2 state" notice via `juce::Logger`
+for support visibility but does not surface this to the host.
 
 ## Scope
 
@@ -360,23 +460,31 @@ prior shape — vst v1 is the first persisted format.
   TM-only test, replace four-file `Source/` flat layout with the
   three-subdir split.
 - `pointsman_engine`: pure C++17 port of `Quantizer`, `Rng`, and
-  `Humanize` validated against the shared JSON vectors.
-- `pointsman_plugin_core`: APVTS layout, processor with MIDI in / out
-  + transport panic + state I/O + chord-context maintenance from
-  controlChannel notes.
+  `Humanize` validated against the shared JSON vectors. Phase 5
+  adds engine-side triad synthesis for single-pc chord-context
+  expansion.
+- `pointsman_plugin_core`: APVTS layout (v2 shape from Phase 5),
+  processor with MIDI in / out + transport panic + state I/O +
+  chord-context maintenance from `inputChannel`-held notes with a
+  ~150 ms retention window.
 - `Pointsman` plugin: VST3 + AU + CLAP bundles built and copied to
   user plug-in folders (`~/Library/Audio/Plug-Ins/{VST3,Components,CLAP}`);
   loads in Logic (AU), Bitwig (CLAP / VST3) as **primary** hosts
   and Reaper (VST3 / CLAP) as **best-effort**.
 - Editor: inboil-derived keyboard + right rail with mode pills,
-  harmony badges, humanize sliders, routing controls; logic-layer
-  tests via JUCE event API.
+  harmony badges, `feel` / `drift` humanize sliders, single
+  `inputChannel` routing control; logic-layer tests via JUCE
+  event API.
 - Test infrastructure: Catch2 v3 + nlohmann/json v3 via
   `FetchContent`; custom `tests/main.cpp` owning JUCE init / shutdown.
 - Manual-host verification gate at the end of each phase (see
   Implementation checklist below) — bundling all phases into one
   end-of-batch check is the failure mode `feedback_audit_overreach`
   was logged from.
+- Phase 5 surface redesign — `kStateVersion = 2` hard break with no
+  migration from v1; m4l receives the parallel redesign on its own
+  branch (engine semantics shared via JSON test vectors, host /
+  UI plumbing per-target).
 
 ### Out of scope
 
@@ -639,12 +747,14 @@ silently violating the contract in concept.md §"Per-event humanize".
 - [x] `Source/Plugin/PluginProcessor`: re-seed RNG and reset
       drift on transport-start edge so each play loop reproduces
       bit-for-bit (concept.md §"Transport"; mirrors m4l host.ts:237).
-- [ ] Manual gate: in Logic / Bitwig, set `humanizeGate = 0.5`
-      and confirm output gate length varies per event; same for
-      `humanizeTiming` (output sample position varies); same for
-      `humanizeDrift` (slow EMA smoothing across consecutive events
-      on all three axes). No hung notes after transport stop or
-      bypass with non-zero humanize.
+- [ ] ~~Manual gate: in Logic / Bitwig, set `humanizeGate = 0.5`
+      and confirm output gate length varies per event…~~
+      **Superseded by Phase 5 manual gate.** The
+      `humanizeVelocity` / `humanizeGate` / `humanizeTiming` /
+      `humanizeDrift` / `outputLevel` sliders are removed in Phase
+      5; the audibility check is rolled into Phase 5's `feel` /
+      `drift` gate, which exercises the same Phase 4 wiring through
+      the v2 surface.
 
 ## Post-Phase 4 audit follow-ups
 
@@ -773,6 +883,117 @@ Spec-decision items (TBD):
       flows into humanize. 5 s = half-note at 24 BPM, well outside
       any normal play context.
 
+### Phase 5 — Parameter surface redesign (chord-from-input, feel/drift collapse)
+
+Closes the surface-redesign direction recorded in the §Status
+revision block (2026-05-16). Two problem statements:
+
+1. **`mode = chord` produces no audible output** on a default
+   single-channel DAW track because `controlChannel = 1` collides
+   with `inputChannel = 1` and all input is consumed as chord
+   context.
+2. **The right-rail surface is opaque** — 5 humanize sliders +
+   TRIG + CTL CH + IN CH + SEED + harmony badges + MODE pills is
+   too many controls without clear grouping, even for the author.
+
+Phase 5 lands a single coordinated change: chord context moves to
+held notes on `inputChannel`, the humanize axes collapse to `feel`
++ `drift`, and the removed parameters (`humanizeVelocity` /
+`humanizeGate` / `humanizeTiming` / `outputLevel` / `triggerMode` /
+`controlChannel`) disappear from APVTS. m4l receives the same
+redesign on a parallel branch (engine semantics are shared, host
+plumbing differs).
+
+- [ ] Update shared test vectors at
+      [docs/ai/quantizer-test-vectors.json](../../../docs/ai/quantizer-test-vectors.json)
+      so `snapToChordTones` cases that previously assumed a
+      precomputed `chordPcs` array also cover the held-input
+      derivation (`heldPcs.size() == 0 / 1 / 2+`). The engine
+      function signature does not change — the processor still
+      passes a precomputed pc mask — but the test vectors gain
+      cases that exercise the engine-internal triad synthesis path
+      `synthesizeTriadFromRoot(scale, root, rootPc)`.
+- [ ] `Source/Engine/State.h`: add `synthesizeTriadFromRoot`,
+      `kChordContextRetentionMs = 150.0` constant. Update
+      `ChordContext` ABI if needed.
+- [ ] `tests/test_Plugin.cpp`: add cases for (a) `mode = chord`,
+      single-note hold on inputChannel → triad context, second
+      attack snaps to chord-tone; (b) retention boundary — 100 ms
+      gap retains, 250 ms gap clears; (c) v1 state tree (with
+      `humanizeVelocity` pid) is silently discarded on load and
+      defaults are restored; (d) `seed` random init produces
+      different values across two `new PluginProcessor` calls
+      (rare-flake risk acknowledged — assert different across 16
+      consecutive constructs, not 2).
+- [ ] `Source/Plugin/Parameters.{h,cpp}`: rewrite parameter
+      layout — remove `humanizeVelocity` / `humanizeGate` /
+      `humanizeTiming` / `humanizeDrift` / `outputLevel` /
+      `triggerMode` / `controlChannel`, add `feel` and `drift`
+      (top-level pids, no `humanize` prefix on `drift`). Bump
+      `kStateVersion` to `2`.
+- [ ] `Source/Plugin/PluginProcessor.{h,cpp}`:
+      - Constructor seeds `seed` to a random value in `[0,
+        2^24-1]` (using `juce::Random::getSystemRandom()`) before
+        APVTS construction so the random value becomes the
+        parameter's default and is written into state on first
+        save.
+      - `processBlock` updates `heldInputPcs[pc]` and
+        `chordContextMask` on `noteOn` / `noteOff` for
+        `inputChannel`-matching events. Decay timer entries are
+        held in a small fixed-capacity array and pruned every
+        block start.
+      - Routing of `feel` to the three internal axes: each
+        `Humanize` axis (velocity / gate / timing) draws
+        independently with amplitude scaled by `feel`. `drift`
+        feeds the existing EMA across all three.
+      - `setStateInformation` recognises a v1 state tree (presence
+        of a removed pid or `PointsmanState.version != "2"`) and
+        discards it, logging "Pointsman: discarding pre-v2
+        state". Default-construct on discard.
+- [ ] `Source/Editor/ControlsView.{h,cpp}`:
+      - Humanize group: replace 5 sliders with 2 (`FEEL`, `DRIFT`).
+      - Routing group: only `IN ch`. Remove `CTL ch`, `TRIG`,
+        `SEED` rows.
+      - Mode pill descriptions updated to reflect chord-from-input:
+        "snap to chord tones from held input".
+- [ ] `Source/Editor/ScaleKeyboardView.{h,cpp}`: chord-tier highlight
+      reads the new `chordContextMask` published by the processor;
+      the existing rendering path is unchanged.
+- [ ] `tests/test_Editor.cpp`: drop tests for removed controls
+      (`CTL ch`, `TRIG`, `SEED`, individual humanize axes);
+      add tests for `feel` / `drift` sliders updating APVTS;
+      update mode-pill description text assertions.
+- [ ] `cd vst && make test`: all suites green. Note expected
+      assertion count drop from 638 (Phase 3 baseline) — the
+      removed pids are exercised in fewer cases.
+- [ ] **Build gate**: `cd vst && make clean && make build`
+      produces `Pointsman.vst3` / `Pointsman.component` /
+      `Pointsman.clap`. The plugin layer is what users load — a
+      green test suite without a fresh build is the
+      `feedback_build_is_part_of_task` failure mode.
+- [ ] **Manual gate (host)**:
+      - Logic (AU) and Bitwig (CLAP / VST3): load Pointsman on a
+        default single-channel MIDI track. With `mode = chord`,
+        play a single-note melody — output is the snapped
+        melody, NOT silence (the 2026-05-15 chord-mode failure
+        is gone).
+      - Hold a triad and play a melody on top — melodic notes
+        snap to chord tones; held triad notes pass through. Test
+        the retention-boundary feel: short detached phrasing
+        still maintains the chord context.
+      - `feel = 0.5` and `drift = 0.95`: output velocity / gate /
+        timing vary across consecutive notes with a slow drift
+        envelope.
+      - Save and reopen the host project: `scale` / `root` /
+        `mode` / `feel` / `drift` / `harmonyVoices` round-trip.
+        `seed` is preserved (verify by inspecting humanize draws
+        match across reopen).
+      - Place two Pointsman instances on parallel tracks fed the
+        same MIDI: with `feel = 0.7`, the two outputs are *not*
+        phase-coherent (random-seed-per-instance check).
+      - Transport stop flushes any in-flight notes and clears
+        chord context; no hung notes on bypass.
+
 ## Per-target notes
 
 The shared test vectors at
@@ -790,3 +1011,13 @@ intentionally chosen to mirror the m4l `HostParams` shape so a
 later cross-target preset converter is a straight rename + index
 mapping. Until that converter exists, m4l and vst presets are not
 interchangeable.
+
+After Phase 5, m4l receives a parallel redesign so that the cross-
+target parameter surface stays aligned. m4l's host layer
+(`m4l/host/host.ts`, `m4l/host/bridge.ts`) and UI (`m4l/host/ui/`,
+`m4l/scaleKeyboard.jsui.js`, `m4l/Pointsman.maxpat`) carry the
+equivalent changes; the engine layer (`m4l/engine/quantizer.ts`)
+shares the chord-context-derivation update with vst via the
+updated JSON test vectors. m4l v2.0.0 is also a hard break with no
+v1 preset migration (v1.0.0 canary release, effectively zero
+installed base).

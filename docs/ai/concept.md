@@ -40,12 +40,49 @@ within the device chain").
 
 Pointsman ships three quantize modes — `scale` (snap to nearest scale
 degree), `chord` (snap to chord-tone with scale fallback), `harmony`
-(input plus diatonic voice stack). The chord context source is real-time
-MIDI on a control channel (held notes form the current chord) rather
-than an offline `chords[]` array; this collapses inboil's two
-chord-context paths (manual progression, Tonnetz coupling) into one
-input contract that any chord generator (clip, played, Oedipa) can
-drive.
+(input plus diatonic voice stack). The mode is a single 3-way exclusive
+selection; output is always 1 emitted note per input attack in `scale`
+and `chord` modes, and `1 + harmonyVoices.length` notes in `harmony`
+mode.
+
+**Chord context derivation.** In `chord` and `harmony` modes the chord
+context is derived from notes currently held on the input channel — no
+separate control channel, no offline `chords[]` array. The engine
+maintains a set of currently-sounding input pitch classes:
+
+- **0 held** → context is empty → `chord` mode falls through to scale
+  snap; `harmony` mode emits the diatonic voice stack against the
+  scale (harmony is scale-relative, not chord-relative).
+- **1 held** → that pc is interpreted as a root, and the chord context
+  is synthesized as a diatonic triad starting at that pc in the
+  current `(scale, root)`. The held note itself emits as pass-through
+  (it is a member of its own triad). Subsequent attacks while the
+  first note is still held snap against this triad.
+- **2+ held** → context is the literal set of held pcs, unioned with
+  the diatonic triad of the lowest held pc (so the context always
+  carries a "tonal centre" anchor even when the user is playing wide
+  voicings).
+
+**Ordering per attack.** Each incoming `noteOn` is snapped against the
+chord context *as it stands at the moment of attack*, then added to
+the context. So the first note of a held cluster always snaps to scale
+(empty context); subsequent notes within the cluster snap to the
+context built by the earlier notes. This makes `chord` mode
+distinguishable from `scale` mode in legato / held-cluster playing
+while preserving "single note in → single note out".
+
+**Context retention.** A short retention window (~150 ms) keeps a
+released pc in the context after its `noteOff` so that non-legato
+playing — releasing one note before pressing the next — still
+benefits from `chord` mode. The retention time is an engine constant,
+not a user parameter; it is short enough that intentional silence
+clears the context, long enough that ordinary phrasing maintains it.
+
+`harmony` mode is scale-relative: the diatonic voice stack is computed
+purely from `(scale, root)` and the per-voice interval, independent
+of held pcs. Held-input chord context is still tracked for `harmony`
+mode so a future "harmony follows chord" extension is possible, but
+v1 harmony voices are not chord-tone-snapped.
 
 ## Composition — upstream → Pointsman → Synth
 
@@ -77,18 +114,23 @@ MIDI notes, period.
 ## Per-event humanize
 
 Pointsman applies an optional **per-event humanize** layer to its output.
-Five parameters, defaults all `0` (off):
+Two parameters, defaults both `0` (off):
 
-- `humanizeVelocity` (`0..1`) — signed uniform noise on output velocity
-- `humanizeGate` (`0..1`) — signed uniform noise on gate length
-- `humanizeTiming` (`0..1`) — signed uniform noise on note start offset
-  (fraction of source step length, ±0.5 max)
-- `humanizeDrift` (`0..1`) — EMA smoothing across all humanize axes; `0` =
-  independent draws (jittery), values close to `1` produce slow drift
-  (breath). Note: `1.0` exactly is degenerate — the EMA never blends a
-  new draw, so the layer freezes at its current value (effectively no
-  humanize). Use `0.95–0.99` for "very slow drift".
-- `outputLevel` (`0..1`, default `1.0`) — global multiplier on output velocity
+- `feel` (`0..1`) — global humanize amount. A single 0..1 value drives
+  signed uniform noise on three independently-drawn axes (velocity,
+  gate length, note start offset). One control instead of three lets
+  the user dial "how much human" without having to balance three
+  sliders. Timing offset is bounded to ±0.5 × source step length.
+- `drift` (`0..1`) — EMA smoothing across the three humanize axes; `0`
+  = independent draws (jittery), values close to `1` produce slow
+  drift (breath). Note: `1.0` exactly is degenerate — the EMA never
+  blends a new draw, so the layer freezes at its current value
+  (effectively no humanize). Use `0.95–0.99` for "very slow drift".
+
+The three internal axes (velocity / gate / timing) each receive their
+own RNG draw scaled by `feel`; `drift` smooths each axis
+independently. They are not collapsed to a single shared draw — that
+would phase-lock the three axes, which sounds artificial.
 
 Humanize lives in Pointsman because Pointsman is the natural place for
 "shape the note as it leaves the chain" — whether the upstream is a
@@ -97,12 +139,16 @@ upstream notes before quantization would muddy any deterministic
 loop / lock semantics in the source; doing it after the snap leaves
 upstream timing intact.
 
-The draws are seeded (shared seed parameter) so a fixed `(seed, input
-sequence, params)` reproduces the same output bit-for-bit. Drift
-smoothing maintains its EMA state per-axis, reset on transport
-**start** (so each play loop re-seeds from the same initial state).
-Transport stop does not touch drift state — it only flushes any
-in-flight notes and clears chord context.
+The draws are seeded (`seed` parameter, persisted in plugin state but
+not exposed in the editor) so a fixed `(seed, input sequence, params)`
+reproduces the same output bit-for-bit. New plugin instances pick a
+random seed on construction so two parallel Pointsman instances on
+double-tracked parts do not produce phase-coherent identical humanize;
+saving a preset captures the current seed, so reloading reproduces the
+saved performance. Drift smoothing maintains its EMA state per-axis,
+reset on transport **start** (so each play loop re-seeds from the same
+initial state). Transport stop does not touch drift state — it only
+flushes any in-flight notes and clears chord context.
 
 ## MIDI semantics
 
@@ -113,19 +159,20 @@ expected on all targets.
 ### Input handling
 
 Pointsman is fundamentally input-driven (it transforms incoming notes).
-Its `triggerMode` only chooses what role MIDI input plays beyond
-passthrough:
+Input arrives on the `inputChannel` (omni or 1..16) — the only channel
+filter Pointsman exposes. Notes on other channels pass through
+untouched. There is no separate control channel: chord context in
+`chord` / `harmony` modes is derived from notes held on the
+`inputChannel` itself (§Chord and harmony modes).
 
-- `passthrough` (default) — input notes are quantized and emitted;
-  nothing else
-- `root` — incoming `noteOn` (within a designated control channel/range,
-  see each target's ADRs) sets the Pointsman `root` parameter live,
-  allowing key changes from a controller. Quantized passthrough still
-  happens for non-control notes.
-
-When `mode = chord`, the control channel switches role: held notes form
-the current chord context (see §Chord and harmony modes), and the
-single-note `root` setter is suppressed for that channel.
+The `root` parameter is set from the editor (keyboard tap), the host
+parameter automation lane, or preset recall — not from incoming MIDI.
+Earlier drafts of Pointsman exposed a "trigger mode" that let an
+incoming `noteOn` rewrite `root`; this was removed because the editor
+keyboard already covers live key changes and the dual-purpose
+controlChannel that drove it created the "chord mode silently
+consumes all input" failure mode that the 2026-05-16 surface redesign
+addresses.
 
 ### Note-off discipline
 
@@ -187,15 +234,25 @@ specifics, GUI-only state) may be added per target.
 | `root`            | int `0..11`                                          | root pitch class; default `0` (C)                  |
 | `mode`            | `scale \| chord \| harmony`                          | snap strategy; default `scale`                     |
 | `harmonyVoices`   | `HarmonyVoice[]` (length 0..3)                       | diatonic voice stack used in `harmony` mode        |
-| `humanizeVelocity`| float `0..1`                                         | signed-noise amplitude on velocity                 |
-| `humanizeGate`    | float `0..1`                                         | signed-noise amplitude on gate                     |
-| `humanizeTiming`  | float `0..1`                                         | signed-noise amplitude on timing                   |
-| `humanizeDrift`   | float `0..1`                                         | EMA smoothing for all humanize axes; default `0`   |
-| `outputLevel`     | float `0..1`                                         | global output velocity multiplier; default `1.0`   |
-| `triggerMode`     | `passthrough \| root`                                | input handling; default `passthrough`              |
+| `feel`            | float `0..1`                                         | humanize amount across velocity / gate / timing; default `0` |
+| `drift`           | float `0..1`                                         | EMA smoothing for humanize axes; default `0`       |
 | `inputChannel`    | int `0..16`                                          | MIDI input channel; `0` = omni; default `0`        |
-| `controlChannel`  | int `1..16`                                          | control channel for root / chord context; default per target (m4l: `16` per Live side-channel convention; vst: `1` per universal-host default) |
-| `seed`            | int `0..2^24-1`                                      | RNG seed for humanize draws; default `0`. Range bounded by IEEE-754 single-precision exact-representation: APVTS-style hosts (vst) store params as float32, and every integer in `[0, 2^24]` is exactly representable, so seeds round-trip bit-identical. m4l mirrors the same range for cross-target preset compatibility. |
+| `seed`            | int `0..2^24-1`                                      | RNG seed for humanize draws. **Persisted in plugin state but not exposed in the editor.** New instances pick a random seed on construction; preset save / load is bit-exact. Range bounded by IEEE-754 single-precision exact-representation: APVTS-style hosts store params as float32, and every integer in `[0, 2^24]` is exactly representable, so seeds round-trip bit-identical. m4l mirrors the same range for cross-target preset compatibility. |
+
+Parameters that earlier Pointsman drafts exposed and **v2 removes** —
+listed here so the surface change is auditable rather than a quiet
+deletion:
+
+- `humanizeVelocity` / `humanizeGate` / `humanizeTiming` — collapsed
+  into `feel` (three independent draws scaled by one amount).
+- `outputLevel` — dropped. Output velocity is what the upstream sends
+  (optionally perturbed by `feel`); per-instance MIDI gain belongs to
+  the host's velocity scaling or the synth's velocity sensitivity,
+  not to a quantizer.
+- `triggerMode` — dropped. Key-change from a controller is covered by
+  the editor keyboard tap or host parameter automation on `root`.
+- `controlChannel` — dropped. Chord context derives from
+  `inputChannel` itself (§Chord and harmony modes).
 
 ## Origin notes
 
