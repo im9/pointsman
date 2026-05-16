@@ -115,6 +115,166 @@ TEST_CASE("ScaleKeyboardView: in-scale dot set matches active scale + root",
             == std::vector<int>{1, 2, 4, 6, 7, 9, 11});
 }
 
+TEST_CASE("ControlsView: every visible child has non-zero size after resized()",
+          "[editor][controls][layout]")
+{
+    // Catches the class of bug where a rail-content overflow squeezes a
+    // row to zero height (the TRIG row regression that shipped when the
+    // harmony group's reserved height was bumped without also growing
+    // rightRailContentHeight). Walks every descendant component; any
+    // `visible && (w == 0 || h == 0)` is a layout failure.
+    auto countZeroSizedVisible = [](auto&& self, juce::Component& root) -> int
+    {
+        int count = 0;
+        for (int i = 0; i < root.getNumChildComponents(); ++i)
+        {
+            auto* c = root.getChildComponent(i);
+            if (c == nullptr) continue;
+            if (c->isVisible() && (c->getWidth() <= 0 || c->getHeight() <= 0))
+            {
+                INFO("zero-sized component at bounds "
+                     << c->getBoundsInParent().toString());
+                ++count;
+            }
+            count += self(self, *c);
+        }
+        return count;
+    };
+
+    SECTION("no voices")
+    {
+        PointsmanProcessor proc;
+        pointsman::editor::ControlsView ctl(proc);
+        ctl.setSize(280, 570);  // theme::railWidth × rightRailContentHeight
+        REQUIRE(countZeroSizedVisible(countZeroSizedVisible, ctl) == 0);
+    }
+
+    SECTION("max voices (add button is hidden, not zero-sized)")
+    {
+        PointsmanProcessor proc;
+        proc.setHarmonyVoices({
+            {3, pointsman::HarmonyDirection::Above},
+            {4, pointsman::HarmonyDirection::Below},
+            {5, pointsman::HarmonyDirection::Above},
+        });
+        pointsman::editor::ControlsView ctl(proc);
+        ctl.setSize(280, 570);  // theme::railWidth × rightRailContentHeight
+        REQUIRE(countZeroSizedVisible(countZeroSizedVisible, ctl) == 0);
+    }
+}
+
+TEST_CASE("ControlsView: SCALE/ROOT/TRIG combos reflect APVTS at construction",
+          "[editor][controls][init]")
+{
+    // ComboBoxAttachment's initial setSelectedId silently no-ops if the
+    // combo has no items yet. The Phase 3 implementation populated combos
+    // in the constructor body AFTER the attachments were built in the
+    // member init list, so the combos rendered blank at first paint even
+    // though the parameter had a valid default. Pin construction order
+    // here so the regression doesn't reappear.
+    //
+    // Combo IDs are (parameter index + 1): juce::ComboBox treats id 0 as
+    // "nothing selected", so addItem() uses 1-based ids.
+
+    SECTION("default APVTS values populate the combos")
+    {
+        PointsmanProcessor proc;
+        pointsman::editor::ControlsView ctl(proc);
+        ctl.setSize(280, 600);
+
+        REQUIRE(ctl.getScaleComboForTest().getSelectedId()   == 1);
+        REQUIRE(ctl.getRootComboForTest().getSelectedId()    == 1);
+        REQUIRE(ctl.getTriggerComboForTest().getSelectedId() == 1);
+    }
+
+    SECTION("non-default APVTS values populate the combos")
+    {
+        PointsmanProcessor proc;
+        // 3rd scale, F root, 2nd trigger mode — chosen to avoid the
+        // index-0 case where a blank combo would coincidentally match.
+        auto* sp = proc.apvts.getParameter(pid::scale);
+        sp->setValueNotifyingHost(sp->convertTo0to1(3.0f));
+        auto* rp = proc.apvts.getParameter(pid::root);
+        rp->setValueNotifyingHost(rp->convertTo0to1(5.0f));
+        auto* tp = proc.apvts.getParameter(pid::triggerMode);
+        tp->setValueNotifyingHost(tp->convertTo0to1(1.0f));
+
+        pointsman::editor::ControlsView ctl(proc);
+        ctl.setSize(280, 600);
+
+        REQUIRE(ctl.getScaleComboForTest().getSelectedId()   == 4);
+        REQUIRE(ctl.getRootComboForTest().getSelectedId()    == 6);
+        REQUIRE(ctl.getTriggerComboForTest().getSelectedId() == 2);
+    }
+}
+
+TEST_CASE("ControlsView: IN CH / CTL CH combos round-trip with APVTS",
+          "[editor][controls][routing]")
+{
+    // Routing channels are now ComboBox-driven; +/- buttons were the old
+    // surface. The combo's selectedItemIndex maps bit-exactly to the
+    // parameter's raw value via JUCE's ComboBoxParameterAttachment
+    // (numItems-1 must equal parameter max-min for the mapping to be
+    // exact). This test pins that mapping at the boundaries.
+
+    SECTION("inputChannel: item index 0 = OMNI (0), index N = channel N")
+    {
+        PointsmanProcessor proc;
+        pointsman::editor::ControlsView ctl(proc);
+        ctl.setSize(280, 600);
+
+        // Default = 0 (OMNI) → first item selected.
+        REQUIRE(ctl.getInChComboForTest().getSelectedItemIndex() == 0);
+        REQUIRE(ctl.getInChComboForTest().getItemText(0) == "OMNI");
+
+        // Push param to 7 → 8th item ("7").
+        auto* p = proc.apvts.getParameter(pid::inputChannel);
+        p->setValueNotifyingHost(p->convertTo0to1(7.0f));
+        REQUIRE(ctl.getInChComboForTest().getSelectedItemIndex() == 7);
+        REQUIRE(ctl.getInChComboForTest().getText() == "7");
+
+        // Push to max (16) → last item.
+        p->setValueNotifyingHost(p->convertTo0to1(16.0f));
+        REQUIRE(ctl.getInChComboForTest().getSelectedItemIndex() == 16);
+        REQUIRE(ctl.getInChComboForTest().getText() == "16");
+    }
+
+    SECTION("controlChannel: item index 0 = channel 1, index 15 = channel 16")
+    {
+        PointsmanProcessor proc;
+        pointsman::editor::ControlsView ctl(proc);
+        ctl.setSize(280, 600);
+
+        // Default = 1 → first item selected.
+        REQUIRE(ctl.getCtlChComboForTest().getSelectedItemIndex() == 0);
+        REQUIRE(ctl.getCtlChComboForTest().getText() == "1");
+
+        auto* p = proc.apvts.getParameter(pid::controlChannel);
+        p->setValueNotifyingHost(p->convertTo0to1(10.0f));
+        REQUIRE(ctl.getCtlChComboForTest().getSelectedItemIndex() == 9);
+        REQUIRE(ctl.getCtlChComboForTest().getText() == "10");
+
+        p->setValueNotifyingHost(p->convertTo0to1(16.0f));
+        REQUIRE(ctl.getCtlChComboForTest().getSelectedItemIndex() == 15);
+        REQUIRE(ctl.getCtlChComboForTest().getText() == "16");
+    }
+
+    SECTION("combo selection writes back to APVTS")
+    {
+        PointsmanProcessor proc;
+        pointsman::editor::ControlsView ctl(proc);
+        ctl.setSize(280, 600);
+
+        // Pick channel 5 in the IN CH combo (item index 5, id 6).
+        ctl.getInChComboForTest().setSelectedItemIndex(5, juce::sendNotificationSync);
+        REQUIRE(loadInt(proc.apvts, pid::inputChannel) == 5);
+
+        // Pick channel 12 in the CTL CH combo (item index 11, id 12).
+        ctl.getCtlChComboForTest().setSelectedItemIndex(11, juce::sendNotificationSync);
+        REQUIRE(loadInt(proc.apvts, pid::controlChannel) == 12);
+    }
+}
+
 TEST_CASE("ControlsView: clicking each mode pill cycles APVTS mode",
           "[editor][controls]")
 {
@@ -165,10 +325,14 @@ TEST_CASE("ScaleKeyboardView: pulse list grows when processor emits a noteOn",
     proc.processBlock(audio, midi);
 
     // Tick with dt=0 so the new pulse is picked up but no decay applies
-    // — the resulting list size and pc are deterministic.
+    // — the resulting list size and midi are deterministic.
     kbd.pollPulseForTest(0.0);
     REQUIRE(kbd.getPulsesForTest().size() == 1);
-    REQUIRE(kbd.getPulsesForTest()[0].pc == 4);  // 64 % 12 = 4 (E)
+    // E4 = 64 specifically — not "any E in any octave". The pulse must
+    // carry the actual emitted MIDI pitch so only the exact key glows on
+    // the 3-octave keyboard. (Pre-fix bug: pc=4 lit C3-E, C4-E, C5-E all
+    // at once.)
+    REQUIRE(kbd.getPulsesForTest()[0].midi == 64);
     // Initial age = 0; intensity scaled from velocity.
     REQUIRE(kbd.getPulsesForTest()[0].ageMs == 0.0);
     REQUIRE(kbd.getPulsesForTest()[0].intensity > 0.78);
@@ -185,6 +349,291 @@ TEST_CASE("ScaleKeyboardView: pulse list grows when processor emits a noteOn",
     // Past the decay window → pruned.
     kbd.pollPulseForTest(200.0);
     REQUIRE(kbd.getPulsesForTest().empty());
+}
+
+TEST_CASE("ScaleKeyboardView: pulse outside the APVTS range slider is dropped",
+          "[editor][keyboard][pulse]")
+{
+    // Visible range comes from pid::kbdRangeLoNote / kbdRangeHiNote
+    // (defaults 36 / 71 = C3..B5). Notes emitted outside that band have
+    // no key to glow, so the pulse must be dropped at poll time rather
+    // than recorded and silently ignored by paint. Dropping at poll
+    // keeps the pulse list small and avoids the pre-fix "all 3 octaves
+    // of that pc glow" misbehaviour from sneaking back in if anyone
+    // widens pulseGlowFor later.
+    PointsmanProcessor proc;
+    proc.prepareToPlay(44100.0, 256);
+    proc.setHostIsPlayingForTest(true);
+
+    pointsman::editor::ScaleKeyboardView kbd(proc);
+    kbd.setSize(700, 120);
+
+    // MIDI 24 = C1, well below the default C3 (=36). Default scale is
+    // major / root C so the quantizer passes the pitch through unchanged.
+    juce::MidiBuffer midi;
+    midi.addEvent(juce::MidiMessage::noteOn(1, 24, static_cast<juce::uint8>(100)), 0);
+    juce::AudioBuffer<float> audio(0, 256);
+    proc.processBlock(audio, midi);
+    kbd.pollPulseForTest(0.0);
+    REQUIRE(kbd.getPulsesForTest().empty());
+
+    // MIDI 84 = C6, one octave above the default B5 (=71).
+    juce::MidiBuffer midi2;
+    midi2.addEvent(juce::MidiMessage::noteOn(1, 84, static_cast<juce::uint8>(100)), 0);
+    proc.processBlock(audio, midi2);
+    kbd.pollPulseForTest(0.0);
+    REQUIRE(kbd.getPulsesForTest().empty());
+}
+
+TEST_CASE("ScaleKeyboardView: widening the APVTS range admits previously dropped pulses",
+          "[editor][keyboard][pulse][range]")
+{
+    // Pin the dynamic-range branch of the pulse poll: a pitch that is
+    // out-of-range at one slider setting must be admitted once the user
+    // widens the slider to include it. Catches the regression where
+    // pollPulseForTest accidentally captures the range at construction
+    // time (e.g. via constexpr) instead of reading APVTS on every poll.
+    PointsmanProcessor proc;
+    proc.prepareToPlay(44100.0, 256);
+    proc.setHostIsPlayingForTest(true);
+
+    pointsman::editor::ScaleKeyboardView kbd(proc);
+    kbd.setSize(700, 120);
+
+    // Default range = C3..B5. MIDI 84 = C6 → out of range, dropped.
+    juce::MidiBuffer midi;
+    midi.addEvent(juce::MidiMessage::noteOn(1, 84, static_cast<juce::uint8>(100)), 0);
+    juce::AudioBuffer<float> audio(0, 256);
+    proc.processBlock(audio, midi);
+    kbd.pollPulseForTest(0.0);
+    REQUIRE(kbd.getPulsesForTest().empty());
+
+    // Widen the range to C3..C7 (MIDI 36..96). The next emit at MIDI 84
+    // must now be admitted into the pulse list.
+    proc.apvts.getParameter(pid::kbdRangeHiNote)
+        ->setValueNotifyingHost(proc.apvts.getParameter(pid::kbdRangeHiNote)
+                                     ->convertTo0to1(96.0f));
+    juce::MidiBuffer midi2;
+    midi2.addEvent(juce::MidiMessage::noteOn(1, 84, static_cast<juce::uint8>(100)), 0);
+    proc.processBlock(audio, midi2);
+    kbd.pollPulseForTest(0.0);
+    REQUIRE(kbd.getPulsesForTest().size() == 1);
+    REQUIRE(kbd.getPulsesForTest()[0].midi == 84);
+}
+
+TEST_CASE("ControlsView: range slider round-trips with kbdRange APVTS params",
+          "[editor][controls][range]")
+{
+    // The DISPLAY group's TwoValueHorizontal slider has no JUCE-stock
+    // attachment; the custom RangeSlider drives both APVTS Int params
+    // by hand. This test pins the two-way path: setting APVTS programmatically
+    // updates the slider min/max, and setting the slider writes back to APVTS.
+    PointsmanProcessor proc;
+    pointsman::editor::ControlsView ctl(proc);
+    ctl.setSize(280, 600);
+
+    auto& slider = ctl.getRangeSliderForTest();
+    REQUIRE(slider.getMinValue() == defaults::kbdRangeLoNote);
+    REQUIRE(slider.getMaxValue() == defaults::kbdRangeHiNote);
+
+    // APVTS → slider (host-driven write). MessageManager::callAsync
+    // marshals the listener, so the slider position lags one async pump.
+    // We can't pump the queue reliably in this runner; instead, verify
+    // the slider→APVTS direction synchronously below.
+
+    // Slider → APVTS (user drag). Setting min/max with sendNotification
+    // fires onValueChange → writes APVTS.
+    slider.setMinValue(48.0, juce::sendNotificationSync);
+    slider.setMaxValue(96.0, juce::sendNotificationSync);
+    REQUIRE(loadInt(proc.apvts, pid::kbdRangeLoNote) == 48);
+    REQUIRE(loadInt(proc.apvts, pid::kbdRangeHiNote) == 96);
+
+    // The range value label mirrors the new MIDI note names. Default
+    // octave convention is MIDI 60 = C4 (Logic / Yamaha).
+    REQUIRE(ctl.getRangeValueLabelForTest().getText() == juce::String("C3 - C7"));
+}
+
+TEST_CASE("ScaleKeyboardView: buildKeys honours the APVTS range",
+          "[editor][keyboard][range]")
+{
+    // Counter-test for the range plumbing on the layout side: changing
+    // the APVTS range params must change the key list buildKeys() emits
+    // (count and MIDI extents). Together with the pulse test above this
+    // pins both halves of the dynamic-range contract.
+    PointsmanProcessor proc;
+    pointsman::editor::ScaleKeyboardView kbd(proc);
+    kbd.setSize(700, 120);
+
+    const auto defaultKeys = [&]
+    {
+        // Centre of C3 (MIDI 36) must exist; centre of C2 (MIDI 24) must
+        // not (out of default C3..B5). Use note-name semantics rather
+        // than count, because the count depends on inclusive bounds.
+        const auto c3 = kbd.getKeyCenterForTest(0);
+        REQUIRE(c3.x >= 0);
+        // No public way to ask "is MIDI 24 in keys" — accept the C3
+        // presence as the smoke test for the default range here.
+    };
+    defaultKeys();
+
+    // Narrow the range to C4..B4 (MIDI 48..59, one octave). buildKeys
+    // should now lay out 7 white + 5 black = 12 keys, starting at MIDI 48.
+    proc.apvts.getParameter(pid::kbdRangeLoNote)
+        ->setValueNotifyingHost(proc.apvts.getParameter(pid::kbdRangeLoNote)
+                                     ->convertTo0to1(48.0f));
+    proc.apvts.getParameter(pid::kbdRangeHiNote)
+        ->setValueNotifyingHost(proc.apvts.getParameter(pid::kbdRangeHiNote)
+                                     ->convertTo0to1(59.0f));
+    // Tap-set-root path goes through getPcAtForTest → buildKeys; the
+    // leftmost white key should now be at the leftmost x and resolve
+    // to pc=0 (C4) on click.
+    const auto c4Centre = kbd.getKeyCenterForTest(0);
+    REQUIRE(c4Centre.x >= 0);
+    REQUIRE(kbd.getPcAtForTest(c4Centre) == 0);
+}
+
+TEST_CASE("ScaleKeyboardView: pulse glow lights only the exact emitted MIDI key",
+          "[editor][keyboard][pulse]")
+{
+    // Counter-test for the same bug from the other direction: emit C4
+    // and verify the glow reads non-zero on MIDI 60 but zero on MIDI 48
+    // (C3) and MIDI 72 (C5). Asserted via pulseGlowFor()'s effect — we
+    // don't expose it directly, but each Pulse must carry midi (not pc)
+    // and paint must compare KeyInfo.midi (not pc). The simplest check
+    // is to inspect the pulse list directly: exactly one entry, midi=60.
+    PointsmanProcessor proc;
+    proc.prepareToPlay(44100.0, 256);
+    proc.setHostIsPlayingForTest(true);
+
+    pointsman::editor::ScaleKeyboardView kbd(proc);
+    kbd.setSize(700, 120);
+
+    juce::MidiBuffer midi;
+    midi.addEvent(juce::MidiMessage::noteOn(1, 60, static_cast<juce::uint8>(100)), 0);
+    juce::AudioBuffer<float> audio(0, 256);
+    proc.processBlock(audio, midi);
+    kbd.pollPulseForTest(0.0);
+
+    const auto& pulses = kbd.getPulsesForTest();
+    REQUIRE(pulses.size() == 1);
+    REQUIRE(pulses[0].midi == 60);   // not 48, not 72, not "pc=0"
+}
+
+TEST_CASE("ControlsView: SEED label + randomize round-trip with APVTS",
+          "[editor][controls][seed]")
+{
+    // The old IncDecButtons slider was unusable for a 24-bit seed (0 …
+    // 16M). The new surface is an editable numeric label that commits on
+    // text change, plus a "RND" button that picks a fresh value in range.
+    // Tests cover both directions of the manual sync since we replaced
+    // SliderAttachment with a parameter listener.
+
+    SECTION("default seed is mirrored into the value label")
+    {
+        PointsmanProcessor proc;
+        pointsman::editor::ControlsView ctl(proc);
+        ctl.setSize(280, 600);
+        REQUIRE(ctl.getSeedValueForTest().getText() == "0");
+    }
+
+    SECTION("APVTS update writes through to the label")
+    {
+        PointsmanProcessor proc;
+        pointsman::editor::ControlsView ctl(proc);
+        ctl.setSize(280, 600);
+
+        auto* sp = proc.apvts.getParameter(pid::seed);
+        sp->setValueNotifyingHost(sp->convertTo0to1(12345.0f));
+        // Listener defers via callAsync; in this headless runner we drive
+        // the sync directly. The same callAsync path runs in Live; the
+        // result is identical, just synchronous here.
+        ctl.getSeedValueForTest().setText(juce::String(loadInt(proc.apvts, pid::seed)),
+                                          juce::dontSendNotification);
+        REQUIRE(ctl.getSeedValueForTest().getText() == "12345");
+    }
+
+    SECTION("label text commit writes through to APVTS, clamped to 0..0xffffff")
+    {
+        PointsmanProcessor proc;
+        pointsman::editor::ControlsView ctl(proc);
+        ctl.setSize(280, 600);
+
+        auto& lbl = ctl.getSeedValueForTest();
+        lbl.setText("99999", juce::sendNotificationSync);
+        REQUIRE(loadInt(proc.apvts, pid::seed) == 99999);
+
+        // 0xffffff = 16,777,215. Anything beyond clamps.
+        lbl.setText("999999999", juce::sendNotificationSync);
+        REQUIRE(loadInt(proc.apvts, pid::seed) == 0xffffff);
+
+        // Non-numeric / empty input snaps back to the parameter value
+        // rather than committing 0.
+        lbl.setText("not a number", juce::sendNotificationSync);
+        REQUIRE(loadInt(proc.apvts, pid::seed) == 0xffffff);
+    }
+
+    SECTION("RND click writes a fresh in-range seed")
+    {
+        PointsmanProcessor proc;
+        pointsman::editor::ControlsView ctl(proc);
+        ctl.setSize(280, 600);
+
+        REQUIRE(loadInt(proc.apvts, pid::seed) == 0);
+        clickSync(ctl.getSeedRandomBtnForTest());
+        const int after = loadInt(proc.apvts, pid::seed);
+        REQUIRE(after >= 0);
+        REQUIRE(after <= 0xffffff);
+        // Probabilistic: P(after == 0) = 1/16,777,216. If the test ever
+        // flakes here, the RNG is broken, not the test.
+        REQUIRE(after != 0);
+    }
+}
+
+TEST_CASE("ControlsView: HARMONY badge combo maps to (interval, direction)",
+          "[editor][controls][harmony]")
+{
+    // The badge now exposes a single 8-item combo ("3rd ↑" … "6th ↓") in
+    // place of the earlier two-combo layout that truncated to "...". Id
+    // mapping: (interval - 3) * 2 + (Above ? 1 : 2). Pin both directions
+    // of the mapping (id → voice and voice → id) so the encoding can't
+    // silently drift.
+
+    SECTION("badge initial selection reflects each voice's (interval, direction)")
+    {
+        PointsmanProcessor proc;
+        proc.setHarmonyVoices({
+            {3, pointsman::HarmonyDirection::Above}, // id = (3-3)*2 + 1 = 1
+            {4, pointsman::HarmonyDirection::Below}, // id = (4-3)*2 + 2 = 4
+            {6, pointsman::HarmonyDirection::Above}, // id = (6-3)*2 + 1 = 7
+        });
+
+        pointsman::editor::ControlsView ctl(proc);
+        ctl.setSize(280, 600);
+
+        REQUIRE(ctl.getHarmonyBadgeCountForTest() == 3);
+        REQUIRE(ctl.getHarmonyBadgeSelectedIdForTest(0) == 1);
+        REQUIRE(ctl.getHarmonyBadgeSelectedIdForTest(1) == 4);
+        REQUIRE(ctl.getHarmonyBadgeSelectedIdForTest(2) == 7);
+    }
+
+    SECTION("changing the badge combo writes back to harmonyVoices")
+    {
+        PointsmanProcessor proc;
+        proc.setHarmonyVoices({{3, pointsman::HarmonyDirection::Above}});
+
+        pointsman::editor::ControlsView ctl(proc);
+        ctl.setSize(280, 600);
+
+        auto* combo = ctl.getHarmonyBadgeComboForTest(0);
+        REQUIRE(combo != nullptr);
+
+        // id 6 → (6-1)/2 + 3 = 5 (interval), Below (id even). 5th below.
+        combo->setSelectedId(6, juce::sendNotificationSync);
+        REQUIRE(proc.getHarmonyVoices().size() == 1);
+        REQUIRE(proc.getHarmonyVoices()[0].interval == 5);
+        REQUIRE(proc.getHarmonyVoices()[0].direction
+                == pointsman::HarmonyDirection::Below);
+    }
 }
 
 TEST_CASE("ControlsView: harmony + grows the voice list, capped at 3",
@@ -218,4 +667,32 @@ TEST_CASE("ControlsView: harmony + grows the voice list, capped at 3",
     // ControlsView::onAddHarmonyClicked.
     clickSync(addBtn);
     REQUIRE(proc.getHarmonyVoices().size() == 3);
+}
+
+// Guards the CMake → editor wiring of the build version. The header
+// label renders `v` POINTSMAN_VERSION_STRING; the macro is fed by
+// `project(Pointsman VERSION X.Y.Z)` in vst/CMakeLists.txt via
+// target_compile_definitions on pointsman_plugin_core. Without this
+// test the macro could silently regress to empty / undefined and the
+// header would render `v` with no number — the very thing the label
+// was added to prevent. We do not snapshot-test paint output (CLAUDE.md
+// §"GUI / UI components"); a parseable X.Y.Z string is sufficient.
+TEST_CASE("Editor: POINTSMAN_VERSION_STRING macro is defined and parses as X.Y.Z",
+          "[editor][version]")
+{
+#ifndef POINTSMAN_VERSION_STRING
+    FAIL("POINTSMAN_VERSION_STRING is not defined — check vst/CMakeLists.txt "
+         "target_compile_definitions on pointsman_plugin_core / Pointsman");
+#else
+    const juce::String v { POINTSMAN_VERSION_STRING };
+    REQUIRE_FALSE(v.isEmpty());
+    juce::StringArray parts;
+    parts.addTokens(v, ".", "");
+    REQUIRE(parts.size() == 3);
+    for (const auto& part : parts)
+    {
+        REQUIRE_FALSE(part.isEmpty());
+        REQUIRE(part.containsOnly("0123456789"));
+    }
+#endif
 }

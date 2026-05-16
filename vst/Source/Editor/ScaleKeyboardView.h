@@ -25,17 +25,23 @@ namespace pointsman::editor
     // PULSE_DECAY_MS so the cross-target glow feel is identical.
     constexpr double kPulseDecayMs = 250.0;
 
-    // Pulse list entry. Same shape as scaleKeyboard.logic.ts Pulse type.
-    // `baseIntensity` is the velocity-derived value at age=0 and never
-    // changes; `intensity` is the current decayed value (linear over
-    // kPulseDecayMs) and is rederived each tick from
+    // Pulse list entry. `baseIntensity` is the velocity-derived value at
+    // age=0 and never changes; `intensity` is the current decayed value
+    // (linear over kPulseDecayMs) and is rederived each tick from
     // `baseIntensity * (1 - ageMs / kPulseDecayMs)`. Storing the base
     // separately avoids reciprocal-multiply reconstruction every tick,
     // which accumulated floating-point error as ageMs approached the
     // decay bound.
+    //
+    // `midi` is the exact emitted MIDI pitch — not pitch-class. The vst
+    // keyboard is 3 octaves (kbdOctLo..kbdOctHi), so glow must target the
+    // specific key that sounded, not every octave of its pc. Notes outside
+    // the visible band are dropped at poll time (see pollPulseForTest).
+    // (m4l renders one octave and folds to pc; that's why its analogous
+    // type stores pc instead — keep them divergent on purpose.)
     struct Pulse
     {
-        int    pc;            // 0..11
+        int    midi;          // exact MIDI pitch, within visible kbdOct range
         double baseIntensity; // 0..1, set once at creation
         double intensity;     // current decayed value, recomputed each tick
         double ageMs;         // 0..kPulseDecayMs; entries with age >= bound pruned
@@ -98,9 +104,11 @@ namespace pointsman::editor
         // lastEmittedPulse atomic and decays existing pulses at ~60fps.
         void timerCallback() override;
 
-        // Sum of overlapping pulse intensities for `pc`, capped at 1.
-        // Mirrors scaleKeyboard.jsui.js pulseGlow().
-        double pulseGlowFor(int pc) const noexcept;
+        // Sum of overlapping pulse intensities for the exact MIDI key,
+        // capped at 1. Matches by MIDI pitch (not pc), so only the key
+        // that was actually emitted glows — the other two visible octaves
+        // of the same pc stay quiet.
+        double pulseGlowFor(int midi) const noexcept;
 
         PointsmanProcessor& processor_;
 

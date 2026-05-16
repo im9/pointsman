@@ -88,6 +88,11 @@ target_compile_definitions(pointsman_plugin_core PUBLIC
     JUCE_USE_CURL=0
     JUCE_WEB_BROWSER=0
     JUCE_STANDALONE_APPLICATION=0
+    # Exposed to PluginEditor so the header can render the build version
+    # (mirrors the plist version reported to the host). Source of truth
+    # is project(Pointsman VERSION ...) at the top of this file; the
+    # release skill bumps it as Step 0 before tagging.
+    POINTSMAN_VERSION_STRING="${PROJECT_VERSION}"
 )
 
 # --- Plugin -------------------------------------------------------------------
@@ -137,6 +142,7 @@ target_link_libraries(Pointsman PRIVATE
 
 target_compile_definitions(Pointsman PRIVATE
     JUCE_IGNORE_VST3_MISMATCHED_PARAMETER_ID_WARNING=1
+    POINTSMAN_VERSION_STRING="${PROJECT_VERSION}"
 )
 
 # CLAP wrapper (ADR 003 §"Plugin format"): clap-juce-extensions derives

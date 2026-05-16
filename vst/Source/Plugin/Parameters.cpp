@@ -83,6 +83,22 @@ namespace pointsman
             PID{pid::seed, versionHint}, "Seed",
             0, 0xffffff, defaults::seed));
 
+        // Keyboard display range. Two MIDI Int params bound to a
+        // TwoValueHorizontal slider in the editor's DISPLAY group.
+        // Bounds 36..108 = C3..C8: lower bound matches the legacy
+        // kbdOctLo == 3 anchor so users never see octave -1 / 0 / 1
+        // notes (Pointsman is musical, not a piano keyboard demo), and
+        // the upper bound covers the practical input range. Append-only
+        // per ADR 003 §"Parameter persistence" — older state trees
+        // without these params fall back to APVTS's default = 36/71,
+        // which matches the pre-feature C3..B5 layout.
+        layout.add(std::make_unique<API>(
+            PID{pid::kbdRangeLoNote, versionHint}, "Keyboard Range Lo",
+            36, 108, defaults::kbdRangeLoNote));
+        layout.add(std::make_unique<API>(
+            PID{pid::kbdRangeHiNote, versionHint}, "Keyboard Range Hi",
+            36, 108, defaults::kbdRangeHiNote));
+
         return layout;
     }
 }

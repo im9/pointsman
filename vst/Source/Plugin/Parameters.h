@@ -24,6 +24,13 @@ namespace pointsman::pid
     inline constexpr const char* inputChannel     = "inputChannel";
     inline constexpr const char* controlChannel   = "controlChannel";
     inline constexpr const char* seed             = "seed";
+    // Keyboard display range (low / high MIDI). View-state, but persisted
+    // with the host project so users can pick a per-session register and
+    // have it reload. Bounds 24..108 (C1..C8) match the standard 88-key
+    // piano window; the slider is also responsible for enforcing
+    // hi >= lo + 11 (≥1 octave displayed).
+    inline constexpr const char* kbdRangeLoNote   = "kbdRangeLoNote";
+    inline constexpr const char* kbdRangeHiNote   = "kbdRangeHiNote";
 }
 
 namespace pointsman::defaults
@@ -40,6 +47,8 @@ namespace pointsman::defaults
     inline constexpr int    inputChannel     = 0;   // omni
     inline constexpr int    controlChannel   = 1;
     inline constexpr int    seed             = 0;
+    inline constexpr int    kbdRangeLoNote   = 36; // C3 — matches the legacy
+    inline constexpr int    kbdRangeHiNote   = 71; // B5 — fixed 3-oct window
 }
 
 namespace pointsman

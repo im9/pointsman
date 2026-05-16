@@ -31,34 +31,16 @@ namespace pointsman::editor
     {
         constexpr std::array<int, 7> kWhitePcs = {0, 2, 4, 5, 7, 9, 11};
         constexpr std::array<int, 5> kBlackPcs = {1, 3, 6, 8, 10};
-
-        // White-key index offsets for black keys, expressed in white-key
-        // widths from the octave's left edge. Mirrors inboil's
-        // BLACK_KEY_OFFSETS map.
-        float blackKeyOffset(int pc)
-        {
-            switch (pc)
-            {
-                case 1:  return 0.6f;
-                case 3:  return 1.7f;
-                case 6:  return 3.65f;
-                case 8:  return 4.7f;
-                case 10: return 5.75f;
-                default: return 0.0f;
-            }
-        }
-
-        constexpr std::array<const char*, 12> kNoteNames = {
-            "C","C#","D","D#","E","F","F#","G","G#","A","A#","B"
-        };
     }
 
     ScaleKeyboardView::ScaleKeyboardView(PointsmanProcessor& p)
         : processor_(p)
     {
-        processor_.apvts.addParameterListener(pid::scale, this);
-        processor_.apvts.addParameterListener(pid::root,  this);
-        processor_.apvts.addParameterListener(pid::mode,  this);
+        processor_.apvts.addParameterListener(pid::scale,          this);
+        processor_.apvts.addParameterListener(pid::root,           this);
+        processor_.apvts.addParameterListener(pid::mode,           this);
+        processor_.apvts.addParameterListener(pid::kbdRangeLoNote, this);
+        processor_.apvts.addParameterListener(pid::kbdRangeHiNote, this);
 
         // Initialise pulse-version baseline so a stale value left from
         // a prior editor instance does not trigger a phantom pulse.
@@ -71,34 +53,97 @@ namespace pointsman::editor
     ScaleKeyboardView::~ScaleKeyboardView()
     {
         stopTimer();
-        processor_.apvts.removeParameterListener(pid::scale, this);
-        processor_.apvts.removeParameterListener(pid::root,  this);
-        processor_.apvts.removeParameterListener(pid::mode,  this);
+        processor_.apvts.removeParameterListener(pid::scale,          this);
+        processor_.apvts.removeParameterListener(pid::root,           this);
+        processor_.apvts.removeParameterListener(pid::mode,           this);
+        processor_.apvts.removeParameterListener(pid::kbdRangeLoNote, this);
+        processor_.apvts.removeParameterListener(pid::kbdRangeHiNote, this);
+    }
+
+    // Maps a black key's pitch class to its visual offset within the
+    // preceding white key, expressed in white-key-widths. Same numerals
+    // as inboil's BLACK_KEY_OFFSETS but re-expressed relative to the
+    // preceding white key (not the octave's leftmost C) so the dynamic
+    // range layout below can position a black key from any starting
+    // octave without recomputing octave-relative offsets.
+    namespace
+    {
+        float blackKeyOffsetFromPrecedingWhite(int pc) noexcept
+        {
+            switch (pc)
+            {
+                case 1:  return 0.6f;    // C# past C  (inboil 0.6 absolute)
+                case 3:  return 0.7f;    // D# past D  (inboil 1.7 - 1.0)
+                case 6:  return 0.65f;   // F# past F  (inboil 3.65 - 3.0)
+                case 8:  return 0.7f;    // G# past G  (inboil 4.7 - 4.0)
+                case 10: return 0.75f;   // A# past A  (inboil 5.75 - 5.0)
+                default: return 0.0f;
+            }
+        }
     }
 
     std::vector<ScaleKeyboardView::KeyInfo> ScaleKeyboardView::buildKeys() const
     {
         std::vector<KeyInfo> keys;
-        const int wkW = theme::kbdWhiteW;
-        const int wkH = theme::kbdWhiteH;
-        const int bkW = theme::kbdBlackW;
-        const int bkH = theme::kbdBlackH;
 
-        for (int oct = theme::kbdOctLo; oct <= theme::kbdOctHi; ++oct)
+        const int loMidi = static_cast<int>(
+            processor_.apvts.getRawParameterValue(pid::kbdRangeLoNote)->load());
+        const int hiMidi = static_cast<int>(
+            processor_.apvts.getRawParameterValue(pid::kbdRangeHiNote)->load());
+        if (hiMidi < loMidi) return keys;
+
+        // Count white keys in the displayed range. The keyboard column's
+        // local width divides equally among them, so a narrow slider
+        // yields chunky keys and a wide one yields slim keys — the
+        // tradeoff for not auto-resizing the host window when the range
+        // changes (per user direction).
+        int whiteCount = 0;
+        for (int m = loMidi; m <= hiMidi; ++m)
         {
-            const int octOffsetX = (oct - theme::kbdOctLo) * 7 * wkW;
+            const int pc = ((m % 12) + 12) % 12;
+            if (std::find(kWhitePcs.begin(), kWhitePcs.end(), pc) != kWhitePcs.end())
+                ++whiteCount;
+        }
+        if (whiteCount == 0) return keys;
 
-            for (int wi = 0; wi < (int) kWhitePcs.size(); ++wi)
+        const int availW = getWidth();
+        if (availW <= 0) return keys;
+
+        const float wkW = static_cast<float>(availW) / static_cast<float>(whiteCount);
+        const int   wkH = theme::kbdWhiteH;
+        const int   bkW = (int) std::lround(wkW * theme::kbdBlackToWhiteWidthRatio);
+        const int   bkH = theme::kbdBlackH;
+
+        int   whiteIdx     = 0;
+        int   lastWhiteX   = 0;
+        bool  haveWhite    = false;
+
+        for (int m = loMidi; m <= hiMidi; ++m)
+        {
+            const int pc = ((m % 12) + 12) % 12;
+            const bool isWhite = std::find(kWhitePcs.begin(), kWhitePcs.end(), pc) != kWhitePcs.end();
+            if (isWhite)
             {
-                const int pc = kWhitePcs[(std::size_t) wi];
-                keys.push_back({pc, oct * 12 + pc,
-                                octOffsetX + wi * wkW, wkW, wkH, false});
+                // Tile each white key exactly to the next slot boundary
+                // so neighbouring keys share an edge. A naive width =
+                // lround(wkW) accumulates rounding drift and shows up as
+                // a 1 px gap or overlap every few keys, which reads as
+                // "the keyboard has random spacing" at narrow widths.
+                const int x     = (int) std::lround(static_cast<float>(whiteIdx)       * wkW);
+                const int xNext = (int) std::lround(static_cast<float>(whiteIdx + 1)   * wkW);
+                keys.push_back({pc, m, x, xNext - x, wkH, false});
+                lastWhiteX = x;
+                haveWhite = true;
+                ++whiteIdx;
             }
-            for (int pc : kBlackPcs)
+            else if (haveWhite)
             {
-                const int x = octOffsetX
-                            + (int) std::lround(blackKeyOffset(pc) * (float) wkW);
-                keys.push_back({pc, oct * 12 + pc, x, bkW, bkH, true});
+                // Black keys reference the preceding white in the same
+                // octave; if the range starts on a black key we drop the
+                // leading black until the first white anchors the row.
+                const float offset = blackKeyOffsetFromPrecedingWhite(pc);
+                const int x = lastWhiteX + (int) std::lround(offset * wkW);
+                keys.push_back({pc, m, x, bkW, bkH, true});
             }
         }
         return keys;
@@ -173,7 +218,13 @@ namespace pointsman::editor
 
     void ScaleKeyboardView::pollPulseForTest(double dtMs)
     {
-        // Step 1 — pick up any new emit from the audio thread.
+        // Step 1 — pick up any new emit from the audio thread. Notes
+        // outside the visible band (kbdOctLo..kbdOctHi) have no key to
+        // glow on, so drop them at this boundary rather than storing a
+        // pulse that paint would silently ignore. Earlier code folded the
+        // pitch to a pc, which lit all three visible octaves of that pc
+        // at once on every emit — the misbehaviour this branch was
+        // written to fix.
         const uint64_t packed = processor_.lastEmittedPulse.load(std::memory_order_acquire);
         const uint32_t version = PointsmanProcessor::unpackPulseVersion(packed);
         if (version != lastSeenPulseVersion_)
@@ -181,11 +232,17 @@ namespace pointsman::editor
             lastSeenPulseVersion_ = version;
             const int pitch = PointsmanProcessor::unpackPulsePitch(packed);
             const int vel   = PointsmanProcessor::unpackPulseVelocity(packed);
-            const int pc    = ((pitch % 12) + 12) % 12;
-            double base = static_cast<double>(vel) / 127.0;
-            if (base < 0.0) base = 0.0;
-            if (base > 1.0) base = 1.0;
-            pulses_.push_back({pc, base, base, 0.0});
+            const int kbdMidiLo = static_cast<int>(
+                processor_.apvts.getRawParameterValue(pid::kbdRangeLoNote)->load());
+            const int kbdMidiHi = static_cast<int>(
+                processor_.apvts.getRawParameterValue(pid::kbdRangeHiNote)->load());
+            if (pitch >= kbdMidiLo && pitch <= kbdMidiHi)
+            {
+                double base = static_cast<double>(vel) / 127.0;
+                if (base < 0.0) base = 0.0;
+                if (base > 1.0) base = 1.0;
+                pulses_.push_back({pitch, base, base, 0.0});
+            }
         }
 
         // Step 2 — age existing pulses and prune. Linear decay matching
@@ -221,11 +278,11 @@ namespace pointsman::editor
         if (!pulses_.empty() || before > 0) repaint();
     }
 
-    double ScaleKeyboardView::pulseGlowFor(int pc) const noexcept
+    double ScaleKeyboardView::pulseGlowFor(int midi) const noexcept
     {
         double sum = 0.0;
         for (const auto& p : pulses_)
-            if (p.pc == pc) sum += p.intensity;
+            if (p.midi == midi) sum += p.intensity;
         if (sum > 1.0) sum = 1.0;
         return sum;
     }
@@ -263,14 +320,25 @@ namespace pointsman::editor
         const int rootPc = static_cast<int>(
             processor_.apvts.getRawParameterValue(pid::root)->load());
 
-        // White keys first (so blacks paint on top).
+        // White keys first (so blacks paint on top). The inset between
+        // adjacent keys is the smaller of "1 px" or "10 % of the key
+        // width" so a wide-range setting (key width ≈ 8 px) doesn't have
+        // a 25 % visual gap eating each key.
+        const auto whiteInset = [&keys]
+        {
+            for (const auto& k : keys)
+                if (!k.isBlack)
+                    return std::min(1.0f, static_cast<float>(k.w) * 0.10f);
+            return 1.0f;
+        }();
+
         for (const auto& k : keys)
         {
             if (k.isBlack) continue;
 
-            const juce::Rectangle<float> r((float) k.x + 1.0f,
+            const juce::Rectangle<float> r((float) k.x + whiteInset,
                                            (float) theme::kbdPadTop,
-                                           (float) (k.w - 2),
+                                           (float) k.w - whiteInset * 2.0f,
                                            (float) k.h);
 
             const bool inChord = chordSet.count(k.pc) > 0;
@@ -280,9 +348,9 @@ namespace pointsman::editor
             if (modeChoice == ModeChoice::Chord && inChord)
                 fill = theme::oliveBg;
             else if (inScale)
-                fill = theme::fg.withAlpha(0.06f);
+                fill = theme::kbdWhiteInScale;
             else
-                fill = theme::bg.darker(0.05f);
+                fill = theme::kbdWhiteOutScale;
 
             g.setColour(fill);
             g.fillRoundedRectangle(r, 3.0f);
@@ -291,33 +359,45 @@ namespace pointsman::editor
             // freshly emitted note flashes and fades over kPulseDecayMs.
             // Drawn before the border so it sits beneath the key outline
             // (matches m4l's draw order: pulse glow under the dot/border).
-            const double whiteGlow = pulseGlowFor(k.pc);
+            // Keyed on `k.midi` (not pc) so only the actually-sounding
+            // key glows — same pc in another visible octave stays dark.
+            const double whiteGlow = pulseGlowFor(k.midi);
             if (whiteGlow > 0.0)
             {
                 g.setColour(theme::pulseGlow.withAlpha(static_cast<float>(whiteGlow * 0.6)));
                 g.fillRoundedRectangle(r, 3.0f);
             }
 
-            g.setColour(inChord ? theme::olive : theme::lzBorder);
+            g.setColour(inChord ? theme::olive : theme::kbdKeyStroke);
             g.drawRoundedRectangle(r, 3.0f, 1.0f);
 
-            // In-scale dot under the key.
+            // In-scale dot under the key. Radius / position copied from
+            // inboil QuantizerSheet.svelte (white-key dot: r=4 at
+            // cy = h-12). The note-name label inboil draws below the dot
+            // is intentionally absent: the dynamic-range slider means
+            // white keys can become as narrow as ~12 px (81-key span),
+            // where C/D/E/... text either clips or fights the dot for
+            // space. Octave identity reads off the range slider's value
+            // labels instead.
             if (inScale)
             {
-                const float dotR = 3.0f;
+                constexpr float dotR = 4.0f;
                 const float cx = r.getCentreX();
                 const float cy = r.getBottom() - 12.0f;
-                g.setColour(inChord ? theme::olive : theme::fg.withAlpha(0.45f));
+                g.setColour(inChord ? theme::olive : theme::kbdWhiteDot);
                 g.fillEllipse(cx - dotR, cy - dotR, dotR * 2, dotR * 2);
             }
 
-            // Note label (small, top of key).
-            g.setColour(theme::fg.withAlpha(k.pc == rootPc ? 0.85f : 0.35f));
-            g.setFont(theme::dataFont(theme::fsSm, k.pc == rootPc));
-            g.drawText(kNoteNames[(std::size_t) k.pc],
-                       (int) r.getX(), (int) r.getBottom() - 28,
-                       (int) r.getWidth(), 12,
-                       juce::Justification::centred);
+            // Subtle root marker — a thin underline at the bottom of the
+            // root pc's white key. Replaces the bold note label that
+            // previously identified the root by font weight; the
+            // underline survives at narrow key widths where text would
+            // be illegible.
+            if (k.pc == rootPc)
+            {
+                g.setColour(theme::fg.withAlpha(0.85f));
+                g.fillRect(r.getX(), r.getBottom() - 4.0f, r.getWidth(), 2.0f);
+            }
         }
 
         // Black keys.
@@ -337,24 +417,31 @@ namespace pointsman::editor
             if (modeChoice == ModeChoice::Chord && inChord)
                 fill = theme::olive;
             else
-                fill = theme::fg.withAlpha(inScale ? 0.70f : 0.85f);
+                fill = inScale ? theme::kbdBlackInScale : theme::kbdBlackOutScale;
 
             g.setColour(fill);
-            g.fillRoundedRectangle(r, 2.0f);
+            g.fillRoundedRectangle(r, 3.0f);
 
-            const double blackGlow = pulseGlowFor(k.pc);
+            const double blackGlow = pulseGlowFor(k.midi);
             if (blackGlow > 0.0)
             {
                 g.setColour(theme::pulseGlow.withAlpha(static_cast<float>(blackGlow * 0.7)));
-                g.fillRoundedRectangle(r, 2.0f);
+                g.fillRoundedRectangle(r, 3.0f);
             }
 
+            // Inboil draws the same 1 px stroke on black keys as on
+            // whites; copy that so the keyboard reads as one consistent
+            // surface in chord mode (olive border on lit keys).
+            g.setColour(inChord ? theme::olive : theme::kbdKeyStroke);
+            g.drawRoundedRectangle(r, 3.0f, 1.0f);
+
+            // In-scale dot. Inboil black-key dot: r=3, cy = h-10.
             if (inScale)
             {
-                const float dotR = 2.5f;
+                constexpr float dotR = 3.0f;
                 const float cx = r.getCentreX();
-                const float cy = r.getBottom() - 9.0f;
-                g.setColour(inChord ? theme::olive : theme::bg.withAlpha(0.85f));
+                const float cy = r.getBottom() - 10.0f;
+                g.setColour(inChord ? theme::olive : theme::kbdBlackDot);
                 g.fillEllipse(cx - dotR, cy - dotR, dotR * 2, dotR * 2);
             }
         }

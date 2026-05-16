@@ -35,6 +35,18 @@ namespace pointsman::editor::theme
     inline const juce::Colour lzBorderStrong= fgAlpha(0.15f);
     inline const juce::Colour oliveBg       = oliveAlpha(0.15f);
 
+    // Keyboard-specific overlays. Values are direct copies of inboil's
+    // QuantizerSheet.svelte keyFill / keyStroke branches and must match
+    // 1:1 — the keyboard is the most-recognisable inboil surface and any
+    // alpha drift shows up as "looks similar but off."
+    inline const juce::Colour kbdKeyStroke      = fgAlpha(0.20f);
+    inline const juce::Colour kbdWhiteOutScale  = bgAlpha(0.55f);
+    inline const juce::Colour kbdWhiteInScale   = oliveAlpha(0.15f);
+    inline const juce::Colour kbdBlackOutScale  = fgAlpha(0.85f);
+    inline const juce::Colour kbdBlackInScale   = fgAlpha(0.70f);
+    inline const juce::Colour kbdWhiteDot       = fgAlpha(0.35f);
+    inline const juce::Colour kbdBlackDot       = bgAlpha(0.70f);
+
     // ── Type scale (inboil --fs-*) ─────────────────────────────────
     constexpr float fsSm = 9.0f;   // group legends
     constexpr float fsMd = 10.0f;  // control labels
@@ -54,14 +66,19 @@ namespace pointsman::editor::theme
     constexpr int railPad       = 12;
 
     // ── Keyboard geometry (inboil QuantizerSheet WK_* / BK_*) ──────
-    // Sized smaller than inboil to fit a 3-octave keyboard inside the
-    // host plugin window without a viewport scroll. Black-key offsets
-    // are inboil's BLACK_KEY_OFFSETS multiplied by WK_W at draw time.
-    constexpr int kbdOctLo = 3;
-    constexpr int kbdOctHi = 5;
-    constexpr int kbdWhiteW = 26;
-    constexpr int kbdWhiteH = 86;
-    constexpr int kbdBlackW = 16;
-    constexpr int kbdBlackH = 52;
-    constexpr int kbdPadTop = 6;
+    // Heights stay 1:1 with inboil/src/lib/components/QuantizerSheet.svelte.
+    // Widths used to be fixed at 28 px (white) / 18 px (black) per the
+    // inboil reference, but the editor now exposes a per-project keyboard
+    // range slider (pid::kbdRangeLoNote / kbdRangeHiNote, default C3..B5).
+    // So the keys fill their allocated horizontal column instead of an
+    // intrinsic 588 px block — kbdWhiteW / kbdBlackW are derived at paint
+    // time as `availableWidth / whiteKeyCount` (white) and the 18/28
+    // ratio is preserved for blacks. kbdContentWidth below remains as the
+    // editor's natural-size budget (= legacy 588 px); manual window
+    // resize gives the user more breathing room when the range is wide.
+    constexpr int kbdContentWidth = 21 * 28; // 21 white keys × 28 px
+    constexpr int kbdWhiteH = 100;
+    constexpr int kbdBlackH = 60;
+    constexpr int kbdPadTop = 2;
+    constexpr float kbdBlackToWhiteWidthRatio = 18.0f / 28.0f;
 }
