@@ -1,8 +1,9 @@
-// Editor logic-layer tests for ADR 003 Phase 3.
+// Editor logic-layer tests for ADR 003 Phase 3 + Phase 5.
 //
 // Per ADR 003 §"UI logic / renderer split" and CLAUDE.md §"GUI / UI
 // components": only the testable surface is exercised here — hit testing,
-// mode-pill click → APVTS mode, harmony-add → processor.harmonyVoices.
+// mode-pill click → APVTS mode, harmony-add → processor.harmonyVoices,
+// feel/drift slider → APVTS, mode description text.
 // Visual quality, font rendering, and host-paint cadence stay manual.
 //
 // Tests run inside the Catch2 session opened by tests/main.cpp, which
@@ -49,6 +50,11 @@ namespace
     int loadInt(juce::AudioProcessorValueTreeState& s, const char* p)
     {
         return static_cast<int>(s.getRawParameterValue(p)->load());
+    }
+
+    float loadFloat(juce::AudioProcessorValueTreeState& s, const char* p)
+    {
+        return s.getRawParameterValue(p)->load();
     }
 
     // juce::Button::triggerClick() routes through Component::postCommandMessage
@@ -141,11 +147,20 @@ TEST_CASE("ControlsView: every visible child has non-zero size after resized()",
         return count;
     };
 
-    SECTION("no voices")
+    SECTION("no voices (user explicitly cleared the default triad)")
+    {
+        PointsmanProcessor proc;
+        proc.setHarmonyVoices({});  // override the default 1-3-5 triad
+        pointsman::editor::ControlsView ctl(proc);
+        ctl.setSize(280, 570);  // theme::railWidth × rightRailContentHeight
+        REQUIRE(countZeroSizedVisible(countZeroSizedVisible, ctl) == 0);
+    }
+
+    SECTION("default voices (1-3-5 triad pre-populated)")
     {
         PointsmanProcessor proc;
         pointsman::editor::ControlsView ctl(proc);
-        ctl.setSize(280, 570);  // theme::railWidth × rightRailContentHeight
+        ctl.setSize(280, 570);
         REQUIRE(countZeroSizedVisible(countZeroSizedVisible, ctl) == 0);
     }
 
@@ -163,7 +178,7 @@ TEST_CASE("ControlsView: every visible child has non-zero size after resized()",
     }
 }
 
-TEST_CASE("ControlsView: SCALE/ROOT/TRIG combos reflect APVTS at construction",
+TEST_CASE("ControlsView: SCALE/ROOT combos reflect APVTS at construction",
           "[editor][controls][init]")
 {
     // ComboBoxAttachment's initial setSelectedId silently no-ops if the
@@ -184,40 +199,36 @@ TEST_CASE("ControlsView: SCALE/ROOT/TRIG combos reflect APVTS at construction",
 
         REQUIRE(ctl.getScaleComboForTest().getSelectedId()   == 1);
         REQUIRE(ctl.getRootComboForTest().getSelectedId()    == 1);
-        REQUIRE(ctl.getTriggerComboForTest().getSelectedId() == 1);
     }
 
     SECTION("non-default APVTS values populate the combos")
     {
         PointsmanProcessor proc;
-        // 3rd scale, F root, 2nd trigger mode — chosen to avoid the
-        // index-0 case where a blank combo would coincidentally match.
+        // 3rd scale, F root — chosen to avoid the index-0 case where a
+        // blank combo would coincidentally match.
         auto* sp = proc.apvts.getParameter(pid::scale);
         sp->setValueNotifyingHost(sp->convertTo0to1(3.0f));
         auto* rp = proc.apvts.getParameter(pid::root);
         rp->setValueNotifyingHost(rp->convertTo0to1(5.0f));
-        auto* tp = proc.apvts.getParameter(pid::triggerMode);
-        tp->setValueNotifyingHost(tp->convertTo0to1(1.0f));
 
         pointsman::editor::ControlsView ctl(proc);
         ctl.setSize(280, 600);
 
-        REQUIRE(ctl.getScaleComboForTest().getSelectedId()   == 4);
-        REQUIRE(ctl.getRootComboForTest().getSelectedId()    == 6);
-        REQUIRE(ctl.getTriggerComboForTest().getSelectedId() == 2);
+        REQUIRE(ctl.getScaleComboForTest().getSelectedId() == 4);
+        REQUIRE(ctl.getRootComboForTest().getSelectedId()  == 6);
     }
 }
 
-TEST_CASE("ControlsView: IN CH / CTL CH combos round-trip with APVTS",
+TEST_CASE("ControlsView: IN CH combo round-trips with inputChannel APVTS",
           "[editor][controls][routing]")
 {
-    // Routing channels are now ComboBox-driven; +/- buttons were the old
-    // surface. The combo's selectedItemIndex maps bit-exactly to the
+    // Phase 5: routing collapses to IN CH only — CTL CH / TRIG / SEED rows
+    // are gone. The combo's selectedItemIndex maps bit-exactly to the
     // parameter's raw value via JUCE's ComboBoxParameterAttachment
     // (numItems-1 must equal parameter max-min for the mapping to be
     // exact). This test pins that mapping at the boundaries.
 
-    SECTION("inputChannel: item index 0 = OMNI (0), index N = channel N")
+    SECTION("item index 0 = OMNI (0), index N = channel N")
     {
         PointsmanProcessor proc;
         pointsman::editor::ControlsView ctl(proc);
@@ -239,26 +250,6 @@ TEST_CASE("ControlsView: IN CH / CTL CH combos round-trip with APVTS",
         REQUIRE(ctl.getInChComboForTest().getText() == "16");
     }
 
-    SECTION("controlChannel: item index 0 = channel 1, index 15 = channel 16")
-    {
-        PointsmanProcessor proc;
-        pointsman::editor::ControlsView ctl(proc);
-        ctl.setSize(280, 600);
-
-        // Default = 1 → first item selected.
-        REQUIRE(ctl.getCtlChComboForTest().getSelectedItemIndex() == 0);
-        REQUIRE(ctl.getCtlChComboForTest().getText() == "1");
-
-        auto* p = proc.apvts.getParameter(pid::controlChannel);
-        p->setValueNotifyingHost(p->convertTo0to1(10.0f));
-        REQUIRE(ctl.getCtlChComboForTest().getSelectedItemIndex() == 9);
-        REQUIRE(ctl.getCtlChComboForTest().getText() == "10");
-
-        p->setValueNotifyingHost(p->convertTo0to1(16.0f));
-        REQUIRE(ctl.getCtlChComboForTest().getSelectedItemIndex() == 15);
-        REQUIRE(ctl.getCtlChComboForTest().getText() == "16");
-    }
-
     SECTION("combo selection writes back to APVTS")
     {
         PointsmanProcessor proc;
@@ -268,22 +259,21 @@ TEST_CASE("ControlsView: IN CH / CTL CH combos round-trip with APVTS",
         // Pick channel 5 in the IN CH combo (item index 5, id 6).
         ctl.getInChComboForTest().setSelectedItemIndex(5, juce::sendNotificationSync);
         REQUIRE(loadInt(proc.apvts, pid::inputChannel) == 5);
-
-        // Pick channel 12 in the CTL CH combo (item index 11, id 12).
-        ctl.getCtlChComboForTest().setSelectedItemIndex(11, juce::sendNotificationSync);
-        REQUIRE(loadInt(proc.apvts, pid::controlChannel) == 12);
     }
 }
 
 TEST_CASE("ControlsView: clicking each mode pill cycles APVTS mode",
           "[editor][controls]")
 {
+    // Phase 5 (post-merge): only 2 modes — Scale (0) and Chord (1).
+    // The old Harmony mode is gone; Chord absorbs its voice-stack logic
+    // with a default 1-3-5 triad.
     PointsmanProcessor proc;
     pointsman::editor::ControlsView ctl(proc);
     ctl.setSize(280, 600);
 
     auto pills = ctl.getModeButtonsForTest();
-    REQUIRE(pills.size() == 3);
+    REQUIRE(pills.size() == 2);
 
     // Default mode = scale (idx 0).
     REQUIRE(loadInt(proc.apvts, pid::mode) == 0);
@@ -291,11 +281,55 @@ TEST_CASE("ControlsView: clicking each mode pill cycles APVTS mode",
     clickSync(*pills[1]);
     REQUIRE(loadInt(proc.apvts, pid::mode) == 1); // chord
 
-    clickSync(*pills[2]);
-    REQUIRE(loadInt(proc.apvts, pid::mode) == 2); // harmony
-
     clickSync(*pills[0]);
     REQUIRE(loadInt(proc.apvts, pid::mode) == 0); // back to scale
+}
+
+TEST_CASE("ControlsView: mode pill description text reflects the active mode",
+          "[editor][controls][mode]")
+{
+    // Pin the text so the surface intent stays visible in the UI.
+    PointsmanProcessor proc;
+    pointsman::editor::ControlsView ctl(proc);
+    ctl.setSize(280, 600);
+
+    auto pills = ctl.getModeButtonsForTest();
+
+    // Default = scale.
+    REQUIRE(ctl.getModeDescLabelForTest().getText()
+            == juce::String("snap to nearest scale degree"));
+
+    clickSync(*pills[1]); // chord
+    REQUIRE(ctl.getModeDescLabelForTest().getText()
+            == juce::String("expand to a diatonic chord (1 in, N out)"));
+}
+
+TEST_CASE("ControlsView: FEEL slider writes through to apvts::feel",
+          "[editor][controls][humanize]")
+{
+    // Phase 5: humanize collapses to 2 sliders (feel, drift). The
+    // SliderAttachment plumbs slider → APVTS automatically; this test
+    // pins the wiring so a future Parameters refactor cannot silently
+    // disconnect it.
+    PointsmanProcessor proc;
+    pointsman::editor::ControlsView ctl(proc);
+    ctl.setSize(280, 600);
+
+    REQUIRE(loadFloat(proc.apvts, pid::feel) == 0.0f);
+    ctl.getFeelSliderForTest().setValue(0.5, juce::sendNotificationSync);
+    REQUIRE(loadFloat(proc.apvts, pid::feel) == 0.5f);
+}
+
+TEST_CASE("ControlsView: DRIFT slider writes through to apvts::drift",
+          "[editor][controls][humanize]")
+{
+    PointsmanProcessor proc;
+    pointsman::editor::ControlsView ctl(proc);
+    ctl.setSize(280, 600);
+
+    REQUIRE(loadFloat(proc.apvts, pid::drift) == 0.0f);
+    ctl.getDriftSliderForTest().setValue(0.95, juce::sendNotificationSync);
+    REQUIRE(loadFloat(proc.apvts, pid::drift) == 0.95f);
 }
 
 TEST_CASE("ScaleKeyboardView: pulse list grows when processor emits a noteOn",
@@ -357,10 +391,7 @@ TEST_CASE("ScaleKeyboardView: pulse outside the APVTS range slider is dropped",
     // Visible range comes from pid::kbdRangeLoNote / kbdRangeHiNote
     // (defaults 36 / 71 = C3..B5). Notes emitted outside that band have
     // no key to glow, so the pulse must be dropped at poll time rather
-    // than recorded and silently ignored by paint. Dropping at poll
-    // keeps the pulse list small and avoids the pre-fix "all 3 octaves
-    // of that pc glow" misbehaviour from sneaking back in if anyone
-    // widens pulseGlowFor later.
+    // than recorded and silently ignored by paint.
     PointsmanProcessor proc;
     proc.prepareToPlay(44100.0, 256);
     proc.setHostIsPlayingForTest(true);
@@ -390,9 +421,7 @@ TEST_CASE("ScaleKeyboardView: widening the APVTS range admits previously dropped
 {
     // Pin the dynamic-range branch of the pulse poll: a pitch that is
     // out-of-range at one slider setting must be admitted once the user
-    // widens the slider to include it. Catches the regression where
-    // pollPulseForTest accidentally captures the range at construction
-    // time (e.g. via constexpr) instead of reading APVTS on every poll.
+    // widens the slider to include it.
     PointsmanProcessor proc;
     proc.prepareToPlay(44100.0, 256);
     proc.setHostIsPlayingForTest(true);
@@ -426,8 +455,8 @@ TEST_CASE("ControlsView: range slider round-trips with kbdRange APVTS params",
 {
     // The DISPLAY group's TwoValueHorizontal slider has no JUCE-stock
     // attachment; the custom RangeSlider drives both APVTS Int params
-    // by hand. This test pins the two-way path: setting APVTS programmatically
-    // updates the slider min/max, and setting the slider writes back to APVTS.
+    // by hand. This test pins the two-way path: setting the slider
+    // writes back to APVTS.
     PointsmanProcessor proc;
     pointsman::editor::ControlsView ctl(proc);
     ctl.setSize(280, 600);
@@ -435,11 +464,6 @@ TEST_CASE("ControlsView: range slider round-trips with kbdRange APVTS params",
     auto& slider = ctl.getRangeSliderForTest();
     REQUIRE(slider.getMinValue() == defaults::kbdRangeLoNote);
     REQUIRE(slider.getMaxValue() == defaults::kbdRangeHiNote);
-
-    // APVTS → slider (host-driven write). MessageManager::callAsync
-    // marshals the listener, so the slider position lags one async pump.
-    // We can't pump the queue reliably in this runner; instead, verify
-    // the slider→APVTS direction synchronously below.
 
     // Slider → APVTS (user drag). Setting min/max with sendNotification
     // fires onValueChange → writes APVTS.
@@ -456,37 +480,25 @@ TEST_CASE("ControlsView: range slider round-trips with kbdRange APVTS params",
 TEST_CASE("ScaleKeyboardView: buildKeys honours the APVTS range",
           "[editor][keyboard][range]")
 {
-    // Counter-test for the range plumbing on the layout side: changing
-    // the APVTS range params must change the key list buildKeys() emits
-    // (count and MIDI extents). Together with the pulse test above this
-    // pins both halves of the dynamic-range contract.
     PointsmanProcessor proc;
     pointsman::editor::ScaleKeyboardView kbd(proc);
     kbd.setSize(700, 120);
 
     const auto defaultKeys = [&]
     {
-        // Centre of C3 (MIDI 36) must exist; centre of C2 (MIDI 24) must
-        // not (out of default C3..B5). Use note-name semantics rather
-        // than count, because the count depends on inclusive bounds.
+        // Centre of C3 (MIDI 36) must exist.
         const auto c3 = kbd.getKeyCenterForTest(0);
         REQUIRE(c3.x >= 0);
-        // No public way to ask "is MIDI 24 in keys" — accept the C3
-        // presence as the smoke test for the default range here.
     };
     defaultKeys();
 
-    // Narrow the range to C4..B4 (MIDI 48..59, one octave). buildKeys
-    // should now lay out 7 white + 5 black = 12 keys, starting at MIDI 48.
+    // Narrow the range to C4..B4 (MIDI 48..59, one octave).
     proc.apvts.getParameter(pid::kbdRangeLoNote)
         ->setValueNotifyingHost(proc.apvts.getParameter(pid::kbdRangeLoNote)
                                      ->convertTo0to1(48.0f));
     proc.apvts.getParameter(pid::kbdRangeHiNote)
         ->setValueNotifyingHost(proc.apvts.getParameter(pid::kbdRangeHiNote)
                                      ->convertTo0to1(59.0f));
-    // Tap-set-root path goes through getPcAtForTest → buildKeys; the
-    // leftmost white key should now be at the leftmost x and resolve
-    // to pc=0 (C4) on click.
     const auto c4Centre = kbd.getKeyCenterForTest(0);
     REQUIRE(c4Centre.x >= 0);
     REQUIRE(kbd.getPcAtForTest(c4Centre) == 0);
@@ -497,10 +509,9 @@ TEST_CASE("ScaleKeyboardView: pulse glow lights only the exact emitted MIDI key"
 {
     // Counter-test for the same bug from the other direction: emit C4
     // and verify the glow reads non-zero on MIDI 60 but zero on MIDI 48
-    // (C3) and MIDI 72 (C5). Asserted via pulseGlowFor()'s effect — we
-    // don't expose it directly, but each Pulse must carry midi (not pc)
-    // and paint must compare KeyInfo.midi (not pc). The simplest check
-    // is to inspect the pulse list directly: exactly one entry, midi=60.
+    // (C3) and MIDI 72 (C5). Each Pulse must carry midi (not pc) and
+    // paint must compare KeyInfo.midi (not pc). The simplest check is to
+    // inspect the pulse list directly: exactly one entry, midi=60.
     PointsmanProcessor proc;
     proc.prepareToPlay(44100.0, 256);
     proc.setHostIsPlayingForTest(true);
@@ -519,84 +530,12 @@ TEST_CASE("ScaleKeyboardView: pulse glow lights only the exact emitted MIDI key"
     REQUIRE(pulses[0].midi == 60);   // not 48, not 72, not "pc=0"
 }
 
-TEST_CASE("ControlsView: SEED label + randomize round-trip with APVTS",
-          "[editor][controls][seed]")
-{
-    // The old IncDecButtons slider was unusable for a 24-bit seed (0 …
-    // 16M). The new surface is an editable numeric label that commits on
-    // text change, plus a "RND" button that picks a fresh value in range.
-    // Tests cover both directions of the manual sync since we replaced
-    // SliderAttachment with a parameter listener.
-
-    SECTION("default seed is mirrored into the value label")
-    {
-        PointsmanProcessor proc;
-        pointsman::editor::ControlsView ctl(proc);
-        ctl.setSize(280, 600);
-        REQUIRE(ctl.getSeedValueForTest().getText() == "0");
-    }
-
-    SECTION("APVTS update writes through to the label")
-    {
-        PointsmanProcessor proc;
-        pointsman::editor::ControlsView ctl(proc);
-        ctl.setSize(280, 600);
-
-        auto* sp = proc.apvts.getParameter(pid::seed);
-        sp->setValueNotifyingHost(sp->convertTo0to1(12345.0f));
-        // Listener defers via callAsync; in this headless runner we drive
-        // the sync directly. The same callAsync path runs in Live; the
-        // result is identical, just synchronous here.
-        ctl.getSeedValueForTest().setText(juce::String(loadInt(proc.apvts, pid::seed)),
-                                          juce::dontSendNotification);
-        REQUIRE(ctl.getSeedValueForTest().getText() == "12345");
-    }
-
-    SECTION("label text commit writes through to APVTS, clamped to 0..0xffffff")
-    {
-        PointsmanProcessor proc;
-        pointsman::editor::ControlsView ctl(proc);
-        ctl.setSize(280, 600);
-
-        auto& lbl = ctl.getSeedValueForTest();
-        lbl.setText("99999", juce::sendNotificationSync);
-        REQUIRE(loadInt(proc.apvts, pid::seed) == 99999);
-
-        // 0xffffff = 16,777,215. Anything beyond clamps.
-        lbl.setText("999999999", juce::sendNotificationSync);
-        REQUIRE(loadInt(proc.apvts, pid::seed) == 0xffffff);
-
-        // Non-numeric / empty input snaps back to the parameter value
-        // rather than committing 0.
-        lbl.setText("not a number", juce::sendNotificationSync);
-        REQUIRE(loadInt(proc.apvts, pid::seed) == 0xffffff);
-    }
-
-    SECTION("RND click writes a fresh in-range seed")
-    {
-        PointsmanProcessor proc;
-        pointsman::editor::ControlsView ctl(proc);
-        ctl.setSize(280, 600);
-
-        REQUIRE(loadInt(proc.apvts, pid::seed) == 0);
-        clickSync(ctl.getSeedRandomBtnForTest());
-        const int after = loadInt(proc.apvts, pid::seed);
-        REQUIRE(after >= 0);
-        REQUIRE(after <= 0xffffff);
-        // Probabilistic: P(after == 0) = 1/16,777,216. If the test ever
-        // flakes here, the RNG is broken, not the test.
-        REQUIRE(after != 0);
-    }
-}
-
 TEST_CASE("ControlsView: HARMONY badge combo maps to (interval, direction)",
           "[editor][controls][harmony]")
 {
-    // The badge now exposes a single 8-item combo ("3rd ↑" … "6th ↓") in
-    // place of the earlier two-combo layout that truncated to "...". Id
-    // mapping: (interval - 3) * 2 + (Above ? 1 : 2). Pin both directions
-    // of the mapping (id → voice and voice → id) so the encoding can't
-    // silently drift.
+    // The badge exposes a single 8-item combo ("3rd ↑" … "6th ↓").
+    // Id mapping: (interval - 3) * 2 + (Above ? 1 : 2). Pin both
+    // directions of the mapping so the encoding can't silently drift.
 
     SECTION("badge initial selection reflects each voice's (interval, direction)")
     {
@@ -639,11 +578,10 @@ TEST_CASE("ControlsView: HARMONY badge combo maps to (interval, direction)",
 TEST_CASE("ControlsView: harmony + grows the voice list, capped at 3",
           "[editor][controls][harmony]")
 {
-    // Harmony voice list is mutated through PointsmanProcessor::
-    // setHarmonyVoices(), which also syncs the PointsmanState child tree.
-    // The test asserts both the runtime vector and that the cap (max 3,
-    // per concept.md §"Parameter surface") is enforced by the editor.
+    // Start with the user explicitly cleared the default-triad so the
+    // baseline is empty, then exercise the cap from there.
     PointsmanProcessor proc;
+    proc.setHarmonyVoices({});
     pointsman::editor::ControlsView ctl(proc);
     ctl.setSize(280, 600);
 

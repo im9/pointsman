@@ -2995,69 +2995,6 @@
       ],
       "tolerance": 2,
       "expected": 62
-    },
-    {
-      "label": "G major root=7, chord [7,11,2] (G/B/D): input=67 (PC=7, exact chord tone) → 67",
-      "note": 67,
-      "scale": "major",
-      "root": 7,
-      "chord_pcs": [7, 11, 2],
-      "tolerance": 2,
-      "expected": 67
-    },
-    {
-      "label": "G major root=7, chord [7,11,2]: input=68 (PC=8, dist 1 to G=67) → snap to 67",
-      "note": 68,
-      "scale": "major",
-      "root": 7,
-      "chord_pcs": [7, 11, 2],
-      "tolerance": 2,
-      "expected": 67
-    },
-    {
-      "label": "G major root=7, chord [7,11,2]: input=64 (PC=4 E, in scale but not chord; dist 2 to D=62) → snap to 62",
-      "note": 64,
-      "scale": "major",
-      "root": 7,
-      "chord_pcs": [7, 11, 2],
-      "tolerance": 2,
-      "expected": 62
-    },
-    {
-      "label": "G major root=7, chord [7,11,2]: input=70 (PC=10 Bb, dist 1 to B=71) → snap to 71",
-      "note": 70,
-      "scale": "major",
-      "root": 7,
-      "chord_pcs": [7, 11, 2],
-      "tolerance": 2,
-      "expected": 71
-    },
-    {
-      "label": "G major root=7, single-PC chord [7]: input=64 (dist 3 to G=67, beyond tolerance=2) → scale fallback to 64 (E in G major)",
-      "note": 64,
-      "scale": "major",
-      "root": 7,
-      "chord_pcs": [7],
-      "tolerance": 2,
-      "expected": 64
-    },
-    {
-      "label": "F major root=5, chord [5,9,0] (F/A/C): input=65 (PC=5 F, exact) → 65",
-      "note": 65,
-      "scale": "major",
-      "root": 5,
-      "chord_pcs": [5, 9, 0],
-      "tolerance": 2,
-      "expected": 65
-    },
-    {
-      "label": "F major root=5, chord [5,9,0]: input=66 (PC=6 F#, dist 1 to F=65) → snap to 65",
-      "note": 66,
-      "scale": "major",
-      "root": 5,
-      "chord_pcs": [5, 9, 0],
-      "tolerance": 2,
-      "expected": 65
     }
   ],
   "diatonic_shift": [
@@ -4113,69 +4050,6 @@
       "interval": 3,
       "direction": "below",
       "expected": 59
-    },
-    {
-      "label": "G major root=7: 3↑ from 67 (G) → 71 (B); 2 steps up the scale",
-      "note": 67,
-      "scale": "major",
-      "root": 7,
-      "interval": 3,
-      "direction": "above",
-      "expected": 71
-    },
-    {
-      "label": "G major root=7: 3↓ from 67 (G) → 64 (E); 2 steps down",
-      "note": 67,
-      "scale": "major",
-      "root": 7,
-      "interval": 3,
-      "direction": "below",
-      "expected": 64
-    },
-    {
-      "label": "G major root=7: 4↑ from 67 (G) → 72 (C); 3 steps up",
-      "note": 67,
-      "scale": "major",
-      "root": 7,
-      "interval": 4,
-      "direction": "above",
-      "expected": 72
-    },
-    {
-      "label": "G major root=7: 5↑ from 67 (G) → 74 (D); 4 steps up",
-      "note": 67,
-      "scale": "major",
-      "root": 7,
-      "interval": 5,
-      "direction": "above",
-      "expected": 74
-    },
-    {
-      "label": "G major root=7: 6↑ from 67 (G) → 76 (E); 5 steps up",
-      "note": 67,
-      "scale": "major",
-      "root": 7,
-      "interval": 6,
-      "direction": "above",
-      "expected": 76
-    },
-    {
-      "label": "F major root=5: 3↑ from 65 (F) → 69 (A); 2 steps up",
-      "note": 65,
-      "scale": "major",
-      "root": 5,
-      "interval": 3,
-      "direction": "above",
-      "expected": 69
-    },
-    {
-      "label": "F major root=5: 3↓ from 65 (F) → 62 (D); 2 steps down",
-      "note": 65,
-      "scale": "major",
-      "root": 5,
-      "interval": 3,
-      "direction": "below",
-      "expected": 62
     }
   ]
 }

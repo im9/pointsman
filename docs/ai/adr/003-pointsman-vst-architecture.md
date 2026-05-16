@@ -904,95 +904,81 @@ held notes on `inputChannel`, the humanize axes collapse to `feel`
 redesign on a parallel branch (engine semantics are shared, host
 plumbing differs).
 
-- [ ] Update shared test vectors at
+> **Mid-phase course correction (2026-05-17).** The original Phase 5
+> direction implemented `chord` mode as 1-in-1-out (snap to a derived
+> held-input chord context). Manual gate caught that this was
+> indistinguishable from `scale` mode in any realistic use, contradicting
+> the actual intent: **single note becomes a chord (1-in-N-out)**.
+> Phase 5 was re-scoped mid-implementation to merge `chord` and `harmony`
+> into a single `chord` mode that emits the scale-snapped input plus N
+> diatonic voices configured by `harmonyVoices` (default `[{3 above},
+> {5 above}]`). The originally-added `synthesizeTriadFromRoot` /
+> `deriveChordContextMask` engine helpers, `kChordContextRetentionMs`
+> retention timer, per-pc reference counts, and the corresponding
+> JSON test vector sections were all removed in the same cleanup pass.
+> The merged 2-mode surface (`scale` / `chord`) is what shipped.
+
+- [x] **Engine** — Phase 5 shipped scope: `kHarmonyVoicesMax`,
+      `diatonicShift`, and `snapToScale` carry chord-mode output.
+      Shared vectors at
       [docs/ai/quantizer-test-vectors.json](../../../docs/ai/quantizer-test-vectors.json)
-      so `snapToChordTones` cases that previously assumed a
-      precomputed `chordPcs` array also cover the held-input
-      derivation (`heldPcs.size() == 0 / 1 / 2+`). The engine
-      function signature does not change — the processor still
-      passes a precomputed pc mask — but the test vectors gain
-      cases that exercise the engine-internal triad synthesis path
-      `synthesizeTriadFromRoot(scale, root, rootPc)`.
-- [ ] `Source/Engine/State.h`: add `synthesizeTriadFromRoot`,
-      `kChordContextRetentionMs = 150.0` constant. Update
-      `ChordContext` ABI if needed.
-- [ ] `tests/test_Plugin.cpp`: add cases for (a) `mode = chord`,
-      single-note hold on inputChannel → triad context, second
-      attack snaps to chord-tone; (b) retention boundary — 100 ms
-      gap retains, 250 ms gap clears; (c) v1 state tree (with
-      `humanizeVelocity` pid) is silently discarded on load and
-      defaults are restored; (d) `seed` random init produces
-      different values across two `new PluginProcessor` calls
-      (rare-flake risk acknowledged — assert different across 16
-      consecutive constructs, not 2).
-- [ ] `Source/Plugin/Parameters.{h,cpp}`: rewrite parameter
-      layout — remove `humanizeVelocity` / `humanizeGate` /
+      stayed at their pre-Phase-5 sections (build / snap / chord-tones /
+      harmony); the held-input derivation sections added mid-phase were
+      removed when the merge replaced the held-context approach.
+- [x] **Plugin** — Rewrote
+      [vst/Source/Plugin/Parameters.{h,cpp}](../../../vst/Source/Plugin/)
+      to the v2 surface (remove `humanizeVelocity` / `humanizeGate` /
       `humanizeTiming` / `humanizeDrift` / `outputLevel` /
-      `triggerMode` / `controlChannel`, add `feel` and `drift`
-      (top-level pids, no `humanize` prefix on `drift`). Bump
-      `kStateVersion` to `2`.
-- [ ] `Source/Plugin/PluginProcessor.{h,cpp}`:
-      - Constructor seeds `seed` to a random value in `[0,
-        2^24-1]` (using `juce::Random::getSystemRandom()`) before
-        APVTS construction so the random value becomes the
-        parameter's default and is written into state on first
-        save.
-      - `processBlock` updates `heldInputPcs[pc]` and
-        `chordContextMask` on `noteOn` / `noteOff` for
-        `inputChannel`-matching events. Decay timer entries are
-        held in a small fixed-capacity array and pruned every
-        block start.
-      - Routing of `feel` to the three internal axes: each
-        `Humanize` axis (velocity / gate / timing) draws
-        independently with amplitude scaled by `feel`. `drift`
-        feeds the existing EMA across all three.
-      - `setStateInformation` recognises a v1 state tree (presence
-        of a removed pid or `PointsmanState.version != "2"`) and
-        discards it, logging "Pointsman: discarding pre-v2
-        state". Default-construct on discard.
-- [ ] `Source/Editor/ControlsView.{h,cpp}`:
-      - Humanize group: replace 5 sliders with 2 (`FEEL`, `DRIFT`).
-      - Routing group: only `IN ch`. Remove `CTL ch`, `TRIG`,
-        `SEED` rows.
-      - Mode pill descriptions updated to reflect chord-from-input:
-        "snap to chord tones from held input".
-- [ ] `Source/Editor/ScaleKeyboardView.{h,cpp}`: chord-tier highlight
-      reads the new `chordContextMask` published by the processor;
-      the existing rendering path is unchanged.
-- [ ] `tests/test_Editor.cpp`: drop tests for removed controls
-      (`CTL ch`, `TRIG`, `SEED`, individual humanize axes);
-      add tests for `feel` / `drift` sliders updating APVTS;
-      update mode-pill description text assertions.
-- [ ] `cd vst && make test`: all suites green. Note expected
-      assertion count drop from 638 (Phase 3 baseline) — the
-      removed pids are exercised in fewer cases.
-- [ ] **Build gate**: `cd vst && make clean && make build`
+      `triggerMode` / `controlChannel`; add `feel` and `drift` as
+      top-level pids; bump `kStateVersion = 2`; reduce `ModeChoice` to
+      `{Scale, Chord}`). In
+      [vst/Source/Plugin/PluginProcessor.{h,cpp}](../../../vst/Source/Plugin/):
+      random-seed `seed` in `[0, 2^24-1]` at construction (so the
+      random becomes the saved default); initialise `harmonyVoices`
+      with the default 1-3-5 triad; route `feel` to the three
+      Humanize axes (one independent draw each, amplitude scaled by
+      `feel`); chord-mode output = scale-snapped input + N
+      diatonicShift voices; discard any v1 state on load (removed
+      pid present or `version != "2"`) with a log line, defaulting
+      on discard. `test_Plugin.cpp` covers chord-mode triad output
+      (single + multi-attack), default-voices invariant, scale-mode
+      counter-test, v1 state discard, random-seed divergence across
+      16 fresh constructs.
+- [x] **Editor** —
+      [vst/Source/Editor/ControlsView.{h,cpp}](../../../vst/Source/Editor/):
+      humanize group collapses 5 sliders to 2 (`FEEL`, `DRIFT`);
+      routing group keeps only `IN ch` (drop `CTL ch` / `TRIG` /
+      `SEED`); mode pills reduced to 2 (`SCALE`, `CHORD`); pill
+      description text updated ("expand to a diatonic chord (1 in,
+      N out)").
+      `ScaleKeyboardView.{h,cpp}`: chord-tier highlight removed (no
+      held-context concept post-merge); pulse-on-emit glow path
+      unchanged.
+      `test_Editor.cpp`: drop removed-control tests; add `feel` /
+      `drift` slider → APVTS coverage; pill-count and description-
+      text assertions match the 2-mode surface.
+- [x] **Build gate** — `cd vst && make clean && make build`
       produces `Pointsman.vst3` / `Pointsman.component` /
-      `Pointsman.clap`. The plugin layer is what users load — a
-      green test suite without a fresh build is the
-      `feedback_build_is_part_of_task` failure mode.
-- [ ] **Manual gate (host)**:
-      - Logic (AU) and Bitwig (CLAP / VST3): load Pointsman on a
-        default single-channel MIDI track. With `mode = chord`,
-        play a single-note melody — output is the snapped
-        melody, NOT silence (the 2026-05-15 chord-mode failure
-        is gone).
-      - Hold a triad and play a melody on top — melodic notes
-        snap to chord tones; held triad notes pass through. Test
-        the retention-boundary feel: short detached phrasing
-        still maintains the chord context.
-      - `feel = 0.5` and `drift = 0.95`: output velocity / gate /
-        timing vary across consecutive notes with a slow drift
-        envelope.
-      - Save and reopen the host project: `scale` / `root` /
-        `mode` / `feel` / `drift` / `harmonyVoices` round-trip.
-        `seed` is preserved (verify by inspecting humanize draws
-        match across reopen).
-      - Place two Pointsman instances on parallel tracks fed the
-        same MIDI: with `feel = 0.7`, the two outputs are *not*
-        phase-coherent (random-seed-per-instance check).
-      - Transport stop flushes any in-flight notes and clears
-        chord context; no hung notes on bypass.
+      `Pointsman.clap` (`feedback_build_is_part_of_task`: a green
+      test suite without a fresh build is not enough).
+- [ ] **Manual gate (host)** — Logic (AU) and Bitwig (CLAP / VST3)
+      on a default single-channel MIDI track:
+      - `mode = chord` + single-note melody → each input note
+        emits as a diatonic 1-3-5 triad (the "single note becomes a
+        chord" intent).
+      - Edit the HARMONY badges (add / remove / change interval) →
+        chord-mode output reflects the new voice stack.
+      - Clear all HARMONY voices → `chord` mode degenerates to
+        1-in-1-out (identical to `scale`).
+      - `feel = 0.5` / `drift = 0.95` → velocity / gate / timing
+        vary across consecutive notes with a slow drift envelope.
+      - Save / reopen the project → `scale` / `root` / `mode` /
+        `feel` / `drift` / `harmonyVoices` / `seed` round-trip
+        bit-identical (verify by inspecting humanize draws).
+      - Two parallel instances fed the same MIDI with `feel = 0.7`
+        are NOT phase-coherent (random-seed-per-instance check).
+      - Transport stop flushes in-flight notes and clears chord
+        context; bypass leaves no hung notes.
 
 ## Per-target notes
 

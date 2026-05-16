@@ -22,9 +22,8 @@ namespace pointsman::editor
         {
             switch (m)
             {
-                case ModeChoice::Scale:   return "snap to nearest scale degree";
-                case ModeChoice::Chord:   return "snap to chord tones";
-                case ModeChoice::Harmony: return "add parallel diatonic voices";
+                case ModeChoice::Scale: return "snap to nearest scale degree";
+                case ModeChoice::Chord: return "expand to a diatonic chord (1 in, N out)";
             }
             return "";
         }
@@ -278,14 +277,12 @@ namespace pointsman::editor
     // ── ControlsView ──────────────────────────────────────────────────
     ControlsView::ControlsView(PointsmanProcessor& p)
         : processor_(p),
-          velAtt_    (p.apvts, pid::humanizeVelocity, velSlider_),
-          gateAtt_   (p.apvts, pid::humanizeGate,     gateSlider_),
-          timingAtt_ (p.apvts, pid::humanizeTiming,   timingSlider_),
-          driftAtt_  (p.apvts, pid::humanizeDrift,    driftSlider_),
-          outAtt_    (p.apvts, pid::outputLevel,      outSlider_)
+          feelAtt_  (p.apvts, pid::feel,  feelSlider_),
+          driftAtt_ (p.apvts, pid::drift, driftSlider_)
     {
         // ComboBox attachments are constructed below, AFTER addItem() — see
-        // the scaleAtt_/rootAtt_/triggerAtt_ comment in ControlsView.h.
+        // the scaleAtt_/rootAtt_ comment in ControlsView.h.
+
         // Scale group
         styleLegend(scaleLegend_, "SCALE");
         addAndMakeVisible(scaleLegend_);
@@ -312,8 +309,8 @@ namespace pointsman::editor
         // Mode group
         styleLegend(modeLegend_, "MODE");
         addAndMakeVisible(modeLegend_);
-        const std::array<juce::String, 3> pillNames {"SCALE", "CHORD", "HARMONY"};
-        for (std::size_t i = 0; i < 3; ++i)
+        const std::array<juce::String, 2> pillNames {"SCALE", "CHORD"};
+        for (std::size_t i = 0; i < pills_.size(); ++i)
         {
             pills_[i] = std::make_unique<ModePill>(pillNames[i]);
             pills_[i]->onClick = [this, i]{ onModePillClicked((int) i); };
@@ -334,16 +331,13 @@ namespace pointsman::editor
         addAndMakeVisible(addHarmonyBtn_);
         rebuildHarmonyBadges();
 
-        // Humanize group
+        // Humanize group (Phase 5: 2 sliders)
         styleLegend(humanizeLegend_, "HUMANIZE");
         addAndMakeVisible(humanizeLegend_);
         struct SS { juce::Label* lbl; juce::Slider* s; const char* text; };
-        const std::array<SS, 5> sliders = {{
-            {&velLabel_,    &velSlider_,    "VEL"},
-            {&gateLabel_,   &gateSlider_,   "GATE"},
-            {&timingLabel_, &timingSlider_, "TIM"},
-            {&driftLabel_,  &driftSlider_,  "DRFT"},
-            {&outLabel_,    &outSlider_,    "OUT"},
+        const std::array<SS, 2> sliders = {{
+            {&feelLabel_,  &feelSlider_,  "FEEL"},
+            {&driftLabel_, &driftSlider_, "DRFT"},
         }};
         for (auto& ss : sliders)
         {
@@ -358,7 +352,7 @@ namespace pointsman::editor
             addAndMakeVisible(*ss.s);
         }
 
-        // Routing group
+        // Routing group (Phase 5: IN CH only)
         styleLegend(routingLegend_, "ROUTING");
         addAndMakeVisible(routingLegend_);
 
@@ -376,55 +370,6 @@ namespace pointsman::editor
         inChAtt_ = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
             p.apvts, pid::inputChannel, inChCombo_);
         addAndMakeVisible(inChCombo_);
-
-        styleControlLabel(ctlChLabel_, "CTL CH");
-        addAndMakeVisible(ctlChLabel_);
-        styleCombo(ctlChCombo_);
-        // 16 items map 1:1 onto controlChannel's [1, 16] range — item
-        // index 0 = channel 1, index 15 = channel 16.
-        for (int i = 1; i <= 16; ++i)
-            ctlChCombo_.addItem(juce::String(i), i);
-        ctlChAtt_ = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
-            p.apvts, pid::controlChannel, ctlChCombo_);
-        addAndMakeVisible(ctlChCombo_);
-
-        styleControlLabel(trigLabel_, "TRIG");
-        addAndMakeVisible(trigLabel_);
-        styleCombo(triggerCombo_);
-        for (std::size_t i = 0; i < kTriggerModeChoiceLabels.size(); ++i)
-            triggerCombo_.addItem(kTriggerModeChoiceLabels[i], static_cast<int>(i + 1));
-        triggerAtt_ = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
-            p.apvts, pid::triggerMode, triggerCombo_);
-        addAndMakeVisible(triggerCombo_);
-
-        styleControlLabel(seedLabel_, "SEED");
-        addAndMakeVisible(seedLabel_);
-        // Numeric value label — editable on single click. Border styled
-        // like the combos so the routing column reads as one consistent
-        // grid. onTextChange parses, clamps to [0, 0xffffff], and writes
-        // back to APVTS; an APVTS listener mirrors host-driven changes
-        // back into the label so preset load / automation stays in sync.
-        seedValue_.setFont(theme::dataFont(theme::fsMd));
-        seedValue_.setColour(juce::Label::textColourId,             theme::fg);
-        seedValue_.setColour(juce::Label::backgroundColourId,       juce::Colours::transparentBlack);
-        seedValue_.setColour(juce::Label::outlineColourId,          theme::lzBorderMid);
-        seedValue_.setColour(juce::Label::textWhenEditingColourId,  theme::fg);
-        seedValue_.setColour(juce::Label::outlineWhenEditingColourId, theme::olive);
-        seedValue_.setColour(juce::Label::backgroundWhenEditingColourId, theme::bg);
-        seedValue_.setJustificationType(juce::Justification::centredLeft);
-        seedValue_.setBorderSize({0, 6, 0, 6});
-        seedValue_.setEditable(true);
-        seedValue_.onTextChange = [this]{ onSeedTextEdited(); };
-        seedValue_.setText(juce::String(loadIntParam(pid::seed)),
-                           juce::dontSendNotification);
-        addAndMakeVisible(seedValue_);
-
-        seedRandomBtn_.setColour(juce::TextButton::buttonColourId,    juce::Colours::transparentBlack);
-        seedRandomBtn_.setColour(juce::TextButton::buttonOnColourId,  juce::Colours::transparentBlack);
-        seedRandomBtn_.setColour(juce::TextButton::textColourOffId,   theme::fg.withAlpha(0.75f));
-        seedRandomBtn_.setColour(juce::TextButton::textColourOnId,    theme::fg);
-        seedRandomBtn_.onClick = [this]{ onSeedRandomClicked(); };
-        addAndMakeVisible(seedRandomBtn_);
 
         // Display group — keyboard range slider. Range syncs from APVTS
         // (host preset / undo); the RangeSlider's onChanged_ callback keeps
@@ -448,14 +393,12 @@ namespace pointsman::editor
 
         // ── Listeners ─────────────────────────────────────────────
         processor_.apvts.addParameterListener(pid::mode, this);
-        processor_.apvts.addParameterListener(pid::seed, this);
         processor_.apvts.state.addListener(this);
     }
 
     ControlsView::~ControlsView()
     {
         processor_.apvts.state.removeListener(this);
-        processor_.apvts.removeParameterListener(pid::seed, this);
         processor_.apvts.removeParameterListener(pid::mode, this);
     }
 
@@ -564,47 +507,11 @@ namespace pointsman::editor
                     if (auto* self = safeThis.getComponent()) self->syncModeHighlights();
                 });
         }
-        else if (id == pid::seed)
-        {
-            juce::MessageManager::callAsync(
-                [safeThis = juce::Component::SafePointer<ControlsView>(this)]
-                {
-                    if (auto* self = safeThis.getComponent()) self->syncSeedLabelFromApvts();
-                });
-        }
     }
 
     int ControlsView::loadIntParam(const char* id) const
     {
         return static_cast<int>(processor_.apvts.getRawParameterValue(id)->load());
-    }
-
-    void ControlsView::onSeedTextEdited()
-    {
-        // Treat empty / non-numeric input as a no-op: snap the label back
-        // to the current parameter value rather than writing 0.
-        const auto trimmed = seedValue_.getText().trim();
-        if (trimmed.isEmpty() || !trimmed.containsOnly("0123456789"))
-        {
-            syncSeedLabelFromApvts();
-            return;
-        }
-        const auto raw = trimmed.getLargeIntValue();
-        const auto clamped = static_cast<int>(juce::jlimit<juce::int64>(0, 0xffffff, raw));
-        if (auto* p = processor_.apvts.getParameter(pid::seed))
-            p->setValueNotifyingHost(p->convertTo0to1(static_cast<float>(clamped)));
-        // The APVTS listener will round-trip the value back into the label
-        // so the displayed text matches the stored value (e.g. after a
-        // clamp).
-    }
-
-    void ControlsView::onSeedRandomClicked()
-    {
-        // 24-bit range; JUCE's system random is fine for "shake the
-        // humanize seed", we are not signing anything.
-        const int next = juce::Random::getSystemRandom().nextInt({0, 0x1000000});
-        if (auto* p = processor_.apvts.getParameter(pid::seed))
-            p->setValueNotifyingHost(p->convertTo0to1(static_cast<float>(next)));
     }
 
     namespace
@@ -633,12 +540,6 @@ namespace pointsman::editor
     juce::Slider& ControlsView::getRangeSliderForTest()
     {
         return *rangeSlider_;
-    }
-
-    void ControlsView::syncSeedLabelFromApvts()
-    {
-        seedValue_.setText(juce::String(loadIntParam(pid::seed)),
-                           juce::dontSendNotification);
     }
 
     void ControlsView::valueTreeChildAdded(juce::ValueTree&, juce::ValueTree&)
@@ -673,17 +574,6 @@ namespace pointsman::editor
         g.fillAll(theme::bg);
         g.setColour(theme::lzBorder);
         g.drawLine(0.0f, 0.0f, 0.0f, (float) getHeight(), 1.0f);
-    }
-
-    namespace
-    {
-        // Paint a 1px border around a group's outer rect for the inboil
-        // fieldset feel. Called from resized() via direct geometry — no
-        // separate group-component is worth introducing here.
-        struct GroupSlot
-        {
-            juce::Rectangle<int> bounds;
-        };
     }
 
     void ControlsView::layoutHarmonyArea(juce::Rectangle<int> area)
@@ -774,10 +664,7 @@ namespace pointsman::editor
         // Always reserve kHarmonyVoicesMax rows so the layout stays stable
         // as voices are added/removed. The add button shares a row with
         // the last-occupied badge slot, so the worst case (3 badges OR
-        // 2 badges + add) is exactly kHarmonyVoicesMax rows — NOT
-        // kHarmonyVoicesMax + 1. Earlier +1 reservation crushed the
-        // routing rows below because the rail's fixed height ran out
-        // before SEED.
+        // 2 badges + add) is exactly kHarmonyVoicesMax rows.
         harmonyLegend_.setBounds(bounds.removeFromTop(legendH));
         bounds.removeFromTop(2);
         {
@@ -789,15 +676,12 @@ namespace pointsman::editor
         }
         bounds.removeFromTop(groupGap);
 
-        // ── Humanize group ──────────────────────────────────────────
+        // ── Humanize group (Phase 5: 2 sliders) ─────────────────────
         humanizeLegend_.setBounds(bounds.removeFromTop(legendH));
         bounds.removeFromTop(2);
-        const std::array<std::pair<juce::Label*, juce::Slider*>, 5> humSliders = {{
-            {&velLabel_,    &velSlider_},
-            {&gateLabel_,   &gateSlider_},
-            {&timingLabel_, &timingSlider_},
-            {&driftLabel_,  &driftSlider_},
-            {&outLabel_,    &outSlider_},
+        const std::array<std::pair<juce::Label*, juce::Slider*>, 2> humSliders = {{
+            {&feelLabel_,  &feelSlider_},
+            {&driftLabel_, &driftSlider_},
         }};
         for (auto& [lbl, s] : humSliders)
         {
@@ -808,7 +692,7 @@ namespace pointsman::editor
         }
         bounds.removeFromTop(groupGap - gap);
 
-        // ── Routing group ───────────────────────────────────────────
+        // ── Routing group (Phase 5: IN CH only) ─────────────────────
         routingLegend_.setBounds(bounds.removeFromTop(legendH));
         bounds.removeFromTop(2);
         {
@@ -817,35 +701,9 @@ namespace pointsman::editor
             inChCombo_.setBounds(r);
             bounds.removeFromTop(gap);
         }
-        {
-            auto r = placeRow(bounds);
-            ctlChLabel_.setBounds(r.removeFromLeft(labelW));
-            ctlChCombo_.setBounds(r);
-            bounds.removeFromTop(gap);
-        }
-        {
-            auto r = placeRow(bounds);
-            trigLabel_.setBounds(r.removeFromLeft(labelW));
-            triggerCombo_.setBounds(r);
-            bounds.removeFromTop(gap);
-        }
-        {
-            auto r = placeRow(bounds);
-            seedLabel_.setBounds(r.removeFromLeft(labelW));
-            // Right-side RND button (fixed 40 px), seed value fills the rest.
-            constexpr int randomBtnW = 40;
-            constexpr int valueRandomGap = 4;
-            seedRandomBtn_.setBounds(r.removeFromRight(randomBtnW));
-            r.removeFromRight(valueRandomGap);
-            seedValue_.setBounds(r);
-        }
         bounds.removeFromTop(groupGap);
 
         // ── Display group ──────────────────────────────────────────
-        // RANGE label on the left, slider stretches across the middle,
-        // current "C3 - B5" text right-aligned. The slider's clickable
-        // height is the full row; the label and value text are vertically
-        // centred in the same row.
         displayLegend_.setBounds(bounds.removeFromTop(legendH));
         bounds.removeFromTop(2);
         {

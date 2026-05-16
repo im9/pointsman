@@ -56,12 +56,4 @@ namespace pointsman
         HarmonyDirection direction = HarmonyDirection::Above;
     };
 
-    // Held notes on the controlChannel collapsed to pitch classes (0..11).
-    // The Plugin layer maintains this from real-time MIDI per concept.md
-    // §"Chord and harmony modes"; snapToChordTones expands the set across
-    // 0..127 each call.
-    struct ChordContext
-    {
-        std::vector<int> pitchClasses; // 0..11
-    };
 }

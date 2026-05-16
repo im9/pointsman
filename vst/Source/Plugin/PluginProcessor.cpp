@@ -25,17 +25,36 @@ namespace
     const juce::Identifier kVersionAttr       { "version" };
     const juce::Identifier kIntervalAttr      { "interval" };
     const juce::Identifier kDirectionAttr     { "direction" };
+    const juce::Identifier kParamTag          { "PARAM" };
+    const juce::Identifier kIdAttr            { "id" };
 }
 
 PointsmanProcessor::PointsmanProcessor()
     : AudioProcessor(BusesProperties()),
-      apvts(*this, nullptr, "Pointsman", makeParameterLayout())
+      apvts(*this, nullptr, "Pointsman",
+            // Pass a fresh random seed in [0, 0xffffff] so the APVTS default
+            // for pid::seed is that random value (concept.md §"Per-event
+            // humanize": new instances pick a random seed on construction).
+            // The host's first save then captures it; later reopens restore
+            // bit-exactly. Drawn before layout construction because the
+            // ParameterInt's default is fixed at registration time.
+            makeParameterLayout(makeRandomSeedForNewInstance()))
 {
     // Ensure the PointsmanState child exists from construction so the host's
     // first save sees a stable tree shape even if no harmony voices are set.
     auto& root = apvts.state;
     auto child = root.getOrCreateChildWithName(kPointsmanStateTag, nullptr);
     child.setProperty(kVersionAttr, kStateVersion, nullptr);
+
+    // Pre-populate harmonyVoices with a default diatonic triad
+    // (3rd-above + 5th-above) so chord mode is "single note becomes a
+    // chord" out of the box. The user can clear or edit voices in the
+    // editor's HARMONY group; an empty harmonyVoices in chord mode
+    // collapses to 1-in-1-out (identical to scale mode).
+    setHarmonyVoices({
+        {3, HarmonyDirection::Above},
+        {5, HarmonyDirection::Above},
+    });
 }
 
 void PointsmanProcessor::prepareToPlay(double sampleRate, int)
@@ -116,7 +135,6 @@ void PointsmanProcessor::emitPanicTo(juce::MidiBuffer& out, int sampleOffset)
         writeNoteOffTracked(out, sampleOffset, s.channel, s.pitch);
     sounding_.clear();
     pending_.clear();
-    chordContextMask_.store(0, std::memory_order_release);
 }
 
 void PointsmanProcessor::drainPendingInto(juce::MidiBuffer& out, int numSamples)
@@ -208,14 +226,9 @@ void PointsmanProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::Mid
     const int    rootPc     = loadInt(apvts, pid::root);
     const auto   scale      = static_cast<ScaleName>(loadInt(apvts, pid::scale));
     const auto   modeChoice = static_cast<ModeChoice>(loadInt(apvts, pid::mode));
-    const auto   triggerCh  = static_cast<TriggerModeChoice>(loadInt(apvts, pid::triggerMode));
     const int    inputCh    = loadInt(apvts, pid::inputChannel);
-    const int    controlCh  = loadInt(apvts, pid::controlChannel);
-    const float  vAmp       = loadFloat(apvts, pid::humanizeVelocity);
-    const float  gAmp       = loadFloat(apvts, pid::humanizeGate);
-    const float  tAmp       = loadFloat(apvts, pid::humanizeTiming);
-    const float  dFactor    = loadFloat(apvts, pid::humanizeDrift);
-    const float  outLvl     = loadFloat(apvts, pid::outputLevel);
+    const float  feel       = loadFloat(apvts, pid::feel);
+    const float  dFactor    = loadFloat(apvts, pid::drift);
 
     // Re-seed if seed param changed mid-session (host automation / UI).
     if (!rngInitialised || static_cast<uint32_t>(seedVal) != lastSeed)
@@ -261,45 +274,50 @@ void PointsmanProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::Mid
         const auto msg = meta.getMessage();
         const int sample = meta.samplePosition;
         const int ch = msg.getChannel();
-
-        // controlChannel role only kicks in when an active mode uses it
-        // (mode = chord, or triggerMode = root). Otherwise the channel is
-        // treated as ordinary input subject to inputChannel filtering.
-        const bool isControl = (ch == controlCh);
-        const bool controlIsChordRole = isControl && modeChoice == ModeChoice::Chord;
-        const bool controlIsRootRole  = isControl && triggerCh == TriggerModeChoice::Root
-                                        && modeChoice != ModeChoice::Chord;
+        const bool channelMatched = channelMatches(ch, inputCh);
 
         if (msg.isNoteOn())
         {
             const int pitch = msg.getNoteNumber();
             const int velIn = msg.getVelocity();
 
-            if (controlIsChordRole)
+            if (!channelMatched)
             {
-                const int pc = ((pitch % 12) + 12) % 12;
-                chordContextMask_.fetch_or(static_cast<uint16_t>(1u << pc),
-                                           std::memory_order_release);
-                continue;
-            }
-            if (controlIsRootRole)
-            {
-                const int newRoot = ((pitch % 12) + 12) % 12;
-                if (auto* rp = apvts.getParameter(pid::root))
-                    rp->setValueNotifyingHost(rp->convertTo0to1(static_cast<float>(newRoot)));
-                continue;
-            }
-            if (!channelMatches(ch, inputCh))
-            {
+                // Other-channel input passes through untouched
+                // (concept.md §"Input handling").
                 out.addEvent(msg, sample);
                 continue;
             }
 
             // ── Humanize-driven scheduling ─────────────────────────
             const uint64_t absInputSample = blockStartAbs_ + static_cast<uint64_t>(sample);
-            const double rawSourceStepSamples = haveLastInput_
-                ? static_cast<double>(absInputSample - lastInputSampleAbs_)
-                : (kFirstEventStepMs * sampleRate_ / 1000.0);
+            // Distinguish "chord-voice attack" from "fast TM step". Below
+            // the simultaneous-ish threshold (~50 ms, slightly above
+            // human perceptual simultaneity at 20-30 ms), treat the
+            // attack as a fresh musical event and use the first-event
+            // fallback so all voices ring audibly at the default gate.
+            // Above the threshold, the inter-attack delta IS the step
+            // (TM-style sequence at 50+ ms / 16th @ 300 BPM and slower).
+            //
+            // Without this clamp, a live chord played on a keyboard
+            // produces inaudible 2nd-and-later voices: even when noteOns
+            // arrive in sequential processBlock calls (a few ms apart),
+            // delta is far below kFirstEventStepMs and gateFinal ×
+            // sourceStepSamples collapses to a click. Phase 5 manual-
+            // gate report ("chord 単音しか鳴らない").
+            constexpr double kSimultaneousThresholdMs = 50.0;
+            const double firstEventSamples = kFirstEventStepMs * sampleRate_ / 1000.0;
+            double rawSourceStepSamples;
+            if (!haveLastInput_)
+            {
+                rawSourceStepSamples = firstEventSamples;
+            }
+            else
+            {
+                const double delta = static_cast<double>(absInputSample - lastInputSampleAbs_);
+                const double thresholdSamples = kSimultaneousThresholdMs * sampleRate_ / 1000.0;
+                rawSourceStepSamples = (delta < thresholdSamples) ? firstEventSamples : delta;
+            }
             // Cap at kMaxSourceStepMs: a multi-second input gap would
             // otherwise schedule a default-gate noteOff that far out
             // and risk uint64 cast pathology. Clamp at the bridge
@@ -311,13 +329,18 @@ void PointsmanProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::Mid
             lastInputSampleAbs_ = absInputSample;
             haveLastInput_ = true;
 
+            // Phase 5 routing: a single `feel` amount drives velocity /
+            // gate / timing amplitudes (each axis still draws
+            // independently inside composeHumanize). `drift` is the EMA
+            // factor shared across the three axes per concept.md
+            // §"Per-event humanize".
             ComposeArgs ha{};
-            ha.velocity           = vAmp;
-            ha.gate               = gAmp;
-            ha.timing             = tAmp;
+            ha.velocity           = feel;
+            ha.gate               = feel;
+            ha.timing             = feel;
             ha.driftFactor        = dFactor;
             ha.inputVelocity      = velIn;
-            ha.outputLevel        = outLvl;
+            ha.outputLevel        = 1.0;  // outputLevel removed in v2
             ha.outputGateBase     = 1.0;
             ha.sourceStepDuration = sourceStepSamples / sampleRate_ * 1000.0; // ms
             const auto hr = composeHumanize(rng, driftState, ha);
@@ -333,23 +356,30 @@ void PointsmanProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::Mid
             const uint64_t noteOffTargetAbs =
                 noteOnTargetAbs + static_cast<uint64_t>(gateLenSamples);
 
-            // Quantize.
-            const uint16_t chordMask =
-                chordContextMask_.load(std::memory_order_acquire);
-            const int quantized = (modeChoice == ModeChoice::Chord)
-                ? snapToChordTones(pitch, chordMask, scalePitches)
-                : snapToScale(pitch, scalePitches);
+            // Quantize input to nearest scale degree; chord-mode voices
+            // are then computed off that anchor so an out-of-scale
+            // input still resolves to a valid (scale, root) chord.
+            const int quantized = snapToScale(pitch, scalePitches);
 
-            // Build output pitches: base + harmony voices. Harmony voices
-            // that clamp to the base are still emitted (parity with m4l /
-            // inboil; see Batch 2 fix). Iterate the audio-side snapshot
-            // (refreshed at the top of processBlock under try-lock) so
-            // there is no race against UI-thread setHarmonyVoices.
+            // Build output pitches:
+            //   scale mode: [quantized]                       → 1 note
+            //   chord mode: [quantized, ...harmonyVoices]     → 1 + N notes
+            // Chord mode is the "single-note-becomes-chord" expansion:
+            // each input attack emits the scale-snapped input plus N
+            // diatonic voices (user-configurable in the editor's
+            // HARMONY group; new instances default to 3rd-above + 5th-
+            // above = a diatonic triad). Out-of-scale input is snapped
+            // first, so e.g. C# in C major → C → triad rooted on C.
             int outPitches[1 + kHarmonyVoicesMax];
             int numOut = 0;
             outPitches[numOut++] = quantized;
-            if (modeChoice == ModeChoice::Harmony)
+            if (modeChoice == ModeChoice::Chord)
             {
+                // Iterate the audio-side snapshot (refreshed at the top
+                // of processBlock under try-lock) so there is no race
+                // against UI-thread setHarmonyVoices. Voices that clamp
+                // to the base are still emitted (parity with m4l /
+                // inboil; see Batch 2 fix).
                 for (std::size_t i = 0; i < harmonyVoicesAudioCount_; ++i)
                     outPitches[numOut++] = diatonicShift(
                         quantized,
@@ -368,17 +398,14 @@ void PointsmanProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::Mid
         }
         else if (msg.isNoteOff())
         {
-            if (controlIsChordRole)
-            {
-                const int pc = ((msg.getNoteNumber() % 12) + 12) % 12;
-                chordContextMask_.fetch_and(
-                    static_cast<uint16_t>(~(1u << pc)),
-                    std::memory_order_release);
-                continue;
-            }
-            // controlIsRootRole and ordinary input noteOffs are silently
-            // consumed: output gating is humanize-driven, not input-paired
-            // (concept.md §"Per-event humanize"; m4l host.ts:222-230).
+            // Channel-matched input noteOffs are silently consumed:
+            // output gating is humanize-driven (gateFinal ×
+            // sourceStepDuration), not input-paired (ADR 003 Phase 4 /
+            // m4l host.ts:222-230 semantics). Off-channel noteOffs pass
+            // through unchanged so any matching off-channel noteOn we
+            // passed through above gets its pair on the output.
+            if (!channelMatched)
+                out.addEvent(msg, sample);
         }
         else
         {
@@ -482,14 +509,47 @@ void PointsmanProcessor::getStateInformation(juce::MemoryBlock& destData)
 
 void PointsmanProcessor::setStateInformation(const void* data, int sizeInBytes)
 {
-    if (auto xml = getXmlFromBinary(data, sizeInBytes))
+    auto xml = getXmlFromBinary(data, sizeInBytes);
+    if (xml == nullptr) return;
+    if (!xml->hasTagName(apvts.state.getType())) return;
+
+    auto loaded = juce::ValueTree::fromXml(*xml);
+
+    // ADR 003 Phase 5: detect a v1 state tree by either (a) the presence
+    // of any removed pid in a PARAM child or (b) a PointsmanState child
+    // whose `version` property is not "2". A v1 tree is silently
+    // discarded; live defaults are preserved.
+    const auto looksLikeV1 = [&]
     {
-        if (xml->hasTagName(apvts.state.getType()))
+        for (int i = 0; i < loaded.getNumChildren(); ++i)
         {
-            apvts.replaceState(juce::ValueTree::fromXml(*xml));
-            syncHarmonyVoicesFromTree();
+            auto child = loaded.getChild(i);
+            if (child.hasType(kParamTag))
+            {
+                const auto id = child.getProperty(kIdAttr).toString();
+                for (const char* removed : pid::kRemovedV1Pids)
+                    if (id == juce::String(removed)) return true;
+            }
         }
+        auto ps = loaded.getChildWithName(kPointsmanStateTag);
+        if (ps.isValid())
+        {
+            const auto v = ps.getProperty(kVersionAttr, 0);
+            if (static_cast<int>(v) != 0
+                && static_cast<int>(v) != kStateVersion)
+                return true;
+        }
+        return false;
+    }();
+
+    if (looksLikeV1)
+    {
+        juce::Logger::writeToLog("Pointsman: discarding pre-v2 state");
+        return; // keep the default-constructed v2 state intact
     }
+
+    apvts.replaceState(loaded);
+    syncHarmonyVoicesFromTree();
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

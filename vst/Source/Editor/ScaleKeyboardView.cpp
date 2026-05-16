@@ -304,19 +304,6 @@ namespace pointsman::editor
         const auto scalePcs  = buildScalePcs();
         const std::set<int> scaleSet(scalePcs.begin(), scalePcs.end());
 
-        // Live chord context for the olive highlight in mode = chord. The
-        // processor maintains this from controlChannel notes; we read it
-        // each paint — no listener needed because chord changes do not flow
-        // through APVTS.
-        const auto modeChoice = static_cast<ModeChoice>(
-            static_cast<int>(processor_.apvts.getRawParameterValue(pid::mode)->load()));
-        std::set<int> chordSet;
-        if (modeChoice == ModeChoice::Chord)
-        {
-            for (int pc : processor_.chordContextPcsForTest())
-                chordSet.insert(pc);
-        }
-
         const int rootPc = static_cast<int>(
             processor_.apvts.getRawParameterValue(pid::root)->load());
 
@@ -341,16 +328,9 @@ namespace pointsman::editor
                                            (float) k.w - whiteInset * 2.0f,
                                            (float) k.h);
 
-            const bool inChord = chordSet.count(k.pc) > 0;
             const bool inScale = scaleSet.count(k.pc) > 0;
-
-            juce::Colour fill;
-            if (modeChoice == ModeChoice::Chord && inChord)
-                fill = theme::oliveBg;
-            else if (inScale)
-                fill = theme::kbdWhiteInScale;
-            else
-                fill = theme::kbdWhiteOutScale;
+            const juce::Colour fill = inScale ? theme::kbdWhiteInScale
+                                              : theme::kbdWhiteOutScale;
 
             g.setColour(fill);
             g.fillRoundedRectangle(r, 3.0f);
@@ -368,7 +348,7 @@ namespace pointsman::editor
                 g.fillRoundedRectangle(r, 3.0f);
             }
 
-            g.setColour(inChord ? theme::olive : theme::kbdKeyStroke);
+            g.setColour(theme::kbdKeyStroke);
             g.drawRoundedRectangle(r, 3.0f, 1.0f);
 
             // In-scale dot under the key. Radius / position copied from
@@ -384,7 +364,7 @@ namespace pointsman::editor
                 constexpr float dotR = 4.0f;
                 const float cx = r.getCentreX();
                 const float cy = r.getBottom() - 12.0f;
-                g.setColour(inChord ? theme::olive : theme::kbdWhiteDot);
+                g.setColour(theme::kbdWhiteDot);
                 g.fillEllipse(cx - dotR, cy - dotR, dotR * 2, dotR * 2);
             }
 
@@ -410,14 +390,9 @@ namespace pointsman::editor
                                            (float) (k.w - 2),
                                            (float) k.h);
 
-            const bool inChord = chordSet.count(k.pc) > 0;
             const bool inScale = scaleSet.count(k.pc) > 0;
-
-            juce::Colour fill;
-            if (modeChoice == ModeChoice::Chord && inChord)
-                fill = theme::olive;
-            else
-                fill = inScale ? theme::kbdBlackInScale : theme::kbdBlackOutScale;
+            const juce::Colour fill = inScale ? theme::kbdBlackInScale
+                                              : theme::kbdBlackOutScale;
 
             g.setColour(fill);
             g.fillRoundedRectangle(r, 3.0f);
@@ -429,10 +404,7 @@ namespace pointsman::editor
                 g.fillRoundedRectangle(r, 3.0f);
             }
 
-            // Inboil draws the same 1 px stroke on black keys as on
-            // whites; copy that so the keyboard reads as one consistent
-            // surface in chord mode (olive border on lit keys).
-            g.setColour(inChord ? theme::olive : theme::kbdKeyStroke);
+            g.setColour(theme::kbdKeyStroke);
             g.drawRoundedRectangle(r, 3.0f, 1.0f);
 
             // In-scale dot. Inboil black-key dot: r=3, cy = h-10.
@@ -441,7 +413,7 @@ namespace pointsman::editor
                 constexpr float dotR = 3.0f;
                 const float cx = r.getCentreX();
                 const float cy = r.getBottom() - 10.0f;
-                g.setColour(inChord ? theme::olive : theme::kbdBlackDot);
+                g.setColour(theme::kbdBlackDot);
                 g.fillEllipse(cx - dotR, cy - dotR, dotR * 2, dotR * 2);
             }
         }

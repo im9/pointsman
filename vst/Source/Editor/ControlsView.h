@@ -1,8 +1,12 @@
-// Right-rail controls (ADR 003 §"Editor (inboil-derived)" / Phase 3).
-// Inboil QuantizerSheet right-rail port: Scale / Mode / Harmony /
-// Humanize / Routing groups. Inboil-only Target / Track / Preset /
-// Merge / Fill / manual chords[] editor are intentionally dropped per
-// ADR 003 §"inboil sections dropped for the vst port".
+// Right-rail controls (ADR 003 §"Editor (inboil-derived)" / Phase 3 +
+// Phase 5 surface redesign). Inboil QuantizerSheet right-rail port:
+// Scale / Mode / Harmony / Humanize / Routing / Display groups.
+//
+// Phase 5 changes: humanize group collapses from 5 sliders to 2
+// (FEEL, DRIFT). Routing keeps only IN CH — CTL CH / TRIG / SEED rows
+// removed in favour of held-input chord context + APVTS-hidden random
+// seed. Mode pill description for "chord" now reads "snap to chord
+// tones from held input".
 //
 // Logic-layer test inspectors expose the mode-pill set and the
 // harmony-add button so click→APVTS / click→harmonyVoices wiring is
@@ -46,14 +50,13 @@ namespace pointsman::editor
         juce::Button& getAddHarmonyButtonForTest();
         juce::ComboBox& getScaleComboForTest()   { return scaleCombo_; }
         juce::ComboBox& getRootComboForTest()    { return rootCombo_; }
-        juce::ComboBox& getTriggerComboForTest() { return triggerCombo_; }
         juce::ComboBox& getInChComboForTest()    { return inChCombo_; }
-        juce::ComboBox& getCtlChComboForTest()   { return ctlChCombo_; }
+        juce::Slider&   getFeelSliderForTest()   { return feelSlider_; }
+        juce::Slider&   getDriftSliderForTest()  { return driftSlider_; }
+        juce::Label&    getModeDescLabelForTest(){ return modeDesc_; }
         int getHarmonyBadgeCountForTest() const;
         int getHarmonyBadgeSelectedIdForTest(int idx) const;
         juce::ComboBox* getHarmonyBadgeComboForTest(int idx);
-        juce::Label&   getSeedValueForTest()     { return seedValue_; }
-        juce::Button&  getSeedRandomBtnForTest() { return seedRandomBtn_; }
         juce::Slider&  getRangeSliderForTest();
         juce::Label&   getRangeValueLabelForTest() { return rangeValueLabel_; }
 
@@ -72,9 +75,6 @@ namespace pointsman::editor
         void onAddHarmonyClicked();
         void onRemoveHarmonyClicked(int idx);
         void onHarmonyVoiceEdited(int idx, pointsman::HarmonyVoice v);
-        void onSeedTextEdited();
-        void onSeedRandomClicked();
-        void syncSeedLabelFromApvts();
         void syncRangeValueLabel();
         void rebuildHarmonyBadges();
         void syncModeHighlights();
@@ -93,36 +93,29 @@ namespace pointsman::editor
         std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment>
             scaleAtt_, rootAtt_;
 
-        // Mode group (3 pills + descriptive text below)
+        // Mode group (2 pills + descriptive text below — Phase 5 post-merge)
         juce::Label    modeLegend_, modeDesc_;
-        std::array<std::unique_ptr<ModePill>, 3> pills_;
+        std::array<std::unique_ptr<ModePill>, 2> pills_;
 
         // Harmony group (dynamic badges + add button)
         juce::Label    harmonyLegend_;
         juce::TextButton addHarmonyBtn_ {"+"};
         std::vector<std::unique_ptr<HarmonyBadge>> badges_;
 
-        // Humanize group (5 sliders)
+        // Humanize group (2 sliders — Phase 5 collapse)
         juce::Label  humanizeLegend_;
-        juce::Label  velLabel_, gateLabel_, timingLabel_, driftLabel_, outLabel_;
-        juce::Slider velSlider_, gateSlider_, timingSlider_, driftSlider_, outSlider_;
+        juce::Label  feelLabel_, driftLabel_;
+        juce::Slider feelSlider_, driftSlider_;
         juce::AudioProcessorValueTreeState::SliderAttachment
-            velAtt_, gateAtt_, timingAtt_, driftAtt_, outAtt_;
+            feelAtt_, driftAtt_;
 
-        // Routing group
+        // Routing group (Phase 5: IN CH only)
         juce::Label    routingLegend_;
-        juce::Label    inChLabel_, ctlChLabel_, trigLabel_, seedLabel_;
-        juce::ComboBox inChCombo_, ctlChCombo_, triggerCombo_;
-        // Seed: 0..0xffffff. The earlier IncDecButtons slider was unusable
-        // for a 24-bit range. Replaced with an editable numeric label +
-        // randomize button. Seed is plumbed manually (no SliderAttachment)
-        // because there is no JUCE attachment for Label and we want a
-        // randomize gesture that's not just "+/-1 on the parameter."
-        juce::Label      seedValue_;
-        juce::TextButton seedRandomBtn_ {"RND"};
+        juce::Label    inChLabel_;
+        juce::ComboBox inChCombo_;
         // See scaleAtt_/rootAtt_ above — same items-before-attachment dance.
         std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment>
-            inChAtt_, ctlChAtt_, triggerAtt_;
+            inChAtt_;
 
         // Display group — keyboard range slider. RangeSlider is a custom
         // TwoValueHorizontal that owns bidirectional sync to a PAIR of

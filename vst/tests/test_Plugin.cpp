@@ -1,7 +1,8 @@
-// Tests for the Pointsman APVTS / processor surface per ADR 003 Phase 2:
-// APVTS round-trip, harmonyVoices ValueTree round-trip, panic on transport
-// stop, controlChannel chord-context maintenance, mode=chord controlChannel
-// notes consumed.
+// Tests for the Pointsman APVTS / processor surface per ADR 003 Phase 5
+// (parameter surface v2 + chord/harmony merge): APVTS round-trip,
+// harmonyVoices ValueTree round-trip, chord-mode triad expansion
+// (concept.md §"Chord and harmony modes"), panic on transport stop,
+// random-seed init, v1 state discard.
 //
 // Uses pointsman_plugin_core (no juce_audio_plugin_client wrapper) so the
 // processor can be exercised directly without an AU/VST3 host.
@@ -9,6 +10,8 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <juce_audio_basics/juce_audio_basics.h>
+
+#include <set>
 
 #include "Engine/State.h"
 #include "Plugin/Parameters.h"
@@ -63,23 +66,18 @@ TEST_CASE("APVTS: every canonical pid round-trips via getState/setState",
     // Mutate every native pid to a non-default value. Choices use indices
     // matched to the ADR §"Parameter persistence" table; Ints / Floats use
     // mid-range values that cannot collide with the constructor defaults.
-    setParamRaw(src.apvts, pid::scale,            7.0f);  // Pentatonic
-    setParamRaw(src.apvts, pid::root,             5.0f);
-    setParamRaw(src.apvts, pid::mode,             2.0f);  // Harmony
-    setParamRaw(src.apvts, pid::humanizeVelocity, 0.42f);
-    setParamRaw(src.apvts, pid::humanizeGate,     0.13f);
-    setParamRaw(src.apvts, pid::humanizeTiming,   0.71f);
-    setParamRaw(src.apvts, pid::humanizeDrift,    0.95f);
-    setParamRaw(src.apvts, pid::outputLevel,      0.5f);
-    setParamRaw(src.apvts, pid::triggerMode,      1.0f);  // Root
-    setParamRaw(src.apvts, pid::inputChannel,     3.0f);
-    setParamRaw(src.apvts, pid::controlChannel,   16.0f);
+    setParamRaw(src.apvts, pid::scale,        7.0f);  // Pentatonic
+    setParamRaw(src.apvts, pid::root,         5.0f);
+    setParamRaw(src.apvts, pid::mode,         1.0f);  // Chord (post-merge)
+    setParamRaw(src.apvts, pid::feel,         0.42f);
+    setParamRaw(src.apvts, pid::drift,        0.95f);
+    setParamRaw(src.apvts, pid::inputChannel, 3.0f);
     // Test seed value chosen below 2^24 so it is exactly representable as
     // float32 — APVTS stores parameter values as float32, so any test value
     // above 2^24 would lose bits in the legitimate save → reopen path.
     // (Parameter range itself is also clamped to [0, 0xffffff] for the same
     // reason — see Parameters.cpp.)
-    setParamRaw(src.apvts, pid::seed,             12345678.0f);
+    setParamRaw(src.apvts, pid::seed,         12345678.0f);
 
     juce::MemoryBlock blob;
     src.getStateInformation(blob);
@@ -87,18 +85,33 @@ TEST_CASE("APVTS: every canonical pid round-trips via getState/setState",
     PointsmanProcessor dst;
     dst.setStateInformation(blob.getData(), static_cast<int>(blob.getSize()));
 
-    REQUIRE(getParamRawInt(dst.apvts,   pid::scale)            == 7);
-    REQUIRE(getParamRawInt(dst.apvts,   pid::root)             == 5);
-    REQUIRE(getParamRawInt(dst.apvts,   pid::mode)             == 2);
-    REQUIRE(getParamRawFloat(dst.apvts, pid::humanizeVelocity) == 0.42f);
-    REQUIRE(getParamRawFloat(dst.apvts, pid::humanizeGate)     == 0.13f);
-    REQUIRE(getParamRawFloat(dst.apvts, pid::humanizeTiming)   == 0.71f);
-    REQUIRE(getParamRawFloat(dst.apvts, pid::humanizeDrift)    == 0.95f);
-    REQUIRE(getParamRawFloat(dst.apvts, pid::outputLevel)      == 0.5f);
-    REQUIRE(getParamRawInt(dst.apvts,   pid::triggerMode)      == 1);
-    REQUIRE(getParamRawInt(dst.apvts,   pid::inputChannel)     == 3);
-    REQUIRE(getParamRawInt(dst.apvts,   pid::controlChannel)   == 16);
-    REQUIRE(getParamRawInt(dst.apvts,   pid::seed)             == 12345678);
+    REQUIRE(getParamRawInt(dst.apvts,   pid::scale)        == 7);
+    REQUIRE(getParamRawInt(dst.apvts,   pid::root)         == 5);
+    REQUIRE(getParamRawInt(dst.apvts,   pid::mode)         == 1);
+    REQUIRE(getParamRawFloat(dst.apvts, pid::feel)         == 0.42f);
+    REQUIRE(getParamRawFloat(dst.apvts, pid::drift)        == 0.95f);
+    REQUIRE(getParamRawInt(dst.apvts,   pid::inputChannel) == 3);
+    REQUIRE(getParamRawInt(dst.apvts,   pid::seed)         == 12345678);
+}
+
+TEST_CASE("harmonyVoices: new processor instance defaults to a diatonic "
+          "triad ({3rd above, 5th above})",
+          "[plugin][harmony][defaults]")
+{
+    // Phase 5 redesign (post-merge): chord mode is renamed-and-merged from
+    // harmony mode. With harmonyVoices empty, mode = chord degenerates to
+    // 1-in-1-out (identical to scale). To deliver the "single note becomes
+    // a chord" behaviour out of the box, new instances are pre-populated
+    // with a 1-3-5 diatonic triad. Users can edit the voices in the
+    // editor's HARMONY group (or remove them to fall back to plain
+    // quantize within chord mode).
+    PointsmanProcessor p;
+    const auto& v = p.getHarmonyVoices();
+    REQUIRE(v.size() == 2);
+    REQUIRE(v[0].interval  == 3);
+    REQUIRE(v[0].direction == HarmonyDirection::Above);
+    REQUIRE(v[1].interval  == 5);
+    REQUIRE(v[1].direction == HarmonyDirection::Above);
 }
 
 TEST_CASE("harmonyVoices: ValueTree round-trip preserves order + fields",
@@ -237,13 +250,17 @@ TEST_CASE("harmonyVoices: preset with out-of-range interval is silently clamped"
     REQUIRE(voices[2].interval == 5);
 }
 
-TEST_CASE("harmonyVoices: empty round-trip produces empty vector",
+TEST_CASE("harmonyVoices: empty round-trip preserves emptiness across "
+          "save/reopen",
           "[plugin][harmony]")
 {
-    // PointsmanState child must be present from construction (so the host's
-    // first save sees a stable shape) — but with zero HarmonyVoice entries
-    // the round-trip is empty, not absent.
+    // Even though new instances start with a default triad, the user may
+    // explicitly clear all voices. The empty state must round-trip
+    // through getState/setState so reopening the host project does not
+    // resurrect the default triad. PointsmanState child must be present
+    // from construction so the host's first save sees a stable shape.
     PointsmanProcessor src;
+    src.setHarmonyVoices({});  // user clears all voices
     REQUIRE(src.getHarmonyVoices().empty());
 
     juce::MemoryBlock blob;
@@ -304,77 +321,227 @@ TEST_CASE("panic: transport stop emits noteOff for every active output",
     }
 }
 
-TEST_CASE("controlChannel: mode=chord notes maintain chord context, "
-          "are not emitted",
+TEST_CASE("chord mode: single noteOn expands to diatonic triad "
+          "(1 in, 3 out)",
           "[plugin][chord]")
 {
+    // Per the Phase 5 redesign and user-stated intent ("単音をコードに
+    // するモード"): chord mode is 1-in-N-out chord expansion. Each input
+    // attack emits the diatonic triad rooted on the input pitch using
+    // the current (scale, root) — 1-3-5 along the scale.
+    //
+    // Default state: scale=major, root=0 (C). Input C4 (MIDI 60) →
+    // output {C4, E4, G4} = {60, 64, 67} (1-3-5 of C in C major).
     PointsmanProcessor p;
     p.prepareToPlay(44100.0, 256);
     p.setHostIsPlayingForTest(true);
-
-    // Set mode = chord, controlChannel = 2.
-    setParamRaw(p.apvts, pid::mode, 1.0f);
-    setParamRaw(p.apvts, pid::controlChannel, 2.0f);
-
-    // Send chord-context noteOn (pitch class 4 = E).
-    {
-        juce::MidiBuffer midi;
-        midi.addEvent(juce::MidiMessage::noteOn(2, 64, static_cast<juce::uint8>(100)), 0);
-        processOnce(p, midi);
-
-        // Output buffer must be empty — control notes are consumed.
-        bool any = false;
-        for (const auto meta : midi) { (void) meta; any = true; }
-        REQUIRE_FALSE(any);
-    }
-    REQUIRE(p.chordContextPcsForTest() == std::vector<int>{4});
-
-    // Add a second chord-tone (G = pc 7).
-    {
-        juce::MidiBuffer midi;
-        midi.addEvent(juce::MidiMessage::noteOn(2, 67, static_cast<juce::uint8>(100)), 0);
-        processOnce(p, midi);
-        REQUIRE(p.chordContextPcsForTest() == std::vector<int>{4, 7});
-    }
-
-    // Release the first chord note: pc 4 leaves the context.
-    {
-        juce::MidiBuffer midi;
-        midi.addEvent(juce::MidiMessage::noteOff(2, 64), 0);
-        processOnce(p, midi);
-        REQUIRE(p.chordContextPcsForTest() == std::vector<int>{7});
-    }
-}
-
-TEST_CASE("controlChannel: triggerMode=root noteOn sets root pc, is consumed",
-          "[plugin][trigger]")
-{
-    PointsmanProcessor p;
-    p.prepareToPlay(44100.0, 256);
-    p.setHostIsPlayingForTest(true);
-
-    setParamRaw(p.apvts, pid::triggerMode, 1.0f);   // Root
-    setParamRaw(p.apvts, pid::controlChannel, 4.0f);
+    setParamRaw(p.apvts, pid::mode, 1.0f);  // chord
 
     juce::MidiBuffer midi;
-    // pitch 65 → pc 5 = F.
-    midi.addEvent(juce::MidiMessage::noteOn(4, 65, static_cast<juce::uint8>(100)), 0);
+    midi.addEvent(juce::MidiMessage::noteOn(1, 60, juce::uint8{100}), 0);
     processOnce(p, midi);
 
-    bool any = false;
-    for (const auto meta : midi) { (void) meta; any = true; }
-    REQUIRE_FALSE(any);                                  // consumed
-
-    REQUIRE(getParamRawInt(p.apvts, pid::root) == 5);    // root updated
+    std::vector<int> emittedPitches;
+    for (const auto meta : midi)
+    {
+        const auto m = meta.getMessage();
+        if (m.isNoteOn()) emittedPitches.push_back(m.getNoteNumber());
+    }
+    std::sort(emittedPitches.begin(), emittedPitches.end());
+    REQUIRE(emittedPitches == std::vector<int>{60, 64, 67});
 }
 
-TEST_CASE("harmony: voice that clamps to the base pitch is still emitted "
-          "(no unison dedup)",
-          "[plugin][harmony]")
+TEST_CASE("chord mode: input on a non-tonic degree emits the diatonic "
+          "triad of that degree (not always tonic)",
+          "[plugin][chord]")
 {
-    // inboil / m4l engine semantics: when diatonicShift clamps a harmony
-    // voice to the same pitch as the base (input near the top/bottom of
-    // the scale, interval pushes past the extreme), the voice is still
+    // Each input pitch is the root of its own diatonic triad. In C
+    // major: D4 (62) → {D, F, A} = {62, 65, 69} (ii triad).
+    PointsmanProcessor p;
+    p.prepareToPlay(44100.0, 256);
+    p.setHostIsPlayingForTest(true);
+    setParamRaw(p.apvts, pid::mode, 1.0f);  // chord
+
+    juce::MidiBuffer midi;
+    midi.addEvent(juce::MidiMessage::noteOn(1, 62, juce::uint8{100}), 0);
+    processOnce(p, midi);
+
+    std::vector<int> emittedPitches;
+    for (const auto meta : midi)
+    {
+        const auto m = meta.getMessage();
+        if (m.isNoteOn()) emittedPitches.push_back(m.getNoteNumber());
+    }
+    std::sort(emittedPitches.begin(), emittedPitches.end());
+    REQUIRE(emittedPitches == std::vector<int>{62, 65, 69});
+}
+
+TEST_CASE("chord mode: out-of-scale input is snapped to scale before "
+          "the triad is built",
+          "[plugin][chord]")
+{
+    // C# (61) in C major snaps to nearest scale degree first (60 = C,
+    // tie-to-lower from {60, 62}), then expansion → {60, 64, 67}.
+    PointsmanProcessor p;
+    p.prepareToPlay(44100.0, 256);
+    p.setHostIsPlayingForTest(true);
+    setParamRaw(p.apvts, pid::mode, 1.0f);  // chord
+
+    juce::MidiBuffer midi;
+    midi.addEvent(juce::MidiMessage::noteOn(1, 61, juce::uint8{100}), 0);
+    processOnce(p, midi);
+
+    std::vector<int> emittedPitches;
+    for (const auto meta : midi)
+    {
+        const auto m = meta.getMessage();
+        if (m.isNoteOn()) emittedPitches.push_back(m.getNoteNumber());
+    }
+    std::sort(emittedPitches.begin(), emittedPitches.end());
+    REQUIRE(emittedPitches == std::vector<int>{60, 64, 67});
+}
+
+TEST_CASE("chord mode: 3 input noteOns in the same block each expand "
+          "into a triad (9 outputs total)",
+          "[plugin][chord][gate]")
+{
+    // Live chord input: user holds a triad (C, E, G). In chord-expansion
+    // mode each input attack independently expands → 3 × 3 = 9 output
+    // noteOns. All gate-driven by the humanize scheduler with the
+    // simultaneous-threshold clamp (so every voice rings audibly).
+    constexpr double sampleRate = 44100.0;
+    constexpr int    blockSize  = 256;
+
+    PointsmanProcessor p;
+    p.prepareToPlay(sampleRate, blockSize);
+    p.setHostIsPlayingForTest(true);
+    setParamRaw(p.apvts, pid::mode, 1.0f);  // chord
+
+    juce::MidiBuffer midi;
+    midi.addEvent(juce::MidiMessage::noteOn(1, 60, juce::uint8{100}), 0); // C
+    midi.addEvent(juce::MidiMessage::noteOn(1, 64, juce::uint8{100}), 0); // E
+    midi.addEvent(juce::MidiMessage::noteOn(1, 67, juce::uint8{100}), 0); // G
+    processOnce(p, midi, blockSize);
+
+    int noteOns = 0, noteOffs = 0;
+    for (const auto meta : midi)
+    {
+        const auto m = meta.getMessage();
+        if (m.isNoteOn())  ++noteOns;
+        if (m.isNoteOff()) ++noteOffs;
+    }
+    REQUIRE(noteOns  == 9);  // 3 inputs × triad expansion
+    REQUIRE(noteOffs == 0);  // 250 ms first-event gate >> blockSize
+}
+
+TEST_CASE("scale mode: single noteOn passes through as a single note "
+          "(1 in, 1 out)",
+          "[plugin][scale]")
+{
+    // Counter-test: scale mode stays 1-in-1-out. Pins that chord-mode
+    // expansion did not leak into scale mode.
+    PointsmanProcessor p;
+    p.prepareToPlay(44100.0, 256);
+    p.setHostIsPlayingForTest(true);
+    // Default mode is already scale (0); no setParamRaw needed.
+
+    juce::MidiBuffer midi;
+    midi.addEvent(juce::MidiMessage::noteOn(1, 60, juce::uint8{100}), 0);
+    processOnce(p, midi);
+
+    int noteOns = 0;
+    for (const auto meta : midi)
+        if (meta.getMessage().isNoteOn()) ++noteOns;
+    REQUIRE(noteOns == 1);
+}
+
+TEST_CASE("seed: new instance gets a random seed in [0, 2^24-1]",
+          "[plugin][seed]")
+{
+    // concept.md §"Per-event humanize": "New plugin instances pick a
+    // random seed on construction so two parallel Pointsman instances
+    // ... do not produce phase-coherent identical humanize."
+    // Probabilistic guard: 16 fresh constructs must not all match —
+    // P(all 16 identical) = 1 / 2^(24×15) ≈ 0 for a working RNG.
+    std::set<int> seeds;
+    for (int i = 0; i < 16; ++i)
+    {
+        PointsmanProcessor p;
+        const int s = getParamRawInt(p.apvts, pid::seed);
+        REQUIRE(s >= 0);
+        REQUIRE(s <= 0xffffff);
+        seeds.insert(s);
+    }
+    // At least two distinct values across 16 constructs.
+    REQUIRE(seeds.size() >= 2);
+}
+
+TEST_CASE("seed: round-trips through getState/setState (random init survives save)",
+          "[plugin][seed][persistence]")
+{
+    // The random seed picked at construction must be written into state
+    // on save so reopening a project reproduces the exact same humanize
+    // draws. The APVTS round-trip is bit-exact because seeds are
+    // constrained to [0, 2^24-1] (exactly representable as float32).
+    PointsmanProcessor src;
+    const int seedBefore = getParamRawInt(src.apvts, pid::seed);
+
+    juce::MemoryBlock blob;
+    src.getStateInformation(blob);
+
+    PointsmanProcessor dst;
+    dst.setStateInformation(blob.getData(), static_cast<int>(blob.getSize()));
+    REQUIRE(getParamRawInt(dst.apvts, pid::seed) == seedBefore);
+}
+
+TEST_CASE("setStateInformation: v1 state (with removed pid) is discarded; "
+          "defaults are restored",
+          "[plugin][state][v1]")
+{
+    // ADR 003 Phase 5: hard break — no v1 → v2 migration. A v1 state
+    // tree (recognised by the presence of any removed pid or by
+    // PointsmanState.version != "2") is silently discarded and the
+    // processor falls back to default-constructed v2 params.
+    //
+    // Build a v1-shaped state by hand: an APVTS tree carrying a removed
+    // pid (e.g. controlChannel). setStateInformation must detect the
+    // pre-v2 marker and refuse to overwrite the live v2 defaults.
+
+    PointsmanProcessor dst;
+    const int defaultSeed   = getParamRawInt(dst.apvts, pid::seed);
+    const int defaultInputC = getParamRawInt(dst.apvts, pid::inputChannel);
+
+    // Construct a v1 state XML by hand — APVTS layout name matches the
+    // live tree's; we attach a single PARAM child for a removed pid.
+    juce::ValueTree v1State { dst.apvts.state.getType() };
+    {
+        juce::ValueTree param { juce::Identifier("PARAM") };
+        param.setProperty(juce::Identifier("id"),    "controlChannel", nullptr);
+        param.setProperty(juce::Identifier("value"), 7.0f, nullptr);
+        v1State.appendChild(param, nullptr);
+    }
+    auto xml = v1State.createXml();
+    REQUIRE(xml != nullptr);
+    juce::MemoryBlock blob;
+    struct Exposer : public PointsmanProcessor
+    { using AudioProcessor::copyXmlToBinary; };
+    Exposer::copyXmlToBinary(*xml, blob);
+
+    dst.setStateInformation(blob.getData(), static_cast<int>(blob.getSize()));
+
+    // Live state must NOT have absorbed the v1 control-channel value;
+    // the discard restores defaults instead.
+    REQUIRE(getParamRawInt(dst.apvts, pid::inputChannel) == defaultInputC);
+    REQUIRE(getParamRawInt(dst.apvts, pid::seed)         == defaultSeed);
+}
+
+TEST_CASE("chord (voice-stack): voice that clamps to the base pitch is "
+          "still emitted (no unison dedup)",
+          "[plugin][chord]")
+{
+    // inboil / m4l engine semantics: when diatonicShift clamps a voice
+    // to the same pitch as the base (input near the top/bottom of the
+    // scale, interval pushes past the extreme), the voice is still
     // emitted at that pitch. m4l/host/host.ts:184-192 pushes every voice
     // into the pitches array unconditionally. vst must match — a prior
     // `voicePitch == quantized` skip in PluginProcessor.cpp diverged from
@@ -385,7 +552,7 @@ TEST_CASE("harmony: voice that clamps to the base pitch is still emitted "
 
     setParamRaw(p.apvts, pid::scale, 0.0f); // Major
     setParamRaw(p.apvts, pid::root,  0.0f); // C
-    setParamRaw(p.apvts, pid::mode,  2.0f); // Harmony
+    setParamRaw(p.apvts, pid::mode,  1.0f); // Chord (post-merge, voice-stack-driven)
     p.setHarmonyVoices({
         {3, HarmonyDirection::Above}, // 3rd above; clamps at top of MIDI range
     });
@@ -411,9 +578,9 @@ TEST_CASE("humanize default: noteOff fires at noteOn + first-event sourceStep",
           "[plugin][humanize][gate]")
 {
     // ADR 003 Phase 4: output gate length is humanize-driven, not input-
-    // noteOff-driven. With default humanize (gate=0), gateFinal collapses
-    // to clamp01(1.0 × (1 + 0)) = 1.0, so output gate length =
-    // 1.0 × sourceStepDuration.
+    // noteOff-driven. With default humanize (feel=0), the v2 axis routing
+    // collapses every humanize amp to 0 → gateFinal = 1.0, so output gate
+    // length = 1.0 × sourceStepDuration.
     //
     // First-event source-step fallback = kFirstEventStepMs = 250 ms
     // (mirrors m4l/host/host.ts FIRST_EVENT_STEP_MS). At 44.1 kHz this is
@@ -502,7 +669,7 @@ TEST_CASE("humanize: input noteOff does not gate output "
     REQUIRE_FALSE(any);
 }
 
-TEST_CASE("humanize: timing=1 shifts output noteOn within ±0.5 sourceStep "
+TEST_CASE("humanize: feel=1 shifts output noteOn within ±0.5 sourceStep "
           "(negative clamps to input sample)",
           "[plugin][humanize][timing]")
 {
@@ -513,6 +680,10 @@ TEST_CASE("humanize: timing=1 shifts output noteOn within ±0.5 sourceStep "
     // delay : 0`). Upper bound at 44.1 kHz: 0.5 × 250 ms = 125 ms ≈
     // 5512.5 samples; we assert strict inequality to hold the half-open
     // range.
+    //
+    // Phase 5 routing: feel feeds all three humanize axes; with feel=1
+    // the timing-axis amplitude is 1.0, matching the v1 humanizeTiming=1
+    // behaviour exactly.
     constexpr double sampleRate = 44100.0;
     constexpr int    blockSize  = 1024;
     constexpr int    kUpperBoundSamples = 5513;
@@ -521,8 +692,8 @@ TEST_CASE("humanize: timing=1 shifts output noteOn within ±0.5 sourceStep "
     p.prepareToPlay(sampleRate, blockSize);
     p.setHostIsPlayingForTest(true);
 
-    setParamRaw(p.apvts, pid::humanizeTiming, 1.0f);
-    setParamRaw(p.apvts, pid::seed,           0.0f);
+    setParamRaw(p.apvts, pid::feel, 1.0f);
+    setParamRaw(p.apvts, pid::seed, 0.0f);
 
     juce::AudioBuffer<float> audio(0, blockSize);
 
@@ -567,7 +738,7 @@ TEST_CASE("humanize: source-step duration clamped at kMaxSourceStepMs (5 s)",
     // well outside any normal play context.
     //
     // Setup: noteOn at t=0, then ~10 s of empty blocks, then a second
-    // noteOn. With humanize gate=0, gateFinal = 1.0, so the second
+    // noteOn. With humanize feel=0, gateFinal = 1.0, so the second
     // noteOff is scheduled at sample (current + sourceStepSamples).
     // Without clamp: ~10 s out → not observable inside a 5.5 s search
     // window. With clamp: ~5 s out → observable.

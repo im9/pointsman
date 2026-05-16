@@ -16,9 +16,12 @@
 
 namespace pointsman
 {
-    // APVTS state version. ADR 003 §"Persistence". v1 is the first persisted
-    // shape; bump only on incompatible schema changes (with a migrator).
-    constexpr int kStateVersion = 1;
+    // APVTS state version. ADR 003 §"Persistence". v1 was the first persisted
+    // shape; v2 is the Phase 5 surface redesign (chord-from-input + feel/drift
+    // collapse). Phase 5 is a hard break: a v1 state tree is recognised by
+    // the presence of any removed pid (or PointsmanState.version != "2")
+    // and silently discarded — no migrator.
+    constexpr int kStateVersion = 2;
 }
 
 class PointsmanProcessor : public juce::AudioProcessor
@@ -106,20 +109,8 @@ public:
 
     // ---- Test inspection ----
     // The tests/ binary needs visibility into a few normally-private bits
-    // of state to assert chord-context behaviour and panic discipline
-    // without instantiating a host. The plugin runtime never calls these.
-    // Returns by value: the canonical state is a 12-bit atomic mask, so
-    // we materialise a sorted-ascending vector for inspection. (Order is
-    // pitch-class-ascending, not insertion order — chord context is a
-    // set; no caller treats it as ordered.)
-    std::vector<int> chordContextPcsForTest() const
-    {
-        const uint16_t mask = chordContextMask_.load(std::memory_order_acquire);
-        std::vector<int> out;
-        for (int pc = 0; pc < 12; ++pc)
-            if ((mask >> pc) & 1u) out.push_back(pc);
-        return out;
-    }
+    // of state to assert panic discipline without instantiating a host.
+    // The plugin runtime never calls these.
     void setHostIsPlayingForTest(bool playing) noexcept { testIsPlaying = playing; }
     uint64_t getLastEmittedPulseForTest() const noexcept
     { return lastEmittedPulse.load(std::memory_order_acquire); }
@@ -144,13 +135,6 @@ private:
 
     bool isHostPlaying() noexcept;
     bool channelMatches(int messageChannel, int paramChannel) const noexcept;
-
-    // Chord context is read by paint() on the message thread and mutated
-    // (push / clear / panic) by processBlock on the audio thread. Pitch
-    // classes are 0..11, so a 12-bit mask in a single std::atomic gives
-    // lock-free SPSC without a vector or spinlock — the audio side does
-    // fetch_or / fetch_and / store(0) and the UI side does load(acquire).
-    std::atomic<uint16_t> chordContextMask_{0};
 
     // Harmony voices: written by the message thread (UI edits, preset
     // load), read by the audio thread on every input noteOn in

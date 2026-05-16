@@ -1,10 +1,11 @@
 # Concept
 
 Pointsman is a DAW-native **scale quantizer** for MIDI: it snaps incoming
-notes to a user-selected scale, with optional chord-mode and harmony-mode
-(diatonic voice stack), and a per-event humanize layer (velocity / gate /
-timing / drift). MIDI effect, single-purpose UI, ships as a standalone
-product on `m4l/` and `vst/` targets.
+notes to a user-selected scale, with optional chord-mode (single-note-
+becomes-chord expansion via a configurable diatonic voice stack), and
+a per-event humanize layer (velocity / gate / timing / drift). MIDI
+effect, single-purpose UI, ships as a standalone product on `m4l/` and
+`vst/` targets.
 
 This document describes the **musical model** — the parts that are shared
 across Pointsman's targets (`m4l/`, `vst/`). Per-target UI, parameter
@@ -36,53 +37,30 @@ add `chromatic-half`):
 `chromatic`, `chromatic-half` (last is a no-op identity for "passthrough
 within the device chain").
 
-### Chord and harmony modes
+### Scale and chord modes
 
-Pointsman ships three quantize modes — `scale` (snap to nearest scale
-degree), `chord` (snap to chord-tone with scale fallback), `harmony`
-(input plus diatonic voice stack). The mode is a single 3-way exclusive
-selection; output is always 1 emitted note per input attack in `scale`
-and `chord` modes, and `1 + harmonyVoices.length` notes in `harmony`
-mode.
+Pointsman ships two quantize modes — `scale` (snap to nearest scale
+degree, 1-in-1-out) and `chord` (single-note-becomes-chord
+expansion, 1-in-`1+N`-out via a configurable diatonic voice stack).
+The mode is a single 2-way exclusive selection; default is `scale`.
 
-**Chord context derivation.** In `chord` and `harmony` modes the chord
-context is derived from notes currently held on the input channel — no
-separate control channel, no offline `chords[]` array. The engine
-maintains a set of currently-sounding input pitch classes:
+`chord` mode emits the scale-snapped input plus `N` diatonic voices
+configured by `harmonyVoices` (length 0..3). Each voice is a
+`(interval, direction)` pair: interval ∈ {3, 4, 5, 6} (diatonic
+3rd / 4th / 5th / 6th along the active scale), direction ∈
+{above, below}. A voice that clamps to the scale extreme (top of
+MIDI range) is still emitted at that pitch — harmony slots are
+positional, not de-duplicated.
 
-- **0 held** → context is empty → `chord` mode falls through to scale
-  snap; `harmony` mode emits the diatonic voice stack against the
-  scale (harmony is scale-relative, not chord-relative).
-- **1 held** → that pc is interpreted as a root, and the chord context
-  is synthesized as a diatonic triad starting at that pc in the
-  current `(scale, root)`. The held note itself emits as pass-through
-  (it is a member of its own triad). Subsequent attacks while the
-  first note is still held snap against this triad.
-- **2+ held** → context is the literal set of held pcs, unioned with
-  the diatonic triad of the lowest held pc (so the context always
-  carries a "tonal centre" anchor even when the user is playing wide
-  voicings).
+`harmonyVoices` defaults to `[{3, above}, {5, above}]` on new plugin
+instances, so `chord` mode out of the box emits a diatonic 1-3-5
+triad rooted on the input pitch (e.g. C → {C, E, G} in C major,
+D → {D, F, A} in C major). Users edit voices in the editor's
+HARMONY group; clearing all voices collapses `chord` to 1-in-1-out
+(identical to `scale` mode).
 
-**Ordering per attack.** Each incoming `noteOn` is snapped against the
-chord context *as it stands at the moment of attack*, then added to
-the context. So the first note of a held cluster always snaps to scale
-(empty context); subsequent notes within the cluster snap to the
-context built by the earlier notes. This makes `chord` mode
-distinguishable from `scale` mode in legato / held-cluster playing
-while preserving "single note in → single note out".
-
-**Context retention.** A short retention window (~150 ms) keeps a
-released pc in the context after its `noteOff` so that non-legato
-playing — releasing one note before pressing the next — still
-benefits from `chord` mode. The retention time is an engine constant,
-not a user parameter; it is short enough that intentional silence
-clears the context, long enough that ordinary phrasing maintains it.
-
-`harmony` mode is scale-relative: the diatonic voice stack is computed
-purely from `(scale, root)` and the per-voice interval, independent
-of held pcs. Held-input chord context is still tracked for `harmony`
-mode so a future "harmony follows chord" extension is possible, but
-v1 harmony voices are not chord-tone-snapped.
+Out-of-scale input is snapped to the nearest scale degree first, so
+e.g. C# in C major → C, then the chord is built rooted on C.
 
 ## Composition — upstream → Pointsman → Synth
 
@@ -103,8 +81,9 @@ Sources that pair naturally:
   to a key.
 - **Played input / MPE controllers** — Pointsman acts as a real-time
   scale lock for the player.
-- **Chord clips** — feed harmonic content; Pointsman in `chord` /
-  `harmony` mode generates voice-leading against the held chord.
+- **Single-note melodies** — Pointsman in `chord` mode expands each
+  attack into the configured diatonic voice stack, turning a
+  monophonic source into automatic chord voicings.
 
 Pointsman is also useful on its own as a real-time scale lock for any
 upstream MIDI source. The host's MIDI routing handles the chain — no
@@ -148,7 +127,7 @@ saving a preset captures the current seed, so reloading reproduces the
 saved performance. Drift smoothing maintains its EMA state per-axis,
 reset on transport **start** (so each play loop re-seeds from the same
 initial state). Transport stop does not touch drift state — it only
-flushes any in-flight notes and clears chord context.
+flushes any in-flight notes.
 
 ## MIDI semantics
 
@@ -161,9 +140,9 @@ expected on all targets.
 Pointsman is fundamentally input-driven (it transforms incoming notes).
 Input arrives on the `inputChannel` (omni or 1..16) — the only channel
 filter Pointsman exposes. Notes on other channels pass through
-untouched. There is no separate control channel: chord context in
-`chord` / `harmony` modes is derived from notes held on the
-`inputChannel` itself (§Chord and harmony modes).
+untouched. There is no separate control channel: `chord` mode's
+voice stack is configured by `harmonyVoices`, not driven by held
+input notes (§Scale and chord modes).
 
 The `root` parameter is set from the editor (keyboard tap), the host
 parameter automation lane, or preset recall — not from incoming MIDI.
@@ -204,15 +183,15 @@ Clarifying scope by exclusion:
 - **Not a synth.** No oscillators, no audio. MIDI only.
 - **Not a scene graph.** inboil embeds Quantizer as a node in a
   broader generative system. Pointsman flattens this: one MIDI effect,
-  one job (quantize / harmony).
+  one job (quantize / chord-expansion).
 - **Not an unseeded random walker.** Humanize draws are reproducible
   for fixed `(seed, input sequence, params)`.
 
 ## Future extensions
 
 Listed so the surface stays small and these don't get quietly
-designed-around. Pointsman's quantize modes (`scale` / `chord` /
-`harmony`) are shipped — those are no longer "future".
+designed-around. Pointsman's quantize modes (`scale` / `chord`) are
+shipped — those are no longer "future".
 
 - **MPE output** — keep the note-emission abstraction loose enough that
   per-note pitch bend / pressure / timbre can be added without a rewrite.
@@ -232,8 +211,8 @@ specifics, GUI-only state) may be added per target.
 |-------------------|------------------------------------------------------|----------------------------------------------------|
 | `scale`           | enum (15 names)                                      | scale preset; default `major`                      |
 | `root`            | int `0..11`                                          | root pitch class; default `0` (C)                  |
-| `mode`            | `scale \| chord \| harmony`                          | snap strategy; default `scale`                     |
-| `harmonyVoices`   | `HarmonyVoice[]` (length 0..3)                       | diatonic voice stack used in `harmony` mode        |
+| `mode`            | `scale \| chord`                                     | output strategy; default `scale`                   |
+| `harmonyVoices`   | `HarmonyVoice[]` (length 0..3)                       | diatonic voice stack emitted in `chord` mode (default `[{3 above}, {5 above}]` = 1-3-5 triad) |
 | `feel`            | float `0..1`                                         | humanize amount across velocity / gate / timing; default `0` |
 | `drift`           | float `0..1`                                         | EMA smoothing for humanize axes; default `0`       |
 | `inputChannel`    | int `0..16`                                          | MIDI input channel; `0` = omni; default `0`        |
@@ -251,8 +230,13 @@ deletion:
   not to a quantizer.
 - `triggerMode` — dropped. Key-change from a controller is covered by
   the editor keyboard tap or host parameter automation on `root`.
-- `controlChannel` — dropped. Chord context derives from
-  `inputChannel` itself (§Chord and harmony modes).
+- `controlChannel` — dropped. Chord-mode output is now
+  configuration-driven (`harmonyVoices`) rather than derived from a
+  separate channel's held notes (§Scale and chord modes).
+- `harmony` mode (third mode value) — merged into `chord`. The
+  former harmony mode's voice-stack semantics are now `chord` mode's
+  semantics, with `harmonyVoices` pre-populated by default to a
+  1-3-5 triad so the surface ships "single note becomes a chord".
 
 ## Origin notes
 
@@ -260,7 +244,7 @@ Pointsman has two ancestors:
 
 - **inboil's `generative.ts`** (see the `reference_inboil` memory and
   CLAUDE.md) provided the algorithm — scale presets, snap-to-nearest,
-  chord-tone snap, and diatonic harmony voice stacking. inboil's scene
+  chord-tone bias, and diatonic voice stacking. inboil's scene
   graph does not carry over: Pointsman is a flat MIDI effect, not a
   generative graph node.
 - **The TM + Quantizer Eurorack idiom** (Music Thing TM into Mutable
