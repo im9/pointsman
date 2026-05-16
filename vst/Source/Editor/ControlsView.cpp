@@ -243,17 +243,17 @@ namespace pointsman::editor
             addAndMakeVisible(removeBtn_);
         }
 
-        void paint(juce::Graphics& g) override
-        {
-            g.setColour(theme::olive);
-            g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(0.5f), 1.0f, 1.0f);
-        }
-
+        // No background paint — the combo's own outline (theme::lzBorderMid)
+        // already encloses the row, and the remove button reads as part of
+        // the same unit. The previous always-on olive outer border doubled
+        // up with the combo's outline and read as visual noise.
         void resized() override
         {
             auto r = getLocalBounds().reduced(2);
             const int rmW = 18;
+            const int gapW = 6;   // breathing room between combo and remove btn
             removeBtn_.setBounds(r.removeFromRight(rmW));
+            r.removeFromRight(gapW);
             combo_.setBounds(r);
         }
 
@@ -482,8 +482,8 @@ namespace pointsman::editor
             addAndMakeVisible(*badge);
             badges_.push_back(std::move(badge));
         }
-        addHarmonyBtn_.setEnabled((int) voices.size() < kHarmonyVoicesMax);
         layoutHarmonyArea(harmonyAreaBounds_);
+        syncHarmonyEnabledState();   // covers add-btn enable + per-badge enable
         repaint();
     }
 
@@ -495,6 +495,29 @@ namespace pointsman::editor
             pills_[i]->setActiveState(static_cast<int>(i) == active);
         modeDesc_.setText(modeDescriptionFor(static_cast<ModeChoice>(active)),
                           juce::dontSendNotification);
+        // Mode drives whether the HARMONY group has any audible effect —
+        // chord mode reads harmonyVoices, scale mode does not. Gray the
+        // editing controls out in scale mode so a user doesn't tweak
+        // something that won't be heard.
+        syncHarmonyEnabledState();
+    }
+
+    void ControlsView::syncHarmonyEnabledState()
+    {
+        const auto mode = static_cast<ModeChoice>(static_cast<int>(
+            processor_.apvts.getRawParameterValue(pid::mode)->load()));
+        const bool chordMode = (mode == ModeChoice::Chord);
+
+        for (auto& b : badges_)
+            b->setEnabled(chordMode);
+
+        // Add button: enabled only when chord mode AND we have headroom
+        // under the kHarmonyVoicesMax cap. JUCE propagates parent-
+        // disabled to children, so the badge combos read disabled in
+        // scale mode without setEnabled on the combo directly.
+        const auto& voices = processor_.getHarmonyVoices();
+        addHarmonyBtn_.setEnabled(chordMode
+                                  && (int) voices.size() < kHarmonyVoicesMax);
     }
 
     void ControlsView::parameterChanged(const juce::String& id, float)

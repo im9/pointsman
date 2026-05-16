@@ -530,6 +530,52 @@ TEST_CASE("ScaleKeyboardView: pulse glow lights only the exact emitted MIDI key"
     REQUIRE(pulses[0].midi == 60);   // not 48, not 72, not "pc=0"
 }
 
+TEST_CASE("ControlsView: HARMONY group is disabled when mode=scale, "
+          "enabled when mode=chord",
+          "[editor][controls][harmony][mode]")
+{
+    // Scale mode is 1-in-1-out; harmonyVoices are not consulted in the
+    // audio path. Disable the HARMONY editing surface so users don't
+    // tweak something with no audible effect. Toggling back to chord
+    // mode re-enables the controls.
+    //
+    // We assert via Component::isEnabled(), which JUCE propagates from
+    // ancestor → descendant: disabling the HarmonyBadge component is
+    // sufficient for its child combo to read as disabled. Add-button
+    // disable is also gated by the existing voices.size() < max check.
+    PointsmanProcessor proc;
+    pointsman::editor::ControlsView ctl(proc);
+    ctl.setSize(280, 600);
+    REQUIRE(proc.getHarmonyVoices().size() == 2);  // default 1-3-5 triad
+
+    // Default mode = scale → HARMONY group disabled.
+    REQUIRE_FALSE(ctl.getAddHarmonyButtonForTest().isEnabled());
+    for (int i = 0; i < ctl.getHarmonyBadgeCountForTest(); ++i)
+    {
+        auto* combo = ctl.getHarmonyBadgeComboForTest(i);
+        REQUIRE(combo != nullptr);
+        REQUIRE_FALSE(combo->isEnabled());
+    }
+
+    // Switch to chord mode → HARMONY group re-enables. (Default voices
+    // = 2 < max 3, so the add button is enabled too.)
+    auto pills = ctl.getModeButtonsForTest();
+    clickSync(*pills[1]);
+    REQUIRE(ctl.getAddHarmonyButtonForTest().isEnabled());
+    for (int i = 0; i < ctl.getHarmonyBadgeCountForTest(); ++i)
+    {
+        auto* combo = ctl.getHarmonyBadgeComboForTest(i);
+        REQUIRE(combo != nullptr);
+        REQUIRE(combo->isEnabled());
+    }
+
+    // Back to scale → disabled again.
+    clickSync(*pills[0]);
+    REQUIRE_FALSE(ctl.getAddHarmonyButtonForTest().isEnabled());
+    for (int i = 0; i < ctl.getHarmonyBadgeCountForTest(); ++i)
+        REQUIRE_FALSE(ctl.getHarmonyBadgeComboForTest(i)->isEnabled());
+}
+
 TEST_CASE("ControlsView: HARMONY badge combo maps to (interval, direction)",
           "[editor][controls][harmony]")
 {
@@ -557,8 +603,15 @@ TEST_CASE("ControlsView: HARMONY badge combo maps to (interval, direction)",
 
     SECTION("changing the badge combo writes back to harmonyVoices")
     {
+        // chord mode so the HARMONY group is enabled; otherwise the
+        // combo is disabled and would no-op even on programmatic
+        // setSelectedId in a real host (the test runner is more
+        // permissive but we want production-equivalent behaviour).
         PointsmanProcessor proc;
         proc.setHarmonyVoices({{3, pointsman::HarmonyDirection::Above}});
+        proc.apvts.getParameter(pid::mode)
+            ->setValueNotifyingHost(proc.apvts.getParameter(pid::mode)
+                                        ->convertTo0to1(1.0f));
 
         pointsman::editor::ControlsView ctl(proc);
         ctl.setSize(280, 600);
@@ -578,10 +631,12 @@ TEST_CASE("ControlsView: HARMONY badge combo maps to (interval, direction)",
 TEST_CASE("ControlsView: harmony + grows the voice list, capped at 3",
           "[editor][controls][harmony]")
 {
-    // Start with the user explicitly cleared the default-triad so the
-    // baseline is empty, then exercise the cap from there.
+    // chord mode + empty harmonyVoices baseline; then exercise the cap.
     PointsmanProcessor proc;
     proc.setHarmonyVoices({});
+    proc.apvts.getParameter(pid::mode)
+        ->setValueNotifyingHost(proc.apvts.getParameter(pid::mode)
+                                    ->convertTo0to1(1.0f));
     pointsman::editor::ControlsView ctl(proc);
     ctl.setSize(280, 600);
 

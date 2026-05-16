@@ -78,6 +78,7 @@ namespace pointsman::editor
         void syncRangeValueLabel();
         void rebuildHarmonyBadges();
         void syncModeHighlights();
+        void syncHarmonyEnabledState();
         void layoutHarmonyArea(juce::Rectangle<int> area);
         int  loadIntParam(const char* id) const;
 

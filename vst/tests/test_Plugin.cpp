@@ -434,6 +434,58 @@ TEST_CASE("chord mode: 3 input noteOns in the same block each expand "
     REQUIRE(noteOffs == 0);  // 250 ms first-event gate >> blockSize
 }
 
+TEST_CASE("inputChannel: non-matching channel is dropped (not passed through)",
+          "[plugin][routing]")
+{
+    // With IN CH set to a specific channel (not OMNI), input on any
+    // other channel must be dropped — NOT emitted as-is. Pass-through
+    // would mean a single note slips past Pointsman whenever the user
+    // picked the wrong filter, contradicting the active mode (e.g. in
+    // chord mode the output would be a single note instead of a
+    // chord). Filter semantics keep mode behaviour consistent: matched
+    // channel → mode-processed output; non-matched channel → silence.
+    PointsmanProcessor p;
+    p.prepareToPlay(44100.0, 256);
+    p.setHostIsPlayingForTest(true);
+
+    // IN CH = 5; mode = chord (so default 1-3-5 triad applies on match).
+    setParamRaw(p.apvts, pid::inputChannel, 5.0f);
+    setParamRaw(p.apvts, pid::mode,         1.0f);
+
+    // Send noteOn on channel 1 (NOT matching).
+    juce::MidiBuffer midi;
+    midi.addEvent(juce::MidiMessage::noteOn(1, 60, juce::uint8{100}), 0);
+    processOnce(p, midi);
+
+    bool sawAnyEvent = false;
+    for (const auto meta : midi) { (void) meta; sawAnyEvent = true; }
+    REQUIRE_FALSE(sawAnyEvent);
+}
+
+TEST_CASE("inputChannel: matching channel still produces chord-expansion output",
+          "[plugin][routing]")
+{
+    // Counter-test for the filter test above: when channel DOES match
+    // IN CH, chord mode produces its 3-note triad as usual. Pins that
+    // the "drop non-matching" change didn't accidentally drop matching
+    // notes too.
+    PointsmanProcessor p;
+    p.prepareToPlay(44100.0, 256);
+    p.setHostIsPlayingForTest(true);
+
+    setParamRaw(p.apvts, pid::inputChannel, 5.0f);
+    setParamRaw(p.apvts, pid::mode,         1.0f);
+
+    juce::MidiBuffer midi;
+    midi.addEvent(juce::MidiMessage::noteOn(5, 60, juce::uint8{100}), 0);
+    processOnce(p, midi);
+
+    int noteOns = 0;
+    for (const auto meta : midi)
+        if (meta.getMessage().isNoteOn()) ++noteOns;
+    REQUIRE(noteOns == 3);
+}
+
 TEST_CASE("scale mode: single noteOn passes through as a single note "
           "(1 in, 1 out)",
           "[plugin][scale]")
