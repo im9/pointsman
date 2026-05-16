@@ -283,13 +283,14 @@ void PointsmanProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::Mid
 
             if (!channelMatched)
             {
-                // Drop non-matching channels. Filter semantics: when
-                // IN CH != OMNI, only the selected channel goes through
-                // Pointsman's mode-driven path; other channels are
-                // silenced rather than slipping past untouched (which
-                // contradicts the active mode visually — a chord-mode
-                // session would emit single notes if a stray channel
-                // bypassed the filter).
+                // Other-channel input passes through untouched
+                // (concept.md §"Input handling"). Preserving non-matching
+                // channels is required for MPE: with IN CH = master
+                // (e.g. 1), per-note channels (2..15) must still flow to
+                // the downstream MPE instrument carrying pitch bend /
+                // pressure / timbre, even though they are not chord-
+                // expanded here.
+                out.addEvent(msg, sample);
                 continue;
             }
 
@@ -402,11 +403,14 @@ void PointsmanProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::Mid
         }
         else if (msg.isNoteOff())
         {
-            // All input noteOffs are silently consumed:
-            //   - channel-matched: output gating is humanize-driven
-            //     (gateFinal × sourceStepDuration), not input-paired
-            //     (ADR 003 Phase 4 / m4l host.ts:222-230 semantics).
-            //   - non-matching: dropped at the filter, no pair to emit.
+            // Channel-matched input noteOffs are silently consumed:
+            // output gating is humanize-driven (gateFinal ×
+            // sourceStepDuration), not input-paired (ADR 003 Phase 4 /
+            // m4l host.ts:222-230 semantics). Off-channel noteOffs pass
+            // through unchanged so any matching off-channel noteOn we
+            // passed through above gets its pair on the output.
+            if (!channelMatched)
+                out.addEvent(msg, sample);
         }
         else
         {

@@ -139,13 +139,14 @@ expected on all targets.
 
 Pointsman is fundamentally input-driven (it transforms incoming notes).
 Input arrives on the `inputChannel` (omni or 1..16) — the only channel
-filter Pointsman exposes. Notes on other channels are dropped, not
-passed through: the filter is a real filter, so the active mode's
-output (single note in `scale`, chord in `chord`) is what reaches
-downstream, never a stray untransformed note. Set `inputChannel = 0`
-(OMNI) to act on all channels. There is no separate control channel:
-`chord` mode's voice stack is configured by `harmonyVoices`, not
-driven by held input notes (§Scale and chord modes).
+filter Pointsman exposes. Notes on other channels pass through
+untouched. This pass-through is load-bearing for MPE: with `IN CH`
+set to the master channel (e.g. 1), per-note channels (2..15)
+carrying pitch bend / pressure / timbre must still flow to the
+downstream MPE instrument, even though Pointsman only chord-expands
+the master. There is no separate control channel: `chord` mode's
+voice stack is configured by `harmonyVoices`, not driven by held
+input notes (§Scale and chord modes).
 
 The `root` parameter is set from the editor (keyboard tap), the host
 parameter automation lane, or preset recall — not from incoming MIDI.

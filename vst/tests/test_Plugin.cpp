@@ -434,41 +434,42 @@ TEST_CASE("chord mode: 3 input noteOns in the same block each expand "
     REQUIRE(noteOffs == 0);  // 250 ms first-event gate >> blockSize
 }
 
-TEST_CASE("inputChannel: non-matching channel is dropped (not passed through)",
+TEST_CASE("inputChannel: non-matching channel passes through untouched "
+          "(MPE per-note channel carry)",
           "[plugin][routing]")
 {
-    // With IN CH set to a specific channel (not OMNI), input on any
-    // other channel must be dropped — NOT emitted as-is. Pass-through
-    // would mean a single note slips past Pointsman whenever the user
-    // picked the wrong filter, contradicting the active mode (e.g. in
-    // chord mode the output would be a single note instead of a
-    // chord). Filter semantics keep mode behaviour consistent: matched
-    // channel → mode-processed output; non-matched channel → silence.
+    // With IN CH set to a master channel (e.g. 1), MPE per-note channels
+    // 2..15 still carry pitch bend / pressure / timbre to the downstream
+    // MPE instrument. Pointsman must NOT drop them — pass-through is
+    // the load-bearing semantic here (concept.md §"Input handling").
     PointsmanProcessor p;
     p.prepareToPlay(44100.0, 256);
     p.setHostIsPlayingForTest(true);
 
-    // IN CH = 5; mode = chord (so default 1-3-5 triad applies on match).
-    setParamRaw(p.apvts, pid::inputChannel, 5.0f);
-    setParamRaw(p.apvts, pid::mode,         1.0f);
+    setParamRaw(p.apvts, pid::inputChannel, 1.0f);
+    setParamRaw(p.apvts, pid::mode,         1.0f);  // chord
 
-    // Send noteOn on channel 1 (NOT matching).
     juce::MidiBuffer midi;
-    midi.addEvent(juce::MidiMessage::noteOn(1, 60, juce::uint8{100}), 0);
+    midi.addEvent(juce::MidiMessage::noteOn(5, 60, juce::uint8{100}), 0);
     processOnce(p, midi);
 
-    bool sawAnyEvent = false;
-    for (const auto meta : midi) { (void) meta; sawAnyEvent = true; }
-    REQUIRE_FALSE(sawAnyEvent);
+    // Channel 5 noteOn (NOT matching IN CH = 1) must reach output
+    // unchanged.
+    bool sawNonMatchingNoteOn = false;
+    for (const auto meta : midi)
+    {
+        const auto m = meta.getMessage();
+        if (m.isNoteOn() && m.getChannel() == 5 && m.getNoteNumber() == 60)
+            sawNonMatchingNoteOn = true;
+    }
+    REQUIRE(sawNonMatchingNoteOn);
 }
 
-TEST_CASE("inputChannel: matching channel still produces chord-expansion output",
+TEST_CASE("inputChannel: matching channel produces chord-expansion output",
           "[plugin][routing]")
 {
-    // Counter-test for the filter test above: when channel DOES match
-    // IN CH, chord mode produces its 3-note triad as usual. Pins that
-    // the "drop non-matching" change didn't accidentally drop matching
-    // notes too.
+    // Counter-test for the pass-through test above: when channel DOES
+    // match IN CH, chord mode produces its 3-note triad as usual.
     PointsmanProcessor p;
     p.prepareToPlay(44100.0, 256);
     p.setHostIsPlayingForTest(true);
