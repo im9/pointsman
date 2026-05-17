@@ -385,6 +385,46 @@ TEST_CASE("ScaleKeyboardView: pulse list grows when processor emits a noteOn",
     REQUIRE(kbd.getPulsesForTest().empty());
 }
 
+TEST_CASE("ScaleKeyboardView: chord-mode burst publishes every voice's pulse",
+          "[editor][keyboard][pulse][chord]")
+{
+    // Phase 5: chord mode emits the snapped input plus N harmony voices in
+    // the same processBlock (3 voices at the default 1-3-5 triad). The
+    // pulse ring must surface every one of them — pre-ring the single-slot
+    // atomic collapsed same-block emits down to the last visible pulse, so
+    // only one of the chord's keys would glow.
+    PointsmanProcessor proc;
+    proc.prepareToPlay(44100.0, 256);
+    proc.setHostIsPlayingForTest(true);
+
+    // Default voices = 3rd-above + 5th-above (constructor). Default mode
+    // = Scale; switch to Chord so the voice stack fires.
+    auto* modeP = proc.apvts.getParameter(pid::mode);
+    modeP->setValueNotifyingHost(modeP->convertTo0to1(
+        static_cast<float>(pointsman::ModeChoice::Chord)));
+
+    pointsman::editor::ScaleKeyboardView kbd(proc);
+    kbd.setSize(700, 120);
+    REQUIRE(kbd.getPulsesForTest().empty());
+
+    // C4 (60) in C major → quantized stays C4; +3rd = E4 (64); +5th = G4 (67).
+    // All three in the default keyboard range (36..71), so none get dropped.
+    juce::MidiBuffer midi;
+    midi.addEvent(juce::MidiMessage::noteOn(1, 60, static_cast<juce::uint8>(100)), 0);
+    juce::AudioBuffer<float> audio(0, 256);
+    proc.processBlock(audio, midi);
+
+    kbd.pollPulseForTest(0.0);
+    REQUIRE(kbd.getPulsesForTest().size() == 3);
+
+    // Collect midi pitches and confirm the expected triad.
+    std::array<bool, 128> seen{};
+    for (const auto& p : kbd.getPulsesForTest()) seen[(std::size_t) p.midi] = true;
+    REQUIRE(seen[60]);
+    REQUIRE(seen[64]);
+    REQUIRE(seen[67]);
+}
+
 TEST_CASE("ScaleKeyboardView: pulse outside the APVTS range slider is dropped",
           "[editor][keyboard][pulse]")
 {

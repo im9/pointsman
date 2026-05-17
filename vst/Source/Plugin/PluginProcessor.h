@@ -66,12 +66,22 @@ public:
     }
 
     // ---- Pulse-on-emit signal (audio → UI thread) ----
-    // Lock-free signal carrying the most recently emitted output noteOn
-    // for the editor's pulse-glow animation (ScaleKeyboardView). One
-    // 64-bit atomic so a single acquire load on the UI thread observes a
-    // coherent (version, channel, velocity, pitch) tuple. Reader pattern:
-    // load with acquire; if the upper-32-bit version > lastSeenVersion,
-    // unpack and append a new pulse to the local animation list.
+    // Lock-free ring carrying each emitted output noteOn for the editor's
+    // pulse-glow animation (ScaleKeyboardView). Chord mode emits N voices
+    // per input within a single processBlock; a one-slot atomic would
+    // collapse all but the last into a single visible pulse. The ring is
+    // SPSC (audio thread writes, UI timer reads) and sized at 8 slots —
+    // well above any plausible burst within one 60Hz UI poll.
+    //
+    // Each slot's value is the packed (version, channel, velocity, pitch)
+    // tuple below. pulseRingHead_ is the monotonic count of emits and
+    // doubles as the version of the most-recent entry; slot index for
+    // version V is (V - 1) & kPulseRingMask.
+    //
+    // Reader pattern: acquire-load head; for each V in (lastSeenVersion,
+    // head] read slot[(V-1) & mask] with acquire and confirm its packed
+    // version equals V (else the slot was overwritten by the writer
+    // wrapping around; drop it).
     //
     // Layout (LSB → MSB):
     //   bits  0.. 7: MIDI pitch    (0..127)
@@ -105,7 +115,13 @@ public:
     static int unpackPulseChannel(uint64_t packed) noexcept
     { return static_cast<int>((packed >> kPulseChannelShift) & kPulseByteMask); }
 
-    std::atomic<uint64_t> lastEmittedPulse{0};
+    static constexpr std::size_t kPulseRingSize = 8;
+    static_assert((kPulseRingSize & (kPulseRingSize - 1)) == 0,
+                  "kPulseRingSize must be a power of two");
+    static constexpr uint32_t kPulseRingMask = kPulseRingSize - 1;
+
+    std::array<std::atomic<uint64_t>, kPulseRingSize> pulseRing_{};
+    std::atomic<uint32_t>                             pulseRingHead_{0};
 
     // ---- Test inspection ----
     // The tests/ binary needs visibility into a few normally-private bits
@@ -113,7 +129,14 @@ public:
     // The plugin runtime never calls these.
     void setHostIsPlayingForTest(bool playing) noexcept { testIsPlaying = playing; }
     uint64_t getLastEmittedPulseForTest() const noexcept
-    { return lastEmittedPulse.load(std::memory_order_acquire); }
+    {
+        const uint32_t head = pulseRingHead_.load(std::memory_order_acquire);
+        if (head == 0) return 0;
+        return pulseRing_[(head - 1) & kPulseRingMask]
+                 .load(std::memory_order_acquire);
+    }
+    uint32_t getPulseHeadForTest() const noexcept
+    { return pulseRingHead_.load(std::memory_order_acquire); }
 
 private:
     void emitPanicTo(juce::MidiBuffer& out, int sampleOffset);
@@ -215,7 +238,6 @@ private:
     bool rngInitialised = false;
     pointsman::RngState rng{};
     pointsman::DriftState driftState{};
-    uint32_t pulseVersion = 0;      // monotonic; bumped before each pulse store
 
     // Test-time host-playing override. nullopt → use real playhead.
     // Encoded as int8 (-1 unset / 0 stopped / 1 playing) instead of

@@ -44,8 +44,7 @@ namespace pointsman::editor
 
         // Initialise pulse-version baseline so a stale value left from
         // a prior editor instance does not trigger a phantom pulse.
-        lastSeenPulseVersion_ = PointsmanProcessor::unpackPulseVersion(
-            processor_.lastEmittedPulse.load(std::memory_order_acquire));
+        lastSeenPulseVersion_ = processor_.getPulseHeadForTest();
         lastTickMs_ = monotonicMs();
         startTimerHz(kPulseTimerHz);
     }
@@ -218,31 +217,48 @@ namespace pointsman::editor
 
     void ScaleKeyboardView::pollPulseForTest(double dtMs)
     {
-        // Step 1 — pick up any new emit from the audio thread. Notes
-        // outside the visible band (kbdOctLo..kbdOctHi) have no key to
-        // glow on, so drop them at this boundary rather than storing a
-        // pulse that paint would silently ignore. Earlier code folded the
-        // pitch to a pc, which lit all three visible octaves of that pc
-        // at once on every emit — the misbehaviour this branch was
-        // written to fix.
-        const uint64_t packed = processor_.lastEmittedPulse.load(std::memory_order_acquire);
-        const uint32_t version = PointsmanProcessor::unpackPulseVersion(packed);
-        if (version != lastSeenPulseVersion_)
+        // Step 1 — pick up any new emits from the audio thread. Walk the
+        // pulse ring from lastSeenPulseVersion_ to the current head. The
+        // ring is sized so a 60Hz UI poll picks up every emit even when
+        // chord mode publishes multiple voices in one processBlock; a
+        // single-slot atomic would collapse same-block emits to just the
+        // last visible pulse. Notes outside the visible band
+        // (pid::kbdRangeLoNote..pid::kbdRangeHiNote) are dropped here so
+        // paint doesn't carry unrenderable pulses.
+        const uint32_t head = processor_.getPulseHeadForTest();
+        if (head != lastSeenPulseVersion_)
         {
-            lastSeenPulseVersion_ = version;
-            const int pitch = PointsmanProcessor::unpackPulsePitch(packed);
-            const int vel   = PointsmanProcessor::unpackPulseVelocity(packed);
             const int kbdMidiLo = static_cast<int>(
                 processor_.apvts.getRawParameterValue(pid::kbdRangeLoNote)->load());
             const int kbdMidiHi = static_cast<int>(
                 processor_.apvts.getRawParameterValue(pid::kbdRangeHiNote)->load());
-            if (pitch >= kbdMidiLo && pitch <= kbdMidiHi)
+            // If the writer outpaced us by more than the ring size, the
+            // oldest unseen slots have already been overwritten. Start
+            // from the oldest version still recoverable. The
+            // version-confirm below catches any further mid-walk race.
+            constexpr uint32_t kRingSize = PointsmanProcessor::kPulseRingSize;
+            const uint32_t firstVisible = (head - lastSeenPulseVersion_ > kRingSize)
+                ? head - kRingSize
+                : lastSeenPulseVersion_;
+            for (uint32_t v = firstVisible + 1; v <= head; ++v)
             {
+                const uint64_t packed = processor_.pulseRing_[
+                    (v - 1) & PointsmanProcessor::kPulseRingMask]
+                    .load(std::memory_order_acquire);
+                // Confirm the slot still carries the version we expect
+                // — if the writer wrapped during our walk, drop the stale
+                // entry rather than emit a phantom pulse for a later
+                // version.
+                if (PointsmanProcessor::unpackPulseVersion(packed) != v) continue;
+                const int pitch = PointsmanProcessor::unpackPulsePitch(packed);
+                const int vel   = PointsmanProcessor::unpackPulseVelocity(packed);
+                if (pitch < kbdMidiLo || pitch > kbdMidiHi) continue;
                 double base = static_cast<double>(vel) / 127.0;
                 if (base < 0.0) base = 0.0;
                 if (base > 1.0) base = 1.0;
                 pulses_.push_back({pitch, base, base, 0.0});
             }
+            lastSeenPulseVersion_ = head;
         }
 
         // Step 2 — age existing pulses and prune. Linear decay matching

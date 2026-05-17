@@ -111,13 +111,16 @@ void PointsmanProcessor::writeNoteOnTracked(juce::MidiBuffer& out,
     const auto vel = static_cast<juce::uint8>(juce::jlimit(1, 127, velocity));
     out.addEvent(juce::MidiMessage::noteOn(channel, pitch, vel), sample);
 
-    // Publish the pulse signal for the editor's glow animation. Release
-    // ordering pairs with acquire on the UI side; the version counter
-    // turns the single-store into a one-shot edge that ScaleKeyboardView's
-    // timer poll converts into a pulse-list append.
-    ++pulseVersion;
-    lastEmittedPulse.store(packPulse(pulseVersion, pitch, vel, channel),
-                           std::memory_order_release);
+    // Publish into the pulse ring. Audio thread is the sole writer, so a
+    // relaxed load + store of the head is safe; the slot store + head
+    // store both use release so the UI's acquire on the head establishes
+    // visibility of the slot contents. Chord mode emits N voices in the
+    // same processBlock — the ring keeps every one (single-slot atomic
+    // would collapse them to just the last).
+    const uint32_t v = pulseRingHead_.load(std::memory_order_relaxed) + 1;
+    pulseRing_[(v - 1) & kPulseRingMask]
+        .store(packPulse(v, pitch, vel, channel), std::memory_order_release);
+    pulseRingHead_.store(v, std::memory_order_release);
 }
 
 void PointsmanProcessor::writeNoteOffTracked(juce::MidiBuffer& out,
