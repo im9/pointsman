@@ -33,236 +33,6 @@
         "boxes": [
             {
                 "box": {
-                    "id": "obj-grp-scale",
-                    "maxclass": "panel",
-                    "bgcolor": [
-                        0,
-                        0,
-                        0,
-                        0
-                    ],
-                    "bordercolor": [
-                        0.929,
-                        0.91,
-                        0.863,
-                        0.18
-                    ],
-                    "border": 1,
-                    "rounded": 0,
-                    "numinlets": 1,
-                    "numoutlets": 0,
-                    "patching_rect": [
-                        40,
-                        60,
-                        200,
-                        12
-                    ],
-                    "presentation": 1,
-                    "presentation_rect": [
-                        8,
-                        8,
-                        280,
-                        184
-                    ]
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-grp-keyboard",
-                    "maxclass": "panel",
-                    "bgcolor": [
-                        0,
-                        0,
-                        0,
-                        0
-                    ],
-                    "bordercolor": [
-                        0.929,
-                        0.91,
-                        0.863,
-                        0.18
-                    ],
-                    "border": 1,
-                    "rounded": 0,
-                    "numinlets": 1,
-                    "numoutlets": 0,
-                    "patching_rect": [
-                        240,
-                        60,
-                        200,
-                        12
-                    ],
-                    "presentation": 1,
-                    "presentation_rect": [
-                        296,
-                        8,
-                        440,
-                        164
-                    ]
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-grp-voices",
-                    "maxclass": "panel",
-                    "bgcolor": [
-                        0,
-                        0,
-                        0,
-                        0
-                    ],
-                    "bordercolor": [
-                        0.929,
-                        0.91,
-                        0.863,
-                        0.18
-                    ],
-                    "border": 1,
-                    "rounded": 0,
-                    "numinlets": 1,
-                    "numoutlets": 0,
-                    "patching_rect": [
-                        640,
-                        60,
-                        200,
-                        12
-                    ],
-                    "presentation": 1,
-                    "presentation_rect": [
-                        744,
-                        8,
-                        248,
-                        80
-                    ]
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-grp-human",
-                    "maxclass": "panel",
-                    "bgcolor": [
-                        0,
-                        0,
-                        0,
-                        0
-                    ],
-                    "bordercolor": [
-                        0.929,
-                        0.91,
-                        0.863,
-                        0.18
-                    ],
-                    "border": 1,
-                    "rounded": 0,
-                    "numinlets": 1,
-                    "numoutlets": 0,
-                    "patching_rect": [
-                        440,
-                        60,
-                        200,
-                        12
-                    ],
-                    "presentation": 1,
-                    "presentation_rect": [
-                        744,
-                        92,
-                        248,
-                        100
-                    ]
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-lgnd-scale",
-                    "maxclass": "comment",
-                    "text": "SCALE / I/O",
-                    "numinlets": 1,
-                    "numoutlets": 0,
-                    "fontname": "Andale Mono",
-                    "fontsize": 8,
-                    "textcolor": [
-                        0.471,
-                        0.471,
-                        0.271,
-                        1
-                    ],
-                    "patching_rect": [
-                        40,
-                        60,
-                        100,
-                        12
-                    ],
-                    "presentation": 1,
-                    "presentation_rect": [
-                        20,
-                        14,
-                        90,
-                        12
-                    ]
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-lgnd-keyboard",
-                    "maxclass": "comment",
-                    "text": "KEYBOARD",
-                    "numinlets": 1,
-                    "numoutlets": 0,
-                    "fontname": "Andale Mono",
-                    "fontsize": 8,
-                    "textcolor": [
-                        0.471,
-                        0.471,
-                        0.271,
-                        1
-                    ],
-                    "patching_rect": [
-                        240,
-                        60,
-                        80,
-                        12
-                    ],
-                    "presentation": 1,
-                    "presentation_rect": [
-                        308,
-                        14,
-                        70,
-                        12
-                    ]
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-lgnd-human",
-                    "maxclass": "comment",
-                    "text": "HUMAN",
-                    "numinlets": 1,
-                    "numoutlets": 0,
-                    "fontname": "Andale Mono",
-                    "fontsize": 8,
-                    "textcolor": [
-                        0.471,
-                        0.471,
-                        0.271,
-                        1
-                    ],
-                    "patching_rect": [
-                        440,
-                        60,
-                        80,
-                        12
-                    ],
-                    "presentation": 1,
-                    "presentation_rect": [
-                        756,
-                        98,
-                        50,
-                        12
-                    ]
-                }
-            },
-            {
-                "box": {
                     "id": "obj-thisdevice",
                     "maxclass": "newobj",
                     "text": "live.thisdevice",
@@ -779,7 +549,7 @@
                 "box": {
                     "id": "obj-lbl-scale",
                     "maxclass": "comment",
-                    "text": "SCL",
+                    "text": "SCALE",
                     "numinlets": 1,
                     "numoutlets": 0,
                     "fontname": "Andale Mono",
@@ -799,8 +569,8 @@
                     "presentation": 1,
                     "presentation_rect": [
                         20,
-                        34,
-                        40,
+                        8,
+                        48,
                         14
                     ]
                 }
@@ -825,9 +595,9 @@
                     ],
                     "presentation": 1,
                     "presentation_rect": [
-                        72,
-                        32,
-                        200,
+                        20,
+                        24,
+                        140,
                         16
                     ],
                     "saved_attribute_attributes": {
@@ -1186,8 +956,8 @@
                     ],
                     "presentation": 1,
                     "presentation_rect": [
-                        20,
-                        58,
+                        176,
+                        8,
                         32,
                         14
                     ]
@@ -1213,8 +983,8 @@
                     ],
                     "presentation": 1,
                     "presentation_rect": [
-                        56,
-                        56,
+                        176,
+                        24,
                         56,
                         16
                     ],
@@ -1287,7 +1057,7 @@
                     "presentation": 1,
                     "presentation_rect": [
                         20,
-                        106,
+                        48,
                         40,
                         14
                     ]
@@ -1313,9 +1083,9 @@
                     ],
                     "presentation": 1,
                     "presentation_rect": [
-                        72,
-                        104,
-                        200,
+                        20,
+                        64,
+                        80,
                         16
                     ],
                     "saved_attribute_attributes": {
@@ -1415,7 +1185,7 @@
                 "box": {
                     "id": "obj-msg-voices-hidden-0",
                     "maxclass": "message",
-                    "text": "hidden 0",
+                    "text": "active 1, ignoreclick 0",
                     "numinlets": 2,
                     "numoutlets": 1,
                     "outlettype": [
@@ -1433,7 +1203,7 @@
                 "box": {
                     "id": "obj-msg-voices-hidden-1",
                     "maxclass": "message",
-                    "text": "hidden 1",
+                    "text": "active 0, ignoreclick 1",
                     "numinlets": 2,
                     "numoutlets": 1,
                     "outlettype": [
@@ -1451,7 +1221,7 @@
                 "box": {
                     "id": "obj-lbl-inputChannel",
                     "maxclass": "comment",
-                    "text": "IN",
+                    "text": "IN-CH",
                     "numinlets": 1,
                     "numoutlets": 0,
                     "fontname": "Andale Mono",
@@ -1470,9 +1240,9 @@
                     ],
                     "presentation": 1,
                     "presentation_rect": [
-                        116,
-                        58,
-                        16,
+                        756,
+                        8,
+                        48,
                         14
                     ]
                 }
@@ -1496,8 +1266,8 @@
                     ],
                     "presentation": 1,
                     "presentation_rect": [
-                        136,
-                        56,
+                        756,
+                        24,
                         48,
                         16
                     ],
@@ -1559,7 +1329,7 @@
                     "presentation": 1,
                     "presentation_rect": [
                         756,
-                        170,
+                        128,
                         40,
                         14
                     ]
@@ -1584,8 +1354,8 @@
                     ],
                     "presentation": 1,
                     "presentation_rect": [
-                        808,
-                        168,
+                        756,
+                        144,
                         160,
                         16
                     ],
@@ -1626,36 +1396,6 @@
             },
             {
                 "box": {
-                    "id": "obj-lgnd-voices",
-                    "maxclass": "comment",
-                    "text": "VOICES",
-                    "numinlets": 1,
-                    "numoutlets": 0,
-                    "fontname": "Andale Mono",
-                    "fontsize": 8,
-                    "textcolor": [
-                        0.471,
-                        0.471,
-                        0.271,
-                        1
-                    ],
-                    "patching_rect": [
-                        40,
-                        670,
-                        60,
-                        12
-                    ],
-                    "presentation": 1,
-                    "presentation_rect": [
-                        752,
-                        14,
-                        50,
-                        12
-                    ]
-                }
-            },
-            {
-                "box": {
                     "id": "obj-w-harmonyV1Interval",
                     "maxclass": "live.menu",
                     "numinlets": 1,
@@ -1674,8 +1414,8 @@
                     ],
                     "presentation": 1,
                     "presentation_rect": [
-                        752,
-                        32,
+                        20,
+                        104,
                         80,
                         16
                     ],
@@ -1812,9 +1552,9 @@
                     ],
                     "presentation": 1,
                     "presentation_rect": [
-                        844,
-                        32,
-                        140,
+                        108,
+                        104,
+                        164,
                         16
                     ],
                     "saved_attribute_attributes": {
@@ -1930,8 +1670,8 @@
                     ],
                     "presentation": 1,
                     "presentation_rect": [
-                        752,
-                        52,
+                        20,
+                        124,
                         80,
                         16
                     ],
@@ -2068,9 +1808,9 @@
                     ],
                     "presentation": 1,
                     "presentation_rect": [
-                        844,
-                        52,
-                        140,
+                        108,
+                        124,
+                        164,
                         16
                     ],
                     "saved_attribute_attributes": {
@@ -2186,8 +1926,8 @@
                     ],
                     "presentation": 1,
                     "presentation_rect": [
-                        752,
-                        72,
+                        20,
+                        144,
                         80,
                         16
                     ],
@@ -2324,9 +2064,9 @@
                     ],
                     "presentation": 1,
                     "presentation_rect": [
-                        844,
-                        72,
-                        140,
+                        108,
+                        144,
+                        164,
                         16
                     ],
                     "saved_attribute_attributes": {
@@ -2442,7 +2182,7 @@
                     "presentation": 1,
                     "presentation_rect": [
                         760,
-                        110,
+                        64,
                         36,
                         52
                     ],
@@ -2482,7 +2222,7 @@
                     "presentation": 1,
                     "presentation_rect": [
                         810,
-                        110,
+                        64,
                         36,
                         52
                     ],
@@ -2536,6 +2276,75 @@
                         200,
                         22
                     ]
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-jsui-sep1",
+                    "maxclass": "jsui",
+                    "filename": "separator.jsui.js",
+                    "border": 0,
+                    "numinlets": 1,
+                    "numoutlets": 0,
+                    "patching_rect": [
+                        970,
+                        240,
+                        1,
+                        176
+                    ],
+                    "presentation": 1,
+                    "presentation_rect": [
+                        284,
+                        8,
+                        1,
+                        176
+                    ]
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-jsui-sep2",
+                    "maxclass": "jsui",
+                    "filename": "separator.jsui.js",
+                    "border": 0,
+                    "numinlets": 1,
+                    "numoutlets": 0,
+                    "patching_rect": [
+                        970,
+                        270,
+                        1,
+                        176
+                    ],
+                    "presentation": 1,
+                    "presentation_rect": [
+                        744,
+                        8,
+                        1,
+                        176
+                    ]
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-grplbl-voices",
+                    "maxclass": "comment",
+                    "text": "VOICES",
+                    "patching_rect": [
+                        970,
+                        200,
+                        56,
+                        14
+                    ],
+                    "presentation": 1,
+                    "presentation_rect": [
+                        20,
+                        88,
+                        56,
+                        14
+                    ],
+                    "fontface": 0,
+                    "fontsize": 9,
+                    "fontname": "Andale Mono"
                 }
             }
         ],
@@ -4191,30 +4000,6 @@
                         0
                     ],
                     "destination": [
-                        "obj-grp-voices",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-msg-voices-hidden-0",
-                        0
-                    ],
-                    "destination": [
-                        "obj-lgnd-voices",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-msg-voices-hidden-0",
-                        0
-                    ],
-                    "destination": [
                         "obj-w-harmonyV1Interval",
                         0
                     ]
@@ -4276,30 +4061,6 @@
                     ],
                     "destination": [
                         "obj-w-harmonyV3Direction",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-msg-voices-hidden-1",
-                        0
-                    ],
-                    "destination": [
-                        "obj-grp-voices",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-msg-voices-hidden-1",
-                        0
-                    ],
-                    "destination": [
-                        "obj-lgnd-voices",
                         0
                     ]
                 }

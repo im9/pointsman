@@ -265,17 +265,20 @@ test('Pointsman.maxpat — no in-strip device-name banner and no "im9" byline', 
   assert.ok(!comments.some((t) => /\bim9\b/.test(t)), 'no im9 byline')
 })
 
-test('Pointsman.maxpat — has SCALE / I\\/O, KEYBOARD, HUMAN group legends', () => {
-  // Three-column layout legends. The first legend literally contains
-  // a slash (`SCALE / I/O`).
+test('Pointsman.maxpat — no group-legend banner comments', () => {
+  // v2 drops the SCALE/I/O, KEYBOARD, HUMAN category banners — the
+  // live.* widget shortnames + jsui keyboard make the grouping
+  // visually obvious without explicit headers, and the strip is tight
+  // at 1000 px wide. VOICES re-emerged later as an inline section
+  // label inside the SCALE/IO column (id obj-grplbl-voices); it is
+  // intentionally NOT a banner and is omitted from this guard.
   const { boxes } = loadPatcher(POINTSMAN_MAXPAT)
   const comments = boxesByMaxclass(boxes, 'comment').map((b) => b.box.text)
-  assert.ok(
-    comments.some((t) => /^SCALE\s*\/\s*I\/O$/.test(t)),
-    'SCALE / I/O legend',
-  )
-  assert.ok(comments.some((t) => /^KEYBOARD$/.test(t)), 'KEYBOARD legend')
-  assert.ok(comments.some((t) => /^HUMAN$/.test(t)), 'HUMAN legend')
+  const banners = ['SCALE / I/O', 'KEYBOARD', 'HUMAN']
+  for (const t of banners) {
+    assert.ok(!comments.includes(t),
+      `legend banner "${t}" should be removed in v2`)
+  }
 })
 
 test('Pointsman.maxpat — [jsui] references scaleKeyboard.jsui.js (flat path, m4l/ root)', () => {
