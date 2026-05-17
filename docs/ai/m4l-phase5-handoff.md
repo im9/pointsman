@@ -1,4 +1,4 @@
-# m4l Phase 5 — handoff (2026-05-17)
+# m4l Phase 5 — handoff (2026-05-17, amended same day)
 
 vst Phase 5 (parameter surface redesign + chord/harmony merge) shipped on
 the vst target this session. m4l Phase 5 is the parallel implementation
@@ -9,6 +9,26 @@ tests all need the v2 surface and the merged chord-mode semantic.
 
 This doc is the resume point. Read it cold; it does not assume any
 prior session context.
+
+## Scope confirmed at handoff time
+
+User has explicitly asked for:
+1. **vst-parity Chord mode** (1-in-N-out diatonic expansion) — the
+   primary Phase 5 work below.
+2. **UI 調整** — additional UI polish beyond the strict Phase 5 deltas
+   listed in this doc. Specifics are unscoped at handoff time; the
+   first move in the resume session should be to ask the user what
+   "UI 調整" covers concretely (e.g., layout tweaks, jsui keyboard
+   refinements, visual identity polish, parameter widget changes
+   not mentioned below). Add a small TODO list with the user before
+   touching `.maxpat` or `scaleKeyboard.jsui.js`.
+
+User also surfaced during the audit-fix session (out of scope for
+Phase 5 itself, mention as workaround if it comes up again):
+- Stencil → Pointsman on the same Live track sends MIDI as ch=0
+  (Live track-internal normalisation). `IN CH = OMNI (0)` is the
+  intended use for that routing. CLAUDE.md "Live runtime gotchas"
+  has the full note.
 
 ## What shipped on vst (anchors)
 
@@ -48,6 +68,44 @@ Net shipped behaviour on vst:
 
 Spec source of truth: [concept.md](concept.md) §"Scale and chord modes"
 and §"Parameter surface (canonical)".
+
+## Audit-fix delta (amended 2026-05-17, after original handoff)
+
+A separate audit-fix session ran on top of the original handoff and
+landed 7 commits across both targets. Most are isolated from Phase 5
+work, but two m4l commits extend the very code Phase 5 removes — drop
+them along with the rest of the chord-from-context machinery.
+
+vst-side audit fixes (no impact on Phase 5 m4l work):
+
+| commit | scope |
+|---|---|
+| `b6189dc` | SpinLock around `harmonyVoices` read in `syncHarmonyVoicesToTree` |
+| `201b6f9` | Alloc-free scale-pitch cache rebuild (`buildScalePitchesInto`) |
+| `18772bb` | 8-slot pulse ring for chord-mode glow |
+| `55a86ba` | `kMaxPending`/`kMaxSounding` caps on processBlock buffers |
+
+m4l-side audit fixes:
+
+| commit | scope | Phase 5 disposition |
+|---|---|---|
+| `76d1599` | host: clear `controlHeldPitches` on `setParam("controlChannel")` | **DELETE** — Phase 5 removes `controlChannel` and the entire `controlHeldPitches` machinery (Chord mode no longer reads held context) |
+| `4abdb6b` | bridge: emit `chordChanged` outlet after `controlChannel` switch | **DELETE** — same reason, the `chordChanged` outlet itself goes away |
+| `cdf1a02` | bridge: cancel scheduled noteOns on panic / transportStop / flush via `pendingNoteOns` map + `flushInFlight()` rename | **KEEP** — scheduler safety fix, applies regardless of mode semantics. Carry forward as-is through the Phase 5 refactor. |
+
+Associated tests to remove alongside the deleted commits:
+- `m4l/host/host.test.ts`: `setParam controlChannel — clears stale chord context from old channel`
+- `m4l/host/bridge.test.ts`: `setParam controlChannel — emits chordChanged [] so the jsui dots clear`
+
+Tests to **preserve** through the refactor (rename if call sites
+change but the assertion still belongs):
+- `panic — cancels scheduled noteOn so it never fires after the panic`
+- `panic — emits immediate noteOff for sounding pitches with scheduled noteOff`
+
+Also note: the audit-fix session added `dispatchEventForTest` and
+`getPendingCountsForTest` test-only exports to `bridge.ts`. These pin
+the scheduler contract; keep them and update if the dispatch surface
+moves during Phase 5.
 
 ## What m4l Phase 5 needs
 
