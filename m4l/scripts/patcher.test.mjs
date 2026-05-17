@@ -136,7 +136,12 @@ const LIVE_PARAMS = [
   ['PointsmanFeel',              'FEEL',    'feel',              0, 0,    1,        0],
   ['PointsmanDrift',             'DRIFT',   'drift',             0, 0,    1,        0],
   ['PointsmanInputChannel',      'InCh',    'inputChannel',      1, 0,    16,       0],
-  ['PointsmanSeed',              'Seed',    'seed',              1, 0,    16777215, 42],
+  // SEED: parameter_type=0 (float) with box-level numdecimalplaces=0,
+  // not parameter_type=1 (int). Live's int parameter_type silently caps
+  // the live.numbox displayed range at 255 even when parameter_mmax is
+  // explicitly higher; stencil's seed numbox dodges that by using float-
+  // with-zero-decimals (see stencil/m4l/Stencil.maxpat).
+  ['PointsmanSeed',              'Seed',    'seed',              0, 0,    16777215, 42],
 ]
 
 // String enums mirror m4l/host/bridge.ts SCALE_NAMES / POINTSMAN_MODES /
@@ -248,9 +253,14 @@ test('Pointsman.maxpat — every patchline source/destination id resolves to a k
 
 // ---- patcher checklist --------------------------------------------------
 
-test('Pointsman.maxpat — devicewidth = 1000 and openinpresentation = 1', () => {
+test('Pointsman.maxpat — devicewidth = 880 and openinpresentation = 1', () => {
+  // Strip narrowed from 1000 → 880 after the v2 UI cleanup removed
+  // outputLevel, triggerMode, controlChannel and condensed the right
+  // column to IN-CH / FEEL / DRIFT / SEED / RND. Effective content ends
+  // at x=858 (RND button right edge); 880 keeps an 8 px right margin
+  // mirroring the left margin plus ~14 px visual breathing room.
   const { parsed } = loadPatcher(POINTSMAN_MAXPAT)
-  assert.equal(parsed.patcher.devicewidth, 1000)
+  assert.equal(parsed.patcher.devicewidth, 880)
   assert.equal(parsed.patcher.openinpresentation, 1)
 })
 

@@ -17,7 +17,7 @@
         ],
         "bglocked": 0,
         "openinpresentation": 1,
-        "devicewidth": 1000,
+        "devicewidth": 880,
         "default_fontsize": 9,
         "default_fontface": 0,
         "default_fontname": "Andale Mono",
@@ -1356,7 +1356,7 @@
                     "presentation_rect": [
                         756,
                         144,
-                        160,
+                        80,
                         16
                     ],
                     "saved_attribute_attributes": {
@@ -1370,10 +1370,13 @@
                             "parameter_mmin": 0,
                             "parameter_shortname": "Seed",
                             "parameter_steps": 16777216,
-                            "parameter_type": 1,
+                            "parameter_type": 0,
                             "parameter_unitstyle": 0
                         }
-                    }
+                    },
+                    "min": 0,
+                    "max": 16777215,
+                    "numdecimalplaces": 0
                 }
             },
             {
@@ -2345,6 +2348,79 @@
                     "fontface": 0,
                     "fontsize": 9,
                     "fontname": "Andale Mono"
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-lbl-rnd",
+                    "maxclass": "comment",
+                    "text": "RND",
+                    "patching_rect": [
+                        970,
+                        420,
+                        24,
+                        14
+                    ],
+                    "presentation": 1,
+                    "presentation_rect": [
+                        842,
+                        128,
+                        24,
+                        14
+                    ],
+                    "fontface": 0,
+                    "fontsize": 9,
+                    "fontname": "Andale Mono"
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-w-rnd",
+                    "maxclass": "live.button",
+                    "numinlets": 1,
+                    "numoutlets": 1,
+                    "outlettype": [
+                        ""
+                    ],
+                    "parameter_enable": 1,
+                    "patching_rect": [
+                        970,
+                        440,
+                        16,
+                        16
+                    ],
+                    "presentation": 1,
+                    "presentation_rect": [
+                        842,
+                        144,
+                        16,
+                        16
+                    ],
+                    "saved_attribute_attributes": {
+                        "valueof": {
+                            "parameter_longname": "PointsmanSeedRandom",
+                            "parameter_shortname": "Rnd",
+                            "parameter_type": 4
+                        }
+                    }
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-rnd-gen",
+                    "maxclass": "newobj",
+                    "text": "random 16777216",
+                    "numinlets": 2,
+                    "numoutlets": 1,
+                    "outlettype": [
+                        "int"
+                    ],
+                    "patching_rect": [
+                        970,
+                        466,
+                        96,
+                        22
+                    ]
                 }
             }
         ],
@@ -4205,6 +4281,30 @@
                     ],
                     "destination": [
                         "obj-w-drift",
+                        0
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-w-rnd",
+                        0
+                    ],
+                    "destination": [
+                        "obj-rnd-gen",
+                        0
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-rnd-gen",
+                        0
+                    ],
+                    "destination": [
+                        "obj-w-seed",
                         0
                     ]
                 }
