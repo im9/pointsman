@@ -54,13 +54,13 @@ namespace pointsman
         }
     }
 
-    std::vector<int> buildScalePitches(ScaleName scale, int root)
+    void buildScalePitchesInto(ScaleName scale, int root, std::vector<int>& out)
     {
+        out.clear();
         if (scale == ScaleName::ChromaticHalf)
         {
-            std::vector<int> out(128);
-            for (int i = 0; i < 128; ++i) out[(std::size_t) i] = i;
-            return out;
+            for (int i = 0; i < 128; ++i) out.push_back(i);
+            return;
         }
 
         const auto [intervals, n] = intervalsFor(scale);
@@ -70,13 +70,17 @@ namespace pointsman
             const int pc = ((root + intervals[i]) % 12 + 12) % 12;
             pcSet[(std::size_t) pc] = true;
         }
-
-        std::vector<int> out;
-        out.reserve(128);
         for (int v = 0; v <= 127; ++v)
         {
             if (pcSet[(std::size_t) (v % 12)]) out.push_back(v);
         }
+    }
+
+    std::vector<int> buildScalePitches(ScaleName scale, int root)
+    {
+        std::vector<int> out;
+        out.reserve(128);
+        buildScalePitchesInto(scale, root, out);
         return out;
     }
 

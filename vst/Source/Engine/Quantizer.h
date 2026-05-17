@@ -17,6 +17,13 @@ namespace pointsman
     // [0,1,...,127] regardless of root (concept.md §"Scales (v1)").
     std::vector<int> buildScalePitches(ScaleName scale, int root);
 
+    // In-place form for the audio-thread cache path. Clears `out` (keeping
+    // capacity) and refills. The caller is expected to `out.reserve(128)`
+    // once at prepareToPlay; subsequent (scale, root) changes then rewrite
+    // the buffer without a heap allocation. Same output as the return-by-
+    // value form — the test suite asserts parity.
+    void buildScalePitchesInto(ScaleName scale, int root, std::vector<int>& out);
+
     // Nearest scale pitch. Tie (d_lower == d_upper) → lower. Empty pitches
     // → identity. Mirrors m4l/engine/quantizer.ts:60-78.
     int snapToScale(int note, const std::vector<int>& pitches);

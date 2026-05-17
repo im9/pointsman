@@ -90,6 +90,43 @@ TEST_CASE("buildScalePitches matches vectors for every (scale, root) case",
     }
 }
 
+TEST_CASE("buildScalePitchesInto produces same output as buildScalePitches",
+          "[quantizer]")
+{
+    // Parity check: the audio-thread alloc-free path must produce the same
+    // pitches as the return-by-value form for every (scale, root).
+    const auto V = loadVectors();
+    std::vector<int> buf;
+    buf.reserve(128);
+    for (const auto& tc : V.at("build_scale_pitches"))
+    {
+        const auto scale = parseScale(tc.at("scale").get<std::string>());
+        const auto root  = tc.at("root").get<int>();
+        const auto byVal = buildScalePitches(scale, root);
+        buildScalePitchesInto(scale, root, buf);
+        REQUIRE(buf == byVal);
+    }
+}
+
+TEST_CASE("buildScalePitchesInto reuses caller capacity without reallocating",
+          "[quantizer]")
+{
+    // RT-safety contract: after a single reserve(128), repeated rewrites of
+    // the same buffer must keep the capacity > 0 (proxy for "did not
+    // re-allocate"). std::vector::reserve never shrinks, and clear()
+    // followed by push_backs within capacity keep the data() pointer
+    // stable on libc++/libstdc++.
+    std::vector<int> buf;
+    buf.reserve(128);
+    const int* originalData = buf.data();
+    const auto originalCap = buf.capacity();
+    buildScalePitchesInto(ScaleName::Major, 0, buf);
+    buildScalePitchesInto(ScaleName::ChromaticHalf, 0, buf);
+    buildScalePitchesInto(ScaleName::Pentatonic, 7, buf);
+    REQUIRE(buf.capacity() == originalCap);
+    REQUIRE(buf.data() == originalData);
+}
+
 TEST_CASE("snapToScale matches vectors", "[quantizer]")
 {
     const auto V = loadVectors();

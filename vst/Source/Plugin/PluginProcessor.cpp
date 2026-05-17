@@ -77,6 +77,11 @@ void PointsmanProcessor::prepareToPlay(double sampleRate, int)
     pending_.reserve(512);
     sounding_.clear();
     sounding_.reserve(128);
+    // Pre-size the scale-pitch cache so the cache-miss rewrite path in
+    // processBlock fills it via buildScalePitchesInto() without ever
+    // re-allocating the underlying buffer on the audio thread. 128 is the
+    // worst case (ChromaticHalf = identity).
+    cachedScalePitches_.reserve(128);
 }
 
 void PointsmanProcessor::releaseResources() {}
@@ -244,7 +249,9 @@ void PointsmanProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::Mid
     const int scaleIdx = static_cast<int>(scale);
     if (scaleIdx != cachedScaleIdx_ || rootPc != cachedRootPc_)
     {
-        cachedScalePitches_ = buildScalePitches(scale, rootPc);
+        // In-place rewrite — cachedScalePitches_ has reserve(128) from
+        // prepareToPlay, so this stays alloc-free on the audio thread.
+        buildScalePitchesInto(scale, rootPc, cachedScalePitches_);
         cachedScaleIdx_ = scaleIdx;
         cachedRootPc_   = rootPc;
     }
