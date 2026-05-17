@@ -301,6 +301,13 @@ export class PointsmanHost {
     if (key === "seed") {
       this.humanizeRng = seedRng(BigInt(this.params.seed));
     }
+    if (key === "controlChannel") {
+      // Held pitches on the prior channel are now unreachable: their noteOff
+      // will arrive on a different channel and the chord-mode branch in
+      // noteOff() filters on the *current* controlChannel. Clear the set so
+      // the chord context doesn't fossilise around stuck old-channel pitches.
+      this.controlHeldPitches.clear();
+    }
     return events;
   }
 

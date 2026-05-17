@@ -371,6 +371,22 @@ test("setParam mode — switching away from chord clears chord context", () => {
   assert.deepEqual(host.getChordContext(), []);
 });
 
+test("setParam controlChannel — clears stale chord context from old channel", () => {
+  // Held pitches on the previous controlChannel can never be released
+  // (their noteOff arrives on a different channel and is dropped), so a
+  // channel switch must reset the held set or the chord context fossilises.
+  const host = makeHost({
+    mode: "chord",
+    inputChannel: 1,
+    controlChannel: 16,
+  });
+  host.noteIn(60, 100, 16, 0);
+  host.noteIn(64, 100, 16, 0);
+  assert.deepEqual([...host.getChordContext()].sort((a, b) => a - b), [0, 4]);
+  host.setParam("controlChannel", 15);
+  assert.deepEqual(host.getChordContext(), []);
+});
+
 // ---------- harmony mode ----------
 //
 // ADR 003 § quantize mode: when mode='harmony', input note + N parallel
