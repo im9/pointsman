@@ -2,7 +2,7 @@
 name: release
 description: Cut a versioned per-target release of Pointsman (m4l or vst). Bumps the source-of-truth version (vst/CMakeLists.txt project(...) for vst, m4l/package.json for m4l), verifies repo state (clean / synced / CI green / artifact freshness), drafts release notes from the per-target commit log, and runs the tag → push → gh release create flow with explicit user approval at each step.
 argument-hint: "<m4l|vst> [major|minor|patch]"
-allowed-tools: Read, Write, Edit, Bash(git *), Bash(gh *), Bash(stat *), Bash(ls *), Bash(rm /tmp/pointsman-*)
+allowed-tools: Read, Write, Edit, Bash(git *), Bash(gh *), Bash(stat *), Bash(ls *), Bash(xcrun *), Bash(rm /tmp/pointsman-*)
 ---
 
 # Release Pointsman
@@ -18,12 +18,13 @@ Targets ship to different repos, so the tag layout differs:
   Asset: `dist/Pointsman.amxd` — frozen `.amxd`, manual freeze in Max
   required.
 - **vst** → tag `vst-vX.Y.Z` on the source repo `im9/pointsman`.
-  Distribution channel undecided
+  Distributed via Polar (paid) — see
   ([ADR 003 §Out of scope](../../../docs/ai/adr/003-pointsman-vst-architecture.md)).
-  Per the project's free/paid split (m4l free, vst/clap/au under paid
-  consideration), vst releases are **tag-only** for now — no binary
-  asset attached to GH Releases. **HALT and ask the user before
-  publishing any vst binary** as a free GH Releases download.
+  The skill produces `dist/Pointsman.dmg` (signed + notarized +
+  stapled) locally; **upload to Polar is manual, out of skill scope**.
+  GH Releases stays **tag-only** — no binary asset attached. **HALT
+  and ask the user before publishing any vst binary as a free GH
+  Releases download.**
 
 ## Pre-flight checks (do these BEFORE creating the tag)
 
@@ -87,19 +88,33 @@ cover this.
 
 #### vst target
 
-No binary asset to publish. Confirm the source-only release is
-intentional (distribution channel still TBD per ADR 003 §Out of scope).
+The skill produces `dist/Pointsman.dmg` (signed / notarized / stapled)
+for manual upload to Polar. GH Releases stays tag-only.
+
 Run a local build sanity check:
 
 ```bash
 (cd vst && make build && make test)
 ```
 
-Also verify `vst/CMakeLists.txt`'s `project(Pointsman VERSION X.Y.Z)`
+Verify `vst/CMakeLists.txt`'s `project(Pointsman VERSION X.Y.Z)`
 matches the version about to be tagged — the plist version the plugin
 reports to the host and the `v…` label drawn in the editor header are
 both sourced from this line via `POINTSMAN_VERSION_STRING`. If it
 doesn't match, bump first via Step 0 below.
+
+Verify signing / notarization credentials are present (Step 2.5 needs
+them):
+
+```bash
+test -n "${DEVELOPER_TEAM_ID:-}" || echo "missing DEVELOPER_TEAM_ID"
+xcrun notarytool history \
+  --keychain-profile "${NOTARY_PROFILE:-pointsman-notary}" \
+  >/dev/null 2>&1 \
+  || echo "missing notary keychain profile: ${NOTARY_PROFILE:-pointsman-notary}"
+```
+
+Halt if either is missing.
 
 Manual host smoke (Logic AU MIDI FX + Bitwig VST3 MIDI fx + Bitwig CLAP)
 is recommended before tagging — see ADR 003's host-load matrix.
@@ -203,7 +218,38 @@ project-intro template instead of a changelog: "What it does" /
 are changelog-style.
 
 Write the draft to `/tmp/pointsman-<tag>-notes.md` and show it to the
-user. **Wait for explicit "ok" or edit instructions** before Step 3.
+user. **Wait for explicit "ok" or edit instructions** before Step 2.5
+(vst) or Step 3 (m4l).
+
+### Step 2.5 — Build the dmg (vst only)
+
+Skip for m4l. For vst, after notes are approved, build the signed +
+notarized dmg **before** tagging — if notarization fails or the build
+is broken, no tag has been created yet, so we can re-run cleanly.
+
+```bash
+cd vst
+./scripts/codesign.sh
+./scripts/notarize.sh
+./scripts/build-dmg.sh   # → dist/Pointsman.dmg
+```
+
+Notarize can take 1–10 minutes. The scripts wait synchronously on
+`xcrun notarytool submit --wait`; do not background them.
+
+Verify the result:
+
+```bash
+ls -la dist/Pointsman.dmg
+xcrun stapler validate dist/Pointsman.dmg
+```
+
+The dmg is signed-and-stapled with the bundles inside also signed-
+and-stapled (belt-and-braces); offline Gatekeeper accepts both layers.
+
+**Confirm the dmg with the user before tagging.** Ideally mount and
+smoke-test in Logic / Bitwig first — once we tag, the version number
+baked into the dmg is committed.
 
 ### Step 3 — Tag, push, create release
 
@@ -244,17 +290,33 @@ gh release view "$TAG" --repo im9/pointsman-m4l \
 
 # vst
 gh release view "$TAG" --json name,tagName,assets,url
+ls -la dist/Pointsman.dmg     # local deliverable for Polar upload
 ```
 
 Confirm:
 
 - For m4l: `assets[0].name == "Pointsman.amxd"`, `assets[0].size > 0`,
   and matches the local file's size.
-- For vst: `assets == []` (tag-only by design until distribution
-  channel decision is recorded).
+- For vst: `assets == []` (tag-only by design — distribution via
+  Polar, not GH Releases) AND `dist/Pointsman.dmg` exists with
+  non-zero size.
 - The release URL is reachable.
 
 Show the release URL to the user.
+
+### Step 4.5 — Polar upload reminder (vst only)
+
+Skip for m4l. For vst, remind the user:
+
+> Upload `dist/Pointsman.dmg` to Polar:
+>   https://polar.sh/dashboard
+> Update the product version and release notes there manually. The
+> GH Releases tag is for source-history bookkeeping; Polar is the
+> actual distribution channel.
+
+This step is informational only — uploading is manual and out of
+skill scope. Do not attempt to automate via Polar API without a
+follow-up ADR.
 
 ### Step 5 — Cleanup
 
@@ -270,7 +332,9 @@ rm "/tmp/pointsman-$TAG-notes.md"
   `POINTSMAN_VERSION_STRING`, so a tag that pre-dates the bump points
   at a binary reporting the OLD version.
 - **Asset / repo are target-specific.** m4l → `dist/Pointsman.amxd`
-  on `im9/pointsman-m4l`; vst → tag-only on `im9/pointsman`. Never mix.
+  attached to GH Releases on `im9/pointsman-m4l`. vst → tag-only on
+  `im9/pointsman`; `dist/Pointsman.dmg` produced locally for Polar
+  upload (manual). Never mix.
 - **Tag scheme differs per target.** m4l uses `vX.Y.Z` (continues from
   the existing `v1.0.0` on pointsman-m4l); vst uses `vst-vX.Y.Z` on
   this source repo. The vst prefix exists so the source repo can
@@ -287,6 +351,11 @@ rm "/tmp/pointsman-$TAG-notes.md"
 - **Halt on any user-confirmation gate.** Steps 0 (bump commit),
   1 (version number), 2 (notes) each require explicit "ok" — don't
   proceed silently.
-- **Halt before publishing any vst binary.** Until the distribution
-  channel is recorded in a follow-up ADR (per ADR 003 §Out of scope),
-  vst releases stay tag-only on the source repo.
+- **vst dmg is local-only.** The skill produces `dist/Pointsman.dmg`
+  for manual upload to Polar (paid distribution channel). GH Releases
+  stays tag-only — never attach the dmg to `gh release create` for
+  vst. Halt and ask the user before publishing any vst binary as a
+  free GH Releases download.
+- **Polar API automation is out of scope.** Until a follow-up ADR
+  records the API contract and credentials handling, dmg upload to
+  Polar stays manual. Do not call Polar's API from this skill.
