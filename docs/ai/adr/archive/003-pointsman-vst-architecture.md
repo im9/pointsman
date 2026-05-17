@@ -1,8 +1,9 @@
 # ADR 003: Pointsman vst — architecture
 
-## Status: Proposed
+## Status: Implemented
 
 **Created**: 2026-05-10
+**Implemented**: 2026-05-17 (Phase 0–5 shipped: pure-C++17 engine + APVTS plugin core + inboil-derived editor across AU / VST3 / CLAP, v2 parameter surface from Phase 5 chord/harmony merge, signing + notarization pipeline producing `dist/Pointsman.dmg` verified end-to-end)
 
 **Revised**: 2026-05-16 — parameter surface redesign (Phase 5). The
 2026-05-10 ↔ 2026-05-15 phases (0–4) shipped a working vst against
@@ -980,7 +981,7 @@ plumbing differs).
       produces `Pointsman.vst3` / `Pointsman.component` /
       `Pointsman.clap` (`feedback_build_is_part_of_task`: a green
       test suite without a fresh build is not enough).
-- [ ] **Manual gate (host)** — Logic (AU) and Bitwig (CLAP / VST3)
+- [x] **Manual gate (host)** — Logic (AU) and Bitwig (CLAP / VST3)
       on a default single-channel MIDI track:
       - `mode = chord` + single-note melody → each input note
         emits as a diatonic 1-3-5 triad (the "single note becomes a
