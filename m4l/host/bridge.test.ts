@@ -10,7 +10,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { getHostParamsForTest, PointsmanBridge, type BridgeDeps } from "./bridge.ts";
+import {
+  dispatchEventForTest,
+  getHostParamsForTest,
+  getPendingCountsForTest,
+  PointsmanBridge,
+  type BridgeDeps,
+} from "./bridge.ts";
 import { FIRST_EVENT_STEP_MS } from "./host.ts";
 
 interface NoteCall {
@@ -910,6 +916,84 @@ test("cancellation — re-triggering same pitch+channel cancels the prior pendin
   f.flushAll();
   const noteOffs = f.notes.filter((n) => n.velocity === 0);
   assert.equal(noteOffs.length, 1, `expected 1 noteOff (second note's), got ${noteOffs.length}`);
+});
+
+test("panic — cancels scheduled noteOn so it never fires after the panic", () => {
+  // Humanize timing can push a noteOn into the future (delayMs > 0).
+  // Panic / transportStop / flush-key setParam must drop the scheduled
+  // noteOn — otherwise the note plays AFTER the panic and the user
+  // hears a brief blip post-stop. VST emitPanicTo's pending_.clear()
+  // does the same; this m4l mirror was missing.
+  const f = makeFakeDeps();
+  const b = new PointsmanBridge(f.deps);
+
+  // Inject a NoteEvent with delayMs = 50 to force the scheduled branch
+  // of dispatch(). 50 ms is shorter than any plausible gate; pairs
+  // with the noteOff below at delayMs = 150 (gate = 100 ms).
+  dispatchEventForTest(b, {
+    type: "noteOn",
+    pitch: 60,
+    velocity: 100,
+    channel: 1,
+    delayMs: 50,
+  });
+  dispatchEventForTest(b, {
+    type: "noteOff",
+    pitch: 60,
+    channel: 1,
+    delayMs: 150,
+  });
+  // No emits yet — both are pending.
+  assert.equal(f.notes.length, 0);
+  assert.deepEqual(getPendingCountsForTest(b), { noteOns: 1, noteOffs: 1 });
+
+  b.panic();
+  // Panic must clear both pending maps; no immediate noteOff for the
+  // paired-with-pending-noteOn case because the note never sounded.
+  assert.equal(f.notes.length, 0, "panic must not synthesise a noteOff for a note that never sounded");
+  assert.deepEqual(getPendingCountsForTest(b), { noteOns: 0, noteOffs: 0 });
+
+  // Fire all scheduled callbacks — they must observe cancelled=true and
+  // skip the emit.
+  f.flushAll();
+  assert.equal(f.notes.length, 0, "scheduled noteOn / noteOff must not fire after panic");
+});
+
+test("panic — emits immediate noteOff for sounding pitches with scheduled noteOff", () => {
+  // Counterpart: when the noteOn already fired (delayMs = 0 path), the
+  // bridge has emitted a noteOn the synth is sounding. The paired
+  // noteOff is scheduled (delayMs > 0). Panic must release that
+  // sounding output — emit an immediate noteOff.
+  const f = makeFakeDeps();
+  const b = new PointsmanBridge(f.deps);
+
+  // Immediate noteOn fires through dispatch()'s delay=0 branch.
+  dispatchEventForTest(b, {
+    type: "noteOn",
+    pitch: 60,
+    velocity: 100,
+    channel: 1,
+    delayMs: 0,
+  });
+  dispatchEventForTest(b, {
+    type: "noteOff",
+    pitch: 60,
+    channel: 1,
+    delayMs: 100,
+  });
+  assert.equal(f.notes.length, 1, "immediate noteOn fires");
+  assert.deepEqual(getPendingCountsForTest(b), { noteOns: 0, noteOffs: 1 });
+
+  b.panic();
+  // One additional emit — the immediate noteOff.
+  assert.equal(f.notes.length, 2);
+  assert.equal(f.notes[1].velocity, 0);
+  assert.equal(f.notes[1].pitch, 60);
+  assert.deepEqual(getPendingCountsForTest(b), { noteOns: 0, noteOffs: 0 });
+
+  // The scheduled noteOff callback fires but is cancelled.
+  f.flushAll();
+  assert.equal(f.notes.length, 2, "scheduled noteOff must not fire again");
 });
 
 test("cancellation — channel scope: same pitch on different channels is independent", () => {

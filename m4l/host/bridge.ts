@@ -137,13 +137,28 @@ export class PointsmanBridge {
     () => ({ interval: 3, direction: "off" }),
   );
 
-  // In-flight noteOff tracking. Each entry is keyed `${pitch}:${channel}`
-  // and carries a `cancelled` flag the scheduled callback checks before
-  // emitting. Cancellation entry points (transportStop / panic / setParam
-  // on a flush-key) walk the map: emit immediate noteOff, set cancelled,
-  // delete. Same-key noteOn re-trigger also auto-cancels — otherwise the
-  // first scheduled noteOff fires mid-second-note and prematurely
-  // silences it. See ADR 002 §B2 (audit fix landed in v1.0.1).
+  // In-flight noteOn / noteOff tracking. Each entry is keyed
+  // `${pitch}:${channel}` and carries a `cancelled` flag the scheduled
+  // callback checks before emitting.
+  //
+  // pendingNoteOns: humanize timing can push a noteOn into the future
+  // (delay > 0). If panic / transportStop arrives between the schedule
+  // and the fire, the noteOn must not be played — otherwise the note
+  // sounds AFTER the panic and the paired pendingNoteOff finally
+  // silences it, audible as a brief blip post-panic. VST emitPanicTo
+  // clears its `pending_` vector for the same reason; this is the m4l
+  // mirror of that discipline.
+  //
+  // pendingNoteOffs: same shape, paired with an already-emitted (sounding)
+  // noteOn. Cancellation entry points (transportStop / panic / setParam
+  // on a flush-key) walk this map: emit immediate noteOff so any
+  // sounding output is silenced. Same-key noteOn re-trigger also
+  // auto-cancels — otherwise the first scheduled noteOff fires
+  // mid-second-note and prematurely silences it. See ADR 002 §B2.
+  private pendingNoteOns: Map<
+    string,
+    { pitch: number; velocity: number; channel: number; cancelled: boolean }
+  > = new Map();
   private pendingNoteOffs: Map<
     string,
     { pitch: number; channel: number; cancelled: boolean }
@@ -187,7 +202,7 @@ export class PointsmanBridge {
   }
 
   panic(): void {
-    this.flushInFlightNoteOffs();
+    this.flushInFlight();
     for (const ev of this.host.panic()) this.dispatch(ev);
     this.maybeEmitChordChanged();
   }
@@ -198,7 +213,7 @@ export class PointsmanBridge {
   }
 
   transportStop(): void {
-    this.flushInFlightNoteOffs();
+    this.flushInFlight();
     for (const ev of this.host.transportStop()) this.dispatch(ev);
     this.maybeEmitChordChanged();
   }
@@ -208,7 +223,7 @@ export class PointsmanBridge {
     // result — release sounding pitches before applying. Non-flush keys
     // (humanize*, seed, channels, harmonyV*, output) leave them alone.
     if (FLUSH_PARAM_KEYS.has(key)) {
-      this.flushInFlightNoteOffs();
+      this.flushInFlight();
     }
     let scaleChanged = false;
     let modeChanged = false;
@@ -323,15 +338,28 @@ export class PointsmanBridge {
     // event has already arrived, so the bridge cannot dispatch in the past.
     const delay = ev.delayMs > 0 ? ev.delayMs : 0;
     if (ev.type === "noteOn") {
-      // Same pitch+channel re-trigger: cancel any pending noteOff so it
-      // doesn't fire mid-new-note. Without this, mash-the-same-key within
-      // the gate window prematurely silences the second hit.
-      this.cancelPending(noteKey(ev.pitch, ev.channel));
+      // Same pitch+channel re-trigger: cancel any pending noteOn /
+      // noteOff for that key so the prior schedule doesn't fire
+      // mid-new-note. Without this, mash-the-same-key within the gate
+      // window prematurely silences the second hit.
+      const key = noteKey(ev.pitch, ev.channel);
+      this.cancelPending(key);
       if (delay === 0) {
         this.emit(ev);
         return;
       }
-      this.deps.scheduleAfter(delay, () => this.emit(ev));
+      const entry = {
+        pitch: ev.pitch,
+        velocity: ev.velocity,
+        channel: ev.channel,
+        cancelled: false,
+      };
+      this.pendingNoteOns.set(key, entry);
+      this.deps.scheduleAfter(delay, () => {
+        if (entry.cancelled) return;
+        this.pendingNoteOns.delete(key);
+        this.emit(ev);
+      });
       return;
     }
     if (ev.type === "noteOff") {
@@ -364,21 +392,46 @@ export class PointsmanBridge {
     this.deps.scheduleAfter(delay, () => this.emit(ev));
   }
 
-  // Cancel a pending noteOff for `key` (no-op if none). Does NOT emit a
-  // noteOff — caller decides whether the cancellation is paired with a
-  // replacement emit (re-trigger / immediate noteOff) or a flush.
+  // Cancel any pending noteOn / noteOff for `key` (no-op if none).
+  // Does NOT emit a noteOff — caller decides whether the cancellation is
+  // paired with a replacement emit (re-trigger / immediate noteOff) or
+  // a flush.
   private cancelPending(key: string): void {
-    const entry = this.pendingNoteOffs.get(key);
-    if (!entry) return;
-    entry.cancelled = true;
-    this.pendingNoteOffs.delete(key);
+    const on = this.pendingNoteOns.get(key);
+    if (on) {
+      on.cancelled = true;
+      this.pendingNoteOns.delete(key);
+    }
+    const off = this.pendingNoteOffs.get(key);
+    if (off) {
+      off.cancelled = true;
+      this.pendingNoteOffs.delete(key);
+    }
   }
 
-  // Cancellation entry point: emit immediate noteOff for every sounding
-  // pitch and clear the pending map. Called from transportStop / panic /
-  // setParam (on a flush-key) so the host doesn't have to track which
-  // noteOns were emitted but not yet released.
-  private flushInFlightNoteOffs(): void {
+  // Cancellation entry point: cancel pending noteOns (they never
+  // sounded — drop them), emit immediate noteOff for any sounding
+  // output (paired with an already-fired noteOn, tracked via
+  // pendingNoteOffs), and clear both maps. Called from transportStop /
+  // panic / setParam (on a flush-key). Spurious noteOff emission is
+  // avoided by recognising the noteOn-also-pending case: if the
+  // noteOn for the same key never fired, the matching noteOff is
+  // suppressed too.
+  private flushInFlight(): void {
+    for (const [key, entry] of this.pendingNoteOns) {
+      entry.cancelled = true;
+      // Suppress the paired noteOff: the noteOn never sounded, so an
+      // immediate noteOff would be sent against a key the downstream
+      // synth doesn't think is held.
+      const off = this.pendingNoteOffs.get(key);
+      if (off) {
+        off.cancelled = true;
+        this.pendingNoteOffs.delete(key);
+      }
+    }
+    this.pendingNoteOns.clear();
+    // Remaining pendingNoteOffs are paired with already-fired noteOns
+    // (sounding output) — silence them with an immediate noteOff.
     for (const [, entry] of this.pendingNoteOffs) {
       entry.cancelled = true;
       this.deps.emitNote(entry.pitch, 0, entry.channel);
@@ -446,4 +499,27 @@ export { buildScalePitches };
 export function getHostParamsForTest(b: PointsmanBridge): Readonly<PointsmanParams> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return (b as any).host.getParams();
+}
+
+// Test-only accessors for the in-flight note tracking. Used to drive
+// the panic / flush cancellation contract without depending on humanize
+// timing landing in the scheduled path for a particular seed.
+export function getPendingCountsForTest(b: PointsmanBridge): {
+  noteOns: number;
+  noteOffs: number;
+} {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const any_ = b as any;
+  return {
+    noteOns: any_.pendingNoteOns.size,
+    noteOffs: any_.pendingNoteOffs.size,
+  };
+}
+
+// Test-only direct dispatch — exercises the scheduled branch of
+// dispatch() for arbitrary NoteEvents without having to coax the
+// humanize layer into producing a positive timingOffset.
+export function dispatchEventForTest(b: PointsmanBridge, ev: NoteEvent): void {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (b as any).dispatch(ev);
 }
