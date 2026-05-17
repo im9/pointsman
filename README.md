@@ -1,8 +1,8 @@
 # Pointsman
 
 Scale quantizer MIDI effect — snaps incoming notes to a chosen scale,
-with optional chord-tone snap, diatonic harmony stack, and per-event
-humanize.
+with optional chord-mode expansion (single notes become diatonic
+chords) and per-event humanize.
 
 Named after Edward Pointsman from Thomas Pynchon's *Gravity's Rainbow*
 — the railway-pointsman metaphor (routing an incoming train onto a
@@ -21,22 +21,31 @@ User parameters:
 - **scale** — 15 presets (major, minor, modes, pentatonic, blues,
   harmonic, melodic, whole, chromatic, chromatic-half)
 - **root** — root pitch class for the scale
-- **mode** — `scale` (snap to scale degree), `chord` (snap to
-  chord-tone with scale fallback), `harmony` (input plus a diatonic
-  voice stack of up to 3 voices)
-- **controlChannel** — in `chord` mode, held MIDI notes on this
-  channel form the current chord context (consumed, not output).
-  In any mode with `triggerMode = root`, single notes on this
-  channel set the root and are also consumed. In `harmony` mode
-  (without `root` triggerMode) and `scale` mode, controlChannel
-  notes pass straight through the quantize path.
-- **humanizeVelocity / Gate / Timing / Drift** — signed-noise
-  amplitudes per axis; `drift` smooths the draws over time
-- **outputLevel** — global multiplier on output velocity
-- **triggerMode** — `passthrough` (default) or `root` (an incoming
-  control-channel note re-keys the device live)
-- **seed** — RNG seed; humanize is reproducible from `(seed, input
-  sequence, params)` bit-for-bit
+- **mode** — `scale` (snap to nearest scale degree, 1-in-1-out) or
+  `chord` (1-in-`1+N`-out expansion: scale-snapped input plus a
+  configured diatonic voice stack). Default `scale`.
+- **harmonyVoices** — 0..3 voices emitted in `chord` mode, each a
+  `(interval, direction)` pair with interval ∈ {3, 4, 5, 6}
+  (diatonic Nth along the active scale) and direction ∈
+  {above, below}. Default `[{3 above}, {5 above}]` = a 1-3-5
+  triad, so `chord` mode out of the box turns each input note
+  into its diatonic triad.
+- **inputChannel** — `0` (omni) or `1..16`. Notes on other channels
+  pass through untouched — load-bearing for MPE, so per-note
+  channels carrying pitch bend / pressure / timbre reach the
+  downstream instrument.
+- **feel** — `0..1` global humanize amount. One slider drives
+  signed-noise draws on velocity, gate length, and timing
+  independently.
+- **drift** — `0..1` EMA smoothing applied per humanize axis. `0` =
+  independent per-event draws (jittery); ~0.95–0.99 = slow drift
+  (breath). `1.0` exactly freezes the layer.
+- **seed** — RNG seed for the humanize draws; persisted in plugin
+  state but not exposed in the editor. New instances pick a random
+  seed on construction (so two parallel Pointsman instances on
+  double-tracked parts don't phase-lock); preset save / load is
+  bit-exact: a fixed `(seed, input sequence, params)` reproduces
+  the same output.
 
 Pointsman pairs naturally upstream with anything emitting unquantized
 MIDI — most directly [Stencil][stencil], the Music Thing-style Turing
@@ -49,17 +58,23 @@ Full musical model: [`docs/ai/concept.md`](docs/ai/concept.md).
 
 ## Status
 
-`m4l/` is feature-complete for v1 and in distribution prep; the
-manual-Live verification gate is tracked by [ADR 002][adr2].
+`m4l/` is on the v2 parameter surface (merged `chord` / `harmony`
+modes, `feel` + `drift` humanize, removed `controlChannel` /
+`triggerMode` / `outputLevel`) per [concept.md](docs/ai/concept.md)
+§"Parameter surface". The source-repo tag `m4l-v0.1.0` exists; the
+public Release (assets, copy, audio demo) is in distribution prep,
+gated by the manual-Live verification checklist in [ADR 002][adr2].
+The v1 surface shipped as `pointsman-m4l/v1.0.0` on the legacy repo
+and is retained there as historical.
 
-`vst/` architecture is set by [ADR 003][adr3]; the cloned Stencil
-scaffold has been removed and the project renamed to Pointsman.
-Phase 0 ships VST3 + AU + CLAP bundles (Logic / Bitwig / Reaper as
-named hosts, mirroring oedipa's DAW support stance). Engine, APVTS,
-and editor land in ADR 003 phases 1 / 2 / 3.
+`vst/` is built end-to-end per [ADR 003][adr3] (now Implemented,
+archived): engine, APVTS, editor, and the Phase 5 parameter-surface
+redesign (chord/harmony merge, `feel` + `drift`, `kStateVersion=2`)
+have all shipped. The build produces VST3 + AU + CLAP bundles for
+Logic / Bitwig / Reaper, mirroring oedipa's DAW support stance.
 
 [adr2]: docs/ai/adr/002-pointsman-release.md
-[adr3]: docs/ai/adr/003-pointsman-vst-architecture.md
+[adr3]: docs/ai/adr/archive/003-pointsman-vst-architecture.md
 
 ## Use (Max for Live)
 
@@ -75,10 +90,10 @@ see [Build](#build) below.
 
 | Target | Status | Notes |
 |---|---|---|
-| [Max for Live](m4l/) | v1 prep | Ableton Live MIDI effect. Current primary target. |
-| [VST3](vst/) | Phase 0 | Scaffold removed, renamed Pointsman. Engine + UI in [ADR 003][adr3]. |
-| [AU](vst/) | Phase 0 | Same codebase as the VST3. |
-| [CLAP](vst/) | Phase 0 | Same codebase, wrapped via `clap-juce-extensions` (Bitwig's native format). |
+| [Max for Live](m4l/) | v0.1.0 shipped; v2 surface in distribution prep | Ableton Live MIDI effect. Current primary target. |
+| [VST3](vst/) | Built per [ADR 003][adr3] (Implemented) | DAW-native plugin. |
+| [AU](vst/) | Built per [ADR 003][adr3] (Implemented) | Same codebase as the VST3. |
+| [CLAP](vst/) | Built per [ADR 003][adr3] (Implemented) | Same codebase, wrapped via `clap-juce-extensions` (Bitwig's native format). |
 
 Musical logic is shared as a specification, not as code. m4l and vst
 are independent native implementations. Cross-target conformance is
@@ -113,9 +128,11 @@ The Quantizer generator is adapted from
 [inboil](https://github.com/im9/inboil), a browser-based groove box
 where it lives inside a scene graph as one generative node among many.
 Pointsman lifts that node out into a standalone DAW-native MIDI
-effect — the musical model (snap-to-nearest, chord-tone snap, diatonic
-harmony) and parameter design carry over; the scene-graph architecture
-does not.
+effect — the musical model (snap-to-nearest, 15 scale presets, and
+diatonic Nth voice stacking, all now consolidated into v2's
+`scale` / `chord` modes) and parameter naming carry over; the
+scene-graph architecture and inboil's separate chord-tone-bias
+mode do not.
 
 Pointsman ships paired with [Stencil][stencil], the Turing Machine
 counterpart. The two are independent products; the canonical chain is

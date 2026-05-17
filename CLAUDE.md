@@ -1,8 +1,9 @@
 # Pointsman
 
 Scale quantizer for MIDI: snaps incoming notes to a user-selected
-scale, with optional chord-mode and harmony-mode (diatonic voice
-stack), and a per-event humanize layer. MIDI effect, DAW-native.
+scale, with an optional `chord` mode that expands each input note
+into a configurable diatonic voice stack, plus a per-event humanize
+layer. MIDI effect, DAW-native.
 Named after Edward Pointsman from Thomas Pynchon's *Gravity's
 Rainbow* — the railway-pointsman metaphor (routing an incoming
 train to a discrete track) is exact for what a quantizer does
@@ -12,7 +13,7 @@ train to a discrete track) is exact for what a quantizer does
 
 Pointsman is developed in parallel across multiple targets that
 share the same musical concept (scale quantizer with mode = scale
-/ chord / harmony) but differ in UI and platform. Each target
+/ chord) but differ in UI and platform. Each target
 lives in its own directory and has its own build system. **Both
 targets are first-class production releases**, not prototypes for
 one another.
@@ -187,21 +188,30 @@ make test      # rebuilt in ADR 003 Phase 1 (Catch2 v3 + nlohmann/json v3)
 ## Design
 
 - MIDI effect: snaps incoming notes to scale, with optional
-  chord/harmony modes and humanize
+  `chord` mode (1-in-N-out diatonic expansion) and humanize
 - Quantizer: snap-to-nearest scale degree (15 scale presets
   matching inboil)
-- Modes: `scale` (default) / `chord` (snap to chord-tone with
-  scale fallback) / `harmony` (input + diatonic voice stack)
-- Chord context source: real-time MIDI on a control channel
-  (held notes form the current chord), collapsing inboil's
-  manual `chords[]` and `chordSource` paths into one input
-  contract
-- Per-event humanize: velocity / gate / timing / drift, all
-  seeded for reproducibility
+- Modes: `scale` (default, 1-in-1-out) / `chord` (1-in-`1+N`-out
+  expansion: scale-snapped input plus `harmonyVoices` diatonic
+  voices). The former v1 `harmony` mode was merged into `chord`
+  in Phase 5 (concept.md §"Scale and chord modes").
+- Chord-mode voices: `harmonyVoices` (0..3 entries, each an
+  `(interval, direction)` pair with interval ∈ {3, 4, 5, 6} and
+  direction ∈ {above, below}). Default `[{3 above}, {5 above}]`
+  = 1-3-5 triad. Voices are configuration-driven, not derived
+  from a held-context channel — there is no `controlChannel`.
+- Input channel: `inputChannel` (`0` = omni, `1..16` selects).
+  Notes on non-matching channels pass through untouched
+  (load-bearing for MPE per-note channel carry).
+- Per-event humanize: `feel` (0..1, drives signed-noise on
+  velocity / gate / timing as three independent draws) +
+  `drift` (0..1, per-axis EMA smoothing). Seeded for
+  reproducibility; random seed per new instance.
 - Pairs naturally upstream with any MIDI sequence source for
   the canonical `<source> → Pointsman → Synth` chain
 - Parameters normalized in plugin/host layer
-- Label: im9. Free distribution.
+- Label: im9. `m4l/` ships free (MIT); `vst/` is sold (source-
+  available, non-commercial use permitted).
 
 ## Mandatory Workflow
 
