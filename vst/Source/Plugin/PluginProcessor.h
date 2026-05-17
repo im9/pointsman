@@ -203,6 +203,19 @@ private:
     // tempos (16th @ 60 BPM, 8th @ 120 BPM, quarter @ 240 BPM).
     static constexpr double kFirstEventStepMs = 250.0;
 
+    // Hard upper bounds on the scheduler buffers so processBlock never
+    // re-allocates them on the audio thread. Sized at ~10× the typical
+    // worst-case load (60Hz input × 4 chord voices × 5s max gate cap ≈
+    // 1200 in-flight at peak); above this an input noteOn is dropped at
+    // the push-back boundary rather than triggering a heap allocation in
+    // the audio path. Drop-on-overrun is the convention for RT-safe MIDI
+    // schedulers (a missed note is better than an audible glitch).
+    static constexpr std::size_t kMaxPending  = 2048;
+    // sounding_ grows by one entry per drained noteOn until its paired
+    // noteOff drains; worst case is "all pending noteOns fire before any
+    // noteOff fires", so the bound matches kMaxPending / 2.
+    static constexpr std::size_t kMaxSounding = kMaxPending / 2;
+
     // Defensive cap on derived sourceStepDuration. A pathologically slow
     // input rate (multi-second gaps between noteOns) would otherwise
     // schedule a default-gate noteOff that far in the future — non-

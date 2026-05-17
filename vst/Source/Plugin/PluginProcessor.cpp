@@ -68,15 +68,13 @@ void PointsmanProcessor::prepareToPlay(double sampleRate, int)
     lastInputSampleAbs_ = 0;
     haveLastInput_ = false;
     pending_.clear();
-    // Cap headroom: each input noteOn schedules 2 events × (1 + harmony
-    // voices), so a generous reserve covers ~64 in-flight noteOns at the
-    // 3-voice harmony max without a heap reallocation on the audio
-    // thread. v1 surface does not promise a hard polyphony bound; if a
-    // future use case exceeds this we revisit option C (fixed-capacity
-    // ring) per ADR 003 §"Post-Phase 4 audit follow-ups".
-    pending_.reserve(512);
     sounding_.clear();
-    sounding_.reserve(128);
+    // Reserve to the hard cap so processBlock's push_back never
+    // triggers a heap reallocation on the audio thread. Above the cap
+    // the input noteOn is dropped at the push boundary — see the
+    // size guard in processBlock.
+    pending_.reserve(kMaxPending);
+    sounding_.reserve(kMaxSounding);
     // Pre-size the scale-pitch cache so the cache-miss rewrite path in
     // processBlock fills it via buildScalePitchesInto() without ever
     // re-allocating the underlying buffer on the audio thread. 128 is the
@@ -403,6 +401,20 @@ void PointsmanProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::Mid
                         scalePitches);
             }
 
+            // Push the noteOn/noteOff pair per voice. The atomic-by-
+            // input-event check guarantees we either schedule all voices
+            // or none — half-emitted chords (some voices stuck without
+            // releases) would manifest as hung notes. Drop the entire
+            // input event rather than a partial expansion when at cap.
+            if (pending_.size() + static_cast<std::size_t>(numOut) * 2 > kMaxPending)
+            {
+                // RT-safe overflow handling: silently drop this noteOn
+                // expansion. Triggered only by pathological input rates
+                // (sustained ~100Hz with max gates) — the missed note is
+                // preferable to a heap allocation glitch on the audio
+                // thread.
+                continue;
+            }
             for (int i = 0; i < numOut; ++i)
             {
                 pending_.push_back({noteOnTargetAbs,  ch, outPitches[i],

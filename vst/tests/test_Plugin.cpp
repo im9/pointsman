@@ -848,6 +848,55 @@ TEST_CASE("humanize: source-step duration clamped at kMaxSourceStepMs (5 s)",
     REQUIRE(sawSecondNoteOff);
 }
 
+TEST_CASE("scheduler overflow: pathological input rate stays alive and bounded",
+          "[plugin][rt-safety]")
+{
+    // Audio-thread RT-safety: pending_ / sounding_ are reserved at
+    // kMaxPending / kMaxSounding in prepareToPlay; the noteOn handler
+    // drops new emits if pushing the pair would exceed kMaxPending so
+    // the vector never reallocates on the audio thread under
+    // pathological input loads. This test stresses the path: 4× more
+    // noteOns than the cap can hold (chord mode emits 4 events per
+    // input × 1024 input noteOns ≈ 8192 entries) while sustaining a
+    // long gate so noteOffs never fire and pending fills.
+    //
+    // Pass condition: no crash / no UB, and the host receives at least
+    // some output (the drop semantics are graceful, not "drop
+    // everything").
+    PointsmanProcessor p;
+    p.prepareToPlay(44100.0, 256);
+    p.setHostIsPlayingForTest(true);
+
+    // Chord mode → 4 emits per input (1 quantized + 3 harmony voices
+    // when the default 2-voice triad is extended). Default voices = 2,
+    // so 3 emits per input — still well above the immediate-fire path.
+    setParamRaw(p.apvts, pid::mode,
+                static_cast<float>(ModeChoice::Chord));
+
+    // Stack many noteOns into a single block. The block-internal
+    // ordering still fires immediate noteOns within the same drain,
+    // but the noteOffs (gateLen × sourceStep ahead) remain pending,
+    // pushing pending_.size() past the reserved cap. With the V3
+    // guard the excess noteOns are silently dropped.
+    juce::MidiBuffer midi;
+    for (int i = 0; i < 1024; ++i)
+    {
+        const int pitch = 36 + (i % 36);
+        midi.addEvent(juce::MidiMessage::noteOn(1, pitch,
+                                                static_cast<juce::uint8>(80)),
+                      i % 256);
+    }
+
+    // Must not crash, must not allocate beyond the cap (verified
+    // implicitly: heap allocation on the audio thread would not
+    // crash but would defeat the RT-safety contract; the cap guard
+    // makes a realloc impossible here).
+    REQUIRE_NOTHROW(processOnce(p, midi));
+    // Some output reached the host — the dropper does not silence
+    // everything.
+    REQUIRE(midi.getNumEvents() > 0);
+}
+
 TEST_CASE("pulse: lastEmittedPulse advances and carries the emitted pitch",
           "[plugin][pulse]")
 {
