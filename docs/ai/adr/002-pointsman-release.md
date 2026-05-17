@@ -202,18 +202,25 @@ distribution file is verified in §Phase 0 above.
 
 Per-channel release work.
 
-- [x] Choose distribution channel — per-product GitHub repo
+- [x] Choose distribution channel. **Initial v1 (2026-05-09):**
+      per-product GitHub repo
       [im9/pointsman-m4l](https://github.com/im9/pointsman-m4l)
-      Releases (binary + README only; source repo stays
-      separate)
+      Releases (binary + README only; source repo stays separate).
+      **Revised 2026-05-17:** future m4l releases go on the source
+      repo `im9/pointsman` with tags `m4l-vX.Y.Z`, mirroring
+      oedipa's pattern (single repo hosts both m4l and vst tag
+      lines, distinguished by prefix). The legacy
+      `pointsman-m4l/v1.0.0` is retained on its repo as historical;
+      the next release on `im9/pointsman` starts fresh at
+      `m4l-v1.0.0`. See `.claude/skills/release/SKILL.md`.
 - [ ] Prepare screenshot at channel-required dimensions
 - [ ] Record audio demo (Pointsman solo) and export MP3
 - [ ] Write description copy
 - [x] Upload Pointsman v1; first public version live —
       [v1.0.0](https://github.com/im9/pointsman-m4l/releases/tag/v1.0.0)
-      released 2026-05-09. Asset refreshed in-place 2026-05-10
-      (canary stage, downloads = 1) with audit-fix dist —
-      `Pointsman.amxd` (sha256
+      released 2026-05-09 on the legacy `pointsman-m4l` repo. Asset
+      refreshed in-place 2026-05-10 (canary stage, downloads = 1)
+      with audit-fix dist — `Pointsman.amxd` (sha256
       `2bc5e9356e6c817e1833f83ec407d5d2729ac39a608d4bc09368ed1824275c9d`).
       The audit-fix iteration covers chord-tier rendering,
       in-flight noteOff cancellation, MIDI range guards

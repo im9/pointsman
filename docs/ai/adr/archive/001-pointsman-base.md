@@ -79,8 +79,8 @@ Items prefixed `[x]` are complete. Items prefixed `[ ]` remain.
       JUCE submodule)
 - [x] Provision GitHub private repo `im9/pointsman`
 - [x] Replace `pointsman/.git/config` `[remote "origin"]` URL
-      (currently points at `/Users/tn/src/vst/stencil` from the
-      local clone) with the GitHub URL for `im9/pointsman`
+      (currently points at the local `~/src/vst/stencil` clone path)
+      with the GitHub URL for `im9/pointsman`
 - [x] `git push -u origin main` — initial seed push of the
       cloned + this-session state to GitHub
 

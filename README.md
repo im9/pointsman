@@ -98,8 +98,10 @@ compatibility on macOS:
 | Logic Pro | AU | ✅ Primary | AU MIDI FX slot on a software-instrument track. (Logic does not host CLAP.) |
 | Bitwig Studio | VST3 / CLAP | ✅ Primary | Note FX slot in front of an instrument. CLAP is Bitwig's native plug-in format. |
 | Reaper | VST3 / CLAP | ⚠️ Best-effort | VST3 / CLAP in any FX chain. Not formally tested for v1. |
+| Studio One | VST3 | ⚠️ Best-effort | VST3 in MIDI fx slot. Not formally tested for v1. CLAP build is also produced but has not been verified in Studio One. |
 | Ableton Live | — | Use [m4l/](m4l/) | Live does not accept third-party VST3 / AU plug-ins in its MIDI Effect rack (host design, not a format limitation) and does not host CLAP. The Max for Live device is the supported path. |
-| Cubase / Nuendo | — | ❌ Out of scope | The VST3 spec has no "MIDI Effect" sub-category and Cubase rejects third-party VST3 in its MIDI Inserts slot (Steinberg policy). |
+| Cubase / Nuendo | — | ❌ Out of scope | The VST3 spec has no "MIDI Effect" sub-category and Cubase rejects third-party VST3 in its MIDI Inserts slot (Steinberg policy). Loading Pointsman as an Instrument with two-track MIDI-out routing works mechanically, but conflicts with the "MIDI fx, not synth" identity Pointsman is built on. The instrument-disguise topology was rejected for v1; revisit only if the Cubase ecosystem opens its MIDI Inserts to third-party VST3. |
+| FL Studio | — | ❌ Out of scope | FL has no MIDI fx routing on any plug-in surface: VST3 is rejected categorically (channel slot accepts only instruments, mixer hosts only audio fx, no MIDI fx slot exists), and the CLAP host does not bridge `note-effect` plug-ins to FL's internal note bus. Reconsider only if FL adds a native MIDI fx track concept or CLAP `note-effect` routing in its host bridge. |
 
 The matrix mirrors the one shipped on
 [oedipa](https://github.com/im9/oedipa) — same author, same JUCE

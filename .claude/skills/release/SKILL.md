@@ -11,20 +11,25 @@ Cut a versioned per-target release. The first $ARGUMENT selects the
 target (`m4l` or `vst`); the second is the bump (`major` / `minor` /
 `patch`, default `patch`).
 
-Targets ship to different repos, so the tag layout differs:
+Both targets tag on the source repo `im9/pointsman`; the tag prefix
+is what distinguishes them:
 
-- **m4l** → tag `vX.Y.Z` on **[im9/pointsman-m4l](https://github.com/im9/pointsman-m4l)**
-  (binary-only distribution repo; continues from the existing `v1.0.0`).
-  Asset: `dist/Pointsman.amxd` — frozen `.amxd`, manual freeze in Max
-  required.
-- **vst** → tag `vst-vX.Y.Z` on the source repo `im9/pointsman`.
-  Distributed via Polar (paid) — see
-  ([ADR 003 §Out of scope](../../../docs/ai/adr/003-pointsman-vst-architecture.md)).
+- **m4l** → tag `m4l-vX.Y.Z` on `im9/pointsman`. Asset:
+  `dist/Pointsman.amxd` — frozen `.amxd`, manual freeze in Max
+  required. GitHub Releases is the distribution channel (free).
+  Mirrors oedipa's pattern.
+- **vst** → tag `vst-vX.Y.Z` on `im9/pointsman`. Distributed via
+  Polar (paid) — see
+  ([ADR 003 §Out of scope](../../../docs/ai/adr/archive/003-pointsman-vst-architecture.md)).
   The skill produces `dist/Pointsman.dmg` (signed + notarized +
   stapled) locally; **upload to Polar is manual, out of skill scope**.
   GH Releases stays **tag-only** — no binary asset attached. **HALT
   and ask the user before publishing any vst binary as a free GH
   Releases download.**
+
+The historical `im9/pointsman-m4l/v1.0.0` (canary distribution on a
+separate binary-only repo) is retained on that repo as legacy; future
+m4l releases live on `im9/pointsman` and start fresh at `m4l-v1.0.0`.
 
 ## Pre-flight checks (do these BEFORE creating the tag)
 
@@ -150,15 +155,16 @@ any other commit.
 
 ### Step 1 — Determine next version
 
-For **m4l**, query `pointsman-m4l`:
+For **m4l**, parse the highest `m4l-v*` tag on the source repo and
+bump per the second $ARGUMENT (default `patch`):
 
 ```bash
-gh release list --repo im9/pointsman-m4l --limit 1 --json tagName \
-  --jq '.[0].tagName'
+git tag -l 'm4l-v*' | sort -V | tail -1
 ```
 
-The existing line starts at `v1.0.0`. Bump per the second $ARGUMENT
-(default `patch`).
+If no prior `m4l-v*` tag (first release on `im9/pointsman` — the
+legacy `v1.0.0` lives on `im9/pointsman-m4l` and does not count),
+propose `m4l-v1.0.0`.
 
 For **vst**, query the source repo:
 
@@ -174,16 +180,20 @@ to Step 0**. The user can override.
 ### Step 2 — Draft release notes
 
 Generate the draft from the commit log between the previous per-target
-reference and HEAD.
+tag and HEAD.
 
-For **m4l**, use the previous m4l release date as the lower bound
-(tags live on `pointsman-m4l`, not here, so we cannot `git log
-<prev-tag>..HEAD` directly):
+For **m4l**, use the previous `m4l-v*` tag:
 
 ```bash
-PREV_DATE=$(gh release view --repo im9/pointsman-m4l --json publishedAt \
-  --jq '.publishedAt')
-git log --since="$PREV_DATE" --pretty=format:'- %s' -- m4l/ docs/ai/
+PREV=$(git tag -l 'm4l-v*' | sort -V | tail -1)
+git log "${PREV:-}"..HEAD --pretty=format:'- %s' -- m4l/ docs/ai/
+```
+
+If `$PREV` is empty (first m4l release on `im9/pointsman`), scope to
+m4l-touching commits since the repo started:
+
+```bash
+git log --pretty=format:'- %s' -- m4l/ docs/ai/adr/
 ```
 
 For **vst**, use the previous `vst-v*` tag:
@@ -213,9 +223,11 @@ detailed history is in `git log`.
 
 For the very first vst release (no prior `vst-v*` tag), use a
 project-intro template instead of a changelog: "What it does" /
-"Install" / "Requirements". For m4l, the `v1.0.0` release notes on
-`pointsman-m4l` already serve that purpose — subsequent m4l releases
-are changelog-style.
+"Install" / "Requirements". For the first `m4l-v*` release on
+`im9/pointsman`, also use the project-intro template — the legacy
+`v1.0.0` on `im9/pointsman-m4l` is on a different repo and does not
+count as a prior boundary here. Subsequent m4l releases are
+changelog-style.
 
 Write the draft to `/tmp/pointsman-<tag>-notes.md` and show it to the
 user. **Wait for explicit "ok" or edit instructions** before Step 2.5
@@ -253,20 +265,18 @@ baked into the dmg is committed.
 
 ### Step 3 — Tag, push, create release
 
-For **m4l** (tag + asset on the distribution repo):
+For **m4l** (tag + asset on the source repo):
 
 ```bash
-TAG=vX.Y.Z
-TITLE="Pointsman vX.Y.Z"
+TAG=m4l-vX.Y.Z
+TITLE="Pointsman m4l vX.Y.Z"
 
+git tag "$TAG"
+git push origin "$TAG"
 gh release create "$TAG" dist/Pointsman.amxd \
-  --repo im9/pointsman-m4l \
   --title "$TITLE" \
   --notes-file "/tmp/pointsman-$TAG-notes.md"
 ```
-
-The `pointsman-m4l` repo is binary-only — no source push to it. The
-GH-Releases-created tag lives on that repo's empty default branch.
 
 For **vst** (tag on the source repo, no asset):
 
@@ -285,8 +295,7 @@ gh release create "$TAG" \
 
 ```bash
 # m4l
-gh release view "$TAG" --repo im9/pointsman-m4l \
-  --json name,tagName,assets,url
+gh release view "$TAG" --json name,tagName,assets,url
 
 # vst
 gh release view "$TAG" --json name,tagName,assets,url
@@ -331,15 +340,17 @@ rm "/tmp/pointsman-$TAG-notes.md"
   exists. The editor reads the version at compile time via
   `POINTSMAN_VERSION_STRING`, so a tag that pre-dates the bump points
   at a binary reporting the OLD version.
-- **Asset / repo are target-specific.** m4l → `dist/Pointsman.amxd`
-  attached to GH Releases on `im9/pointsman-m4l`. vst → tag-only on
+- **Asset is target-specific; both tags live on the source repo.**
+  m4l → `dist/Pointsman.amxd` attached to GH Releases on
+  `im9/pointsman` (free, mirrors oedipa). vst → tag-only on
   `im9/pointsman`; `dist/Pointsman.dmg` produced locally for Polar
   upload (manual). Never mix.
-- **Tag scheme differs per target.** m4l uses `vX.Y.Z` (continues from
-  the existing `v1.0.0` on pointsman-m4l); vst uses `vst-vX.Y.Z` on
-  this source repo. The vst prefix exists so the source repo can
-  someday host both m4l-source-changes tags and vst tags without
-  collision.
+- **Tag scheme is target-prefixed.** m4l uses `m4l-vX.Y.Z`, vst uses
+  `vst-vX.Y.Z`, both on `im9/pointsman`. The prefixes keep the two
+  release lines from colliding on a single repo. The legacy
+  `im9/pointsman-m4l/v1.0.0` lives on a separate binary-only repo
+  and is not part of this tag line — `m4l-v1.0.0` here is the first
+  release of the new line.
 - **Manual Freeze required for m4l.** Max has no CLI freeze; this skill
   does not automate it.
 - **Tag once, never re-tag.** If a tag for the proposed version already
