@@ -1,8 +1,12 @@
-// Tests for host/humanize.ts — pure layer per ADR 002 §Pointsman humanize.
-// Spec: docs/ai/adr/002-m4l-architecture.md
+// Tests for host/humanize.ts — Phase 5 v2 feel/drift contract.
+// Spec: docs/ai/concept.md §"Per-event humanize"
 //
-// Threshold derivation rule (CLAUDE.md global): every numeric assertion
-// is justified inline against the spec or first-principles derivation.
+// v2 collapses humanizeVelocity/Gate/Timing into a single `feel` amplitude
+// driving three independent draws (velocity / gate / timing axes). drift is
+// the EMA factor applied per-axis (no shared smoothing — would phase-lock).
+//
+// Threshold derivation rule (CLAUDE.md global): every numeric assertion is
+// justified inline against the spec or first-principles derivation.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -76,7 +80,9 @@ test("drift — factor=0 returns raw (no smoothing)", () => {
 });
 
 test("drift — factor=1 returns prev (full smoothing, raw ignored)", () => {
-  // factor=1 → prev. Useful contract: dial fully smoothed = constant carry.
+  // factor=1 → prev. concept.md §"Per-event humanize": 1.0 exactly is
+  // degenerate (EMA never blends a new draw, layer freezes); useful contract
+  // here is just that the math is symmetric.
   assert.equal(drift(0.5, 0.2, 1), 0.5);
   assert.equal(drift(-0.7, 0.4, 1), -0.7);
 });
@@ -94,22 +100,18 @@ test("drift — factor=0.5 returns midpoint", () => {
 
 function defaultArgs(overrides: Partial<ComposeArgs> = {}): ComposeArgs {
   return {
-    velocity: 0,
-    gate: 0,
-    timing: 0,
-    driftFactor: 0,
+    feel: 0,
+    drift: 0,
     inputVelocity: 100,
-    outputLevel: 1.0,
-    outputGateBase: 1.0,
     sourceStepDuration: 100, // ms — arbitrary nonzero unit for offset arithmetic
     ...overrides,
   };
 }
 
-test("composeHumanize — all amplitudes 0 yields identity-ish output", () => {
+test("composeHumanize — feel=0 yields identity-ish output", () => {
   // rawVel = rawGate = rawTime = 0 → smoothed = 0 → identity composition:
-  //   velocityFinal = round(inputVelocity * 1 * outputLevel)
-  //   gateFinal     = outputGateBase
+  //   velocityFinal = inputVelocity
+  //   gateFinal     = 1.0 (full gate, the v1 outputGateBase)
   //   timingOffset  = 0
   const rng = seedRng(42n);
   const r = composeHumanize(rng, NEUTRAL_DRIFT, defaultArgs());
@@ -118,42 +120,31 @@ test("composeHumanize — all amplitudes 0 yields identity-ish output", () => {
   assert.equal(r.timingOffset, 0);
 });
 
-test("composeHumanize — outputLevel scales velocity by linear factor", () => {
-  // velocityFinal = round(inputVelocity * (1+0) * outputLevel)
-  //               = round(100 * 0.5) = 50
-  const rng = seedRng(42n);
-  const r = composeHumanize(
-    rng,
-    NEUTRAL_DRIFT,
-    defaultArgs({ outputLevel: 0.5 }),
-  );
-  assert.equal(r.velocityFinal, 50);
-});
-
 test("composeHumanize — velocity clamps to 127 ceiling", () => {
   // inputVel=127 + smoothedVel=0.5 (drifted to constant via factor=1) →
-  //   raw arithmetic = 127 * 1.5 * 1 = 190.5 → round 191 → clamp 127.
+  //   raw arithmetic = 127 * 1.5 = 190.5 → round 191 → clamp 127.
   const rng = seedRng(42n);
   const drifted: DriftState = { vel: 0.5, gate: 0, time: 0 };
   const r = composeHumanize(
     rng,
     drifted,
-    defaultArgs({ inputVelocity: 127, driftFactor: 1 }),
+    defaultArgs({ inputVelocity: 127, drift: 1 }),
   );
-  // Threshold 127 = MIDI velocity max (spec / ADR 002 live.* parameter range).
+  // Threshold 127 = MIDI velocity max (concept.md §"MIDI semantics").
   assert.equal(r.velocityFinal, 127);
 });
 
 test("composeHumanize — velocity clamps to 1 floor (never 0)", () => {
-  // outputLevel=0 collapses raw arithmetic to 0; clamp lifts to 1 so the
-  // device never emits a velocity-0 noteOn (which is a noteOff in MIDI).
+  // inputVel=1 with smoothedVel=-0.99 → raw arithmetic = 1 * 0.01 = 0.01
+  // → round 0 → clamp 1. v=0 in MIDI is a noteOff, so noteOn must lift to 1.
   const rng = seedRng(42n);
+  const drifted: DriftState = { vel: -0.99, gate: 0, time: 0 };
   const r = composeHumanize(
     rng,
-    NEUTRAL_DRIFT,
-    defaultArgs({ outputLevel: 0 }),
+    drifted,
+    defaultArgs({ inputVelocity: 1, drift: 1 }),
   );
-  // Threshold 1 = MIDI velocity floor for noteOn (spec / ADR 002 live.* range).
+  // Threshold 1 = MIDI velocity floor for noteOn (concept.md §"MIDI semantics").
   assert.equal(r.velocityFinal, 1);
 });
 
@@ -162,27 +153,19 @@ test("composeHumanize — gate clamped to [0, 1]", () => {
   // Pre-drift smoothedGate=-1.5 + outputGateBase=1.0 → -0.5 → clamp 0.0.
   const rng = seedRng(42n);
   const high: DriftState = { vel: 0, gate: 0.7, time: 0 };
-  const r1 = composeHumanize(
-    rng,
-    high,
-    defaultArgs({ driftFactor: 1 }),
-  );
+  const r1 = composeHumanize(rng, high, defaultArgs({ drift: 1 }));
   assert.equal(r1.gateFinal, 1.0);
 
   const low: DriftState = { vel: 0, gate: -1.5, time: 0 };
-  const r2 = composeHumanize(
-    rng,
-    low,
-    defaultArgs({ driftFactor: 1 }),
-  );
+  const r2 = composeHumanize(rng, low, defaultArgs({ drift: 1 }));
   assert.equal(r2.gateFinal, 0);
 });
 
 test("composeHumanize — timing scaled by 0.5 step then sourceStepDuration", () => {
-  // Spec: rawTime = draw(rng, timing) * 0.5  (range ±0.5 step)
-  //       timingOffset = rawTime * sourceStepDuration
-  // Verify against manually-computed third draw from the same RNG seed
-  // (compose draws velocity then gate then timing).
+  // Spec: timing range is ±0.5 × source step length (concept.md §"Per-event
+  // humanize"). rawTime = draw(rng, feel) * 0.5, timingOffset = rawTime
+  // * sourceStepDuration. Verify against manually-computed third draw from
+  // the same RNG seed (compose draws velocity then gate then timing).
   const seed = 42n;
 
   // Manually replay the three nextU32 calls compose makes.
@@ -192,21 +175,22 @@ test("composeHumanize — timing scaled by 0.5 step then sourceStepDuration", ()
   const u3 = nextU32(manualRng); manualRng = u3.state; // timing
   // draw() maps u32 → [-1, +1) via (u / 2^31) - 1.
   const rawTimeBase = u3.value / 0x80000000 - 1;
-  const expectedRawTime = rawTimeBase * 1.0 * 0.5; // amp=1, then ±0.5 step scale
+  const expectedRawTime = rawTimeBase * 1.0 * 0.5; // feel=1, then ±0.5 step scale
   const expectedOffset = expectedRawTime * 250;    // sourceStepDuration
 
   const r = composeHumanize(
     seedRng(seed),
     NEUTRAL_DRIFT,
-    defaultArgs({ timing: 1, sourceStepDuration: 250 }),
+    defaultArgs({ feel: 1, sourceStepDuration: 250 }),
   );
   assert.equal(r.timingOffset, expectedOffset);
 });
 
 test("composeHumanize — draw order is velocity → gate → timing", () => {
-  // Binding for cross-target reproducibility (ADR 002 §Pointsman humanize). Verify
-  // by comparing the velocity-axis perturbation against the FIRST nextU32
-  // sample, the gate axis against the SECOND, and timing against the THIRD.
+  // Binding for cross-target reproducibility (vst Source/Engine/Humanize
+  // matches this order). Verify by comparing the velocity-axis perturbation
+  // against the FIRST nextU32 sample, gate against SECOND, timing against
+  // THIRD. v2 uses a single `feel` amp scaling all three.
   const seed = 99n;
 
   // Manual replay.
@@ -218,19 +202,16 @@ test("composeHumanize — draw order is velocity → gate → timing", () => {
   const bSigned = b.value / 0x80000000 - 1;
   const cSigned = c.value / 0x80000000 - 1;
 
-  // All amps=1, neutral drift, factor=0 → output uses raw values directly.
-  // velocityFinal = round(inputVelocity * (1 + aSigned) * outputLevel)
-  // gateFinal     = clamp01(outputGateBase * (1 + bSigned))
+  // feel=1, neutral drift, drift=0 → output uses raw values directly.
+  // velocityFinal = round(inputVelocity * (1 + aSigned))
+  // gateFinal     = clamp01(1.0 * (1 + bSigned))
   // timingOffset  = (cSigned * 0.5) * sourceStepDuration
   const r = composeHumanize(
     seedRng(seed),
     NEUTRAL_DRIFT,
     defaultArgs({
-      velocity: 1,
-      gate: 1,
-      timing: 1,
+      feel: 1,
       inputVelocity: 100,
-      outputGateBase: 1.0,
       sourceStepDuration: 100,
     }),
   );
@@ -244,19 +225,16 @@ test("composeHumanize — draw order is velocity → gate → timing", () => {
   assert.equal(r.timingOffset, expectedOffset);
 });
 
-test("composeHumanize — driftFactor=0 still updates drift state (desync safety)", () => {
-  // Spec: 'drift state is bypassed [for output], draws are independent.
-  // State *still updates* (so toggling drift mid-session doesn't desync) —
-  // but the output uses the raw value.'
-  // Verify: two compose calls with factor=0 must leave driftState != NEUTRAL,
-  // because the EMA result with factor=0 equals raw which is non-zero w.h.p.
+test("composeHumanize — drift=0 still updates drift state (desync safety)", () => {
+  // Spec: drift state advances even when factor=0 so toggling the dial
+  // mid-session does not desync. Output uses the raw value.
   const rng = seedRng(11n);
   const r1 = composeHumanize(
     rng,
     NEUTRAL_DRIFT,
-    defaultArgs({ velocity: 1, gate: 1, timing: 1, driftFactor: 0 }),
+    defaultArgs({ feel: 1, drift: 0 }),
   );
-  // After one call, driftState should reflect the raw draws (since factor=0
+  // After one call, driftState reflects the raw draws (since factor=0
   // EMA = raw). Probability all three draws are exactly 0 is 2^-96.
   const moved =
     r1.driftState.vel !== 0 ||
@@ -265,21 +243,64 @@ test("composeHumanize — driftFactor=0 still updates drift state (desync safety
   assert.ok(moved, "drift state must advance even when factor=0");
 });
 
-test("composeHumanize — driftFactor=1 with neutral drift outputs identity", () => {
+test("composeHumanize — drift=1 with neutral drift outputs identity", () => {
   // factor=1 → smoothed = prev (= 0 for NEUTRAL_DRIFT) regardless of raw.
-  // So output collapses to the identity case (same as all-amp-zero).
+  // Output collapses to the identity case (same as feel=0).
+  // concept.md notes 1.0 is degenerate ("layer freezes at current value");
+  // starting from NEUTRAL_DRIFT and factor=1 it freezes at neutral = identity.
   const rng = seedRng(42n);
   const r = composeHumanize(
     rng,
     NEUTRAL_DRIFT,
-    defaultArgs({
-      velocity: 1, gate: 1, timing: 1,
-      driftFactor: 1,
-    }),
+    defaultArgs({ feel: 1, drift: 1 }),
   );
   assert.equal(r.velocityFinal, 100);
   assert.equal(r.gateFinal, 1.0);
   assert.equal(r.timingOffset, 0);
+});
+
+test("composeHumanize — feel=0 collapses all three axes (no perturbation)", () => {
+  // The single-amp collapse: feel=0 means no humanize, period — regardless of
+  // drift factor. Identity output, same as the all-amp-zero v1 case.
+  const rng = seedRng(13n);
+  const r = composeHumanize(
+    rng,
+    NEUTRAL_DRIFT,
+    defaultArgs({ feel: 0, drift: 0.5, inputVelocity: 80 }),
+  );
+  assert.equal(r.velocityFinal, 80);
+  assert.equal(r.gateFinal, 1.0);
+  assert.equal(r.timingOffset, 0);
+});
+
+test("composeHumanize — three axes draw independently (not phase-locked)", () => {
+  // concept.md §"Per-event humanize": axes are not collapsed to a single
+  // shared draw — that would phase-lock and sound artificial. Verify the
+  // velocity / gate / timing perturbations are NOT proportional to each
+  // other across a single call (would indicate one draw scaled three ways).
+  const seed = 31n;
+  const r = composeHumanize(
+    seedRng(seed),
+    NEUTRAL_DRIFT,
+    defaultArgs({ feel: 1, inputVelocity: 100, sourceStepDuration: 1000 }),
+  );
+  // Recover the three signed raws from outputs (each axis has its own
+  // scaling). If all three came from one draw d:
+  //   rawVel = d, rawGate = d, rawTime = d
+  // Then velocityFinal/100 - 1 ≈ d, gateFinal - 1 ≈ d, timingOffset/500 = d.
+  // Compute and check they DO NOT all equal d.
+  const rawVel = (r.velocityFinal / 100) - 1;          // approximate, integer round noise
+  const rawGate = r.gateFinal - 1;
+  const rawTime = r.timingOffset / 500;                 // /(0.5 * 1000)
+  // Threshold 0.01: integer-round on velocity introduces ~1/100 = 0.01
+  // error vs exact, so a single-draw scenario would have the three values
+  // agree within 0.01. Independent draws diverge by orders of magnitude
+  // more than that w.h.p. (3 uniform draws on [-1,1) agree to 0.01 with
+  // prob ≈ (0.02)^2 = 4e-4).
+  const agreeVelGate = Math.abs(rawVel - rawGate) < 0.01;
+  const agreeGateTime = Math.abs(rawGate - rawTime) < 0.01;
+  assert.ok(!(agreeVelGate && agreeGateTime),
+    `axes appear phase-locked: vel=${rawVel} gate=${rawGate} time=${rawTime}`);
 });
 
 test("composeHumanize — reproducibility: same inputs yield same outputs", () => {
@@ -287,12 +308,12 @@ test("composeHumanize — reproducibility: same inputs yield same outputs", () =
   const a = composeHumanize(
     seedRng(42n),
     { ...NEUTRAL_DRIFT },
-    defaultArgs({ velocity: 0.5, gate: 0.5, timing: 0.5, driftFactor: 0.3 }),
+    defaultArgs({ feel: 0.5, drift: 0.3 }),
   );
   const b = composeHumanize(
     seedRng(42n),
     { ...NEUTRAL_DRIFT },
-    defaultArgs({ velocity: 0.5, gate: 0.5, timing: 0.5, driftFactor: 0.3 }),
+    defaultArgs({ feel: 0.5, drift: 0.3 }),
   );
   assert.deepEqual(a, b);
 });
@@ -304,7 +325,7 @@ test("composeHumanize — rng advances by exactly 3 draws per call", () => {
   const r = composeHumanize(
     seedRng(seed),
     NEUTRAL_DRIFT,
-    defaultArgs({ velocity: 1, gate: 1, timing: 1 }),
+    defaultArgs({ feel: 1 }),
   );
   let m = seedRng(seed);
   m = nextU32(m).state;

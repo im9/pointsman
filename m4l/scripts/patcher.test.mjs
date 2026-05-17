@@ -124,51 +124,50 @@ function reachable(lines, srcId, dstId, maxDepth = 6) {
 // keys mirror the Pointsman params field names exactly.
 //
 // Ranges / defaults encoded here:
-// - `outputLevel` (0..1 float, default 1.0).
-// - `controlChannel` (1..16) for `triggerMode = root` and chord context.
-// - Four humanize axes (Vel/Gate/Time/Drift), all 0..1 floats.
-// - `mode` is a 3-enum (scale | chord | harmony).
+// - `feel` (0..1 float, default 0): collapsed humanize amplitude.
+// - `drift` (0..1 float, default 0): EMA factor for the three humanize axes.
+// - `inputChannel` (0..16): MIDI channel filter, 0 = omni. Notes on
+//   non-matching channels pass through verbatim (MPE per-note carry).
+// - `seed` (0..2^24-1): float32 round-trip safe upper bound.
+// - `mode` is now a 2-enum (scale | chord). v1 "harmony" merged into
+//   `chord` with default voices = [{3 above}, {5 above}].
 const LIVE_PARAMS = [
   // longname,                   shortname, bridgeKey,           type, mmin, mmax, initial
-  // Humanize shortnames are bare (VEL/GATE/TIME/DRIFT) — these are
-  // rendered by live.dial as the knob's built-in label, so a separate
-  // comment label is unnecessary.
-  ['PointsmanHumanizeVelocity',  'VEL',     'humanizeVelocity',  0, 0,    1,          0],
-  ['PointsmanHumanizeGate',      'GATE',    'humanizeGate',      0, 0,    1,          0],
-  ['PointsmanHumanizeTiming',    'TIME',    'humanizeTiming',    0, 0,    1,          0],
-  ['PointsmanHumanizeDrift',     'DRIFT',   'humanizeDrift',     0, 0,    1,          0],
-  ['PointsmanOutputLevel',       'LVL',     'outputLevel',       0, 0,    1,          1.0],
-  ['PointsmanInputChannel',      'InCh',    'inputChannel',      1, 0,    16,         0],
-  ['PointsmanControlChannel',    'CtlCh',   'controlChannel',    1, 1,    16,         16],
-  ['PointsmanSeed',              'Seed',    'seed',              1, 0,    2147483647, 42],
+  ['PointsmanFeel',              'FEEL',    'feel',              0, 0,    1,        0],
+  ['PointsmanDrift',             'DRIFT',   'drift',             0, 0,    1,        0],
+  ['PointsmanInputChannel',      'InCh',    'inputChannel',      1, 0,    16,       0],
+  ['PointsmanSeed',              'Seed',    'seed',              1, 0,    16777215, 42],
 ]
 
-// String enums mirror m4l/host/bridge.ts SCALE_NAMES / TRIGGER_MODES /
-// MODES exactly. Drift in either list is what this test catches.
+// String enums mirror m4l/host/bridge.ts SCALE_NAMES / POINTSMAN_MODES /
+// harmony slot dictionaries exactly. Drift in either list is what this
+// test catches.
 const LIVE_ENUMS = [
   // longname,              shortname, bridgeKey,     enumStrings, initialIdx
   ['PointsmanScale',        'Scl',     'scale',
     ['major', 'minor', 'dorian', 'phrygian', 'lydian', 'mixolydian',
      'locrian', 'pentatonic', 'minor-pentatonic', 'blues', 'harmonic',
      'melodic', 'whole', 'chromatic', 'chromatic-half'], 0],
-  ['PointsmanTriggerMode',  'Trig',    'triggerMode', ['passthrough', 'root'], 0],
-  // mode: 3-enum (scale | chord | harmony). Bridge dispatches per-value
-  // setParam messages through the standard [sel]+[message] fanout.
-  // controlChannel held notes form the chord context in chord mode.
-  ['PointsmanMode',         'Mode',    'mode',        ['scale', 'chord', 'harmony'], 0],
-  // Harmony voice cluster (3 rows × 2 menus): per voice slot, an
-  // Interval menu and a Direction menu. Direction enum adds "off" as
-  // the per-slot disabled state. Bridge maps interval string → int 3..6
-  // and validates direction; slots set to "off" are filtered out of
-  // the projected harmonyVoices list.
+  // mode: 2-enum (scale | chord). v1's "harmony" merged into `chord`
+  // with default voices pre-populated as 1-3-5 triad.
+  ['PointsmanMode',         'Mode',    'mode',        ['scale', 'chord'], 0],
+  // Harmony voice cluster (3 rows × 2 menus). v2 defaults the cluster to
+  // the 1-3-5 triad so chord mode ships "single note becomes a chord"
+  // out of the box (concept.md §"Scale and chord modes"):
+  //   V1 = { 3rd, above }   ← Direction idx 1 = "above"
+  //   V2 = { 5th, above }   ← Interval idx 2 = "5th", Direction idx 1
+  //   V3 = { 3rd, off }     ← Direction idx 0 = "off" (slot empty)
+  // The widget parameter_initial is the authoritative default because
+  // ready-bang fires AFTER the bridge constructor, so the widget's idx
+  // overwrites the bridge's harmonySlots fallback.
   ['PointsmanHarmonyV1Interval',  'V1Iv', 'harmonyV1Interval',
     ['3rd', '4th', '5th', '6th'], 0],
   ['PointsmanHarmonyV1Direction', 'V1Dr', 'harmonyV1Direction',
-    ['off', 'above', 'below'], 0],
+    ['off', 'above', 'below'], 1],
   ['PointsmanHarmonyV2Interval',  'V2Iv', 'harmonyV2Interval',
-    ['3rd', '4th', '5th', '6th'], 0],
+    ['3rd', '4th', '5th', '6th'], 2],
   ['PointsmanHarmonyV2Direction', 'V2Dr', 'harmonyV2Direction',
-    ['off', 'above', 'below'], 0],
+    ['off', 'above', 'below'], 1],
   ['PointsmanHarmonyV3Interval',  'V3Iv', 'harmonyV3Interval',
     ['3rd', '4th', '5th', '6th'], 0],
   ['PointsmanHarmonyV3Direction', 'V3Dr', 'harmonyV3Direction',
@@ -419,37 +418,22 @@ test('Pointsman.maxpat — all live.* parameters present per LIVE_PARAMS + LIVE_
   assert.equal(liveWidgets.length, expected, `expected ${expected} live.* widgets`)
 })
 
-test('Pointsman.maxpat — chordChanged outlet routes from node.script to jsui', () => {
-  // Bridge emits Max.outlet('chordChanged', ...pcs) when controlChannel-held
-  // notes mutate the chord context. The patcher must split that off the
-  // [route ... chordChanged ...] outlet and forward to [jsui], so the
-  // renderer can highlight held PCs as a third tier between in-scale dot
-  // and pulse glow.
-  const { boxes, lines } = loadPatcher(POINTSMAN_MAXPAT)
-  const route = boxesByMaxclass(boxes, 'newobj').find((b) =>
+test('Pointsman.maxpat — chordChanged outlet and route token are removed (v2)', () => {
+  // v2 drops the held-context chord-tier highlight (concept.md §"Scale and
+  // chord modes" + handoff §"scaleKeyboard.jsui.js"). The route token and
+  // any consumer wiring must be gone — otherwise a stale [prepend
+  // chordChanged] would route to the jsui and confuse the renderer.
+  const { boxes } = loadPatcher(POINTSMAN_MAXPAT)
+  const routes = boxesByMaxclass(boxes, 'newobj').filter((b) =>
     /^route\b.*\bchordChanged\b/.test(b.box.text),
   )
-  assert.ok(route, 'expected [route ... chordChanged ...] consuming node.script outlet')
-  const tokens = route.box.text.split(/\s+/).slice(1)
-  const ccIdx = tokens.indexOf('chordChanged')
-  assert.ok(ccIdx >= 0, 'route must include "chordChanged" token')
-  const jsui = boxesByMaxclass(boxes, 'jsui').find(
-    (b) => b.box.filename === 'scaleKeyboard.jsui.js',
+  assert.equal(routes.length, 0,
+    'v2: no [route ...] should still include the chordChanged token')
+  const stalePrep = boxesByMaxclass(boxes, 'newobj').find(
+    (b) => b.box.text === 'prepend chordChanged',
   )
-  assert.ok(jsui, 'jsui scaleKeyboard.jsui.js missing')
-  const ccConsumers = lines
-    .filter(
-      (l) =>
-        l.patchline?.source?.[0] === route.box.id &&
-        l.patchline?.source?.[1] === ccIdx,
-    )
-    .map((l) => l.patchline.destination[0])
-  assert.ok(
-    ccConsumers.length >= 1,
-    `[route ${tokens.join(' ')}] outlet ${ccIdx} (chordChanged) has no consumer`,
-  )
-  const reaches = ccConsumers.some((id) => reachable(lines, id, jsui.box.id))
-  assert.ok(reaches, 'chordChanged -> ... -> jsui chain missing')
+  assert.equal(stalePrep, undefined,
+    'v2: [prepend chordChanged] is removed (chord mode no longer derives from held context)')
 })
 
 test('Pointsman.maxpat — scaleChanged / notePulse outlets route from node.script to jsui', () => {

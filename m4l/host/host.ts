@@ -1,16 +1,24 @@
-// Pointsman host — pure logic per ADR 002 §Pointsman.
+// Pointsman host — v2 surface (concept.md §"Parameter surface").
 //
-// Owns PointsmanHostState (scalePitches cache, humanizeRng, driftState, params,
-// notesOn, lastInputTime) and exposes methods the Max bridge calls.
-// Returns NoteEvent arrays with delayMs already in ms (humanize already
-// computed timingOffset against sourceStepDuration). The bridge schedules
-// each event at `now + delayMs` (clamping negative delays). No Max API,
-// no timers — fully testable under node --test.
+// Owns PointsmanHostState (scalePitches cache, humanizeRng, driftState,
+// params, notesOn, lastInputTime) and exposes methods the Max bridge
+// calls. Returns NoteEvent arrays with delayMs already in ms (humanize
+// already computed timingOffset against sourceStepDuration). The bridge
+// schedules each event at `now + delayMs` (clamping negative delays).
+// No Max API, no timers — fully testable under node --test.
+//
+// v2 changes vs v1 (m4l Phase 5 handoff):
+//   - mode: "scale" | "chord" (drop "harmony"). chord = 1-in-N-out
+//     expansion (formerly harmony semantic), with default voices = 1-3-5.
+//   - dropped pids: humanizeVelocity/Gate/Timing, humanizeDrift,
+//     outputLevel, triggerMode, controlChannel.
+//   - added pids: feel / drift (single-amp humanize per concept.md).
+//   - random seed per fresh instance (concept.md §"Per-event humanize").
+//   - non-matching `inputChannel` notes pass through verbatim (MPE).
 
 import {
   buildScalePitches,
   diatonicShift,
-  snapToChordTones,
   snapToScale,
   type HarmonyVoice,
   type MidiNote,
@@ -23,11 +31,10 @@ import {
   type DriftState,
 } from "./humanize.ts";
 
-export type Channel = number; // 1..16
-export type TriggerMode = "passthrough" | "root";
-export type PointsmanMode = "scale" | "chord" | "harmony";
+export type Channel = number; // 1..16 (0 = omni boundary value)
+export type PointsmanMode = "scale" | "chord";
 
-const POINTSMAN_MODES: readonly PointsmanMode[] = ["scale", "chord", "harmony"];
+const POINTSMAN_MODES: readonly PointsmanMode[] = ["scale", "chord"];
 
 // First-event step fallback. With no prior input, there is no rhythmic
 // gap to derive sourceStepDuration from; 250 ms is generic across common
@@ -35,10 +42,17 @@ const POINTSMAN_MODES: readonly PointsmanMode[] = ["scale", "chord", "harmony"];
 export const FIRST_EVENT_STEP_MS = 250;
 
 // concept.md §"Parameter surface": harmonyVoices length is 0..3. The
-// bridge's 3-slot widget cluster naturally caps emitted voices at 3,
-// but setParam / initialParams are public ingress and must clamp too —
+// bridge's 3-slot widget cluster naturally caps emitted voices at 3, but
+// setParam / initialParams are public ingress and must clamp too —
 // mirrors the vst setHarmonyVoices() boundary.
 export const MAX_HARMONY_VOICES = 3;
+
+// Random seed range bound: APVTS-style hosts (vst target) store
+// parameter values as IEEE-754 single-precision floats; every integer in
+// [0, 2^24] is exactly representable, so seeds round-trip bit-identical.
+// m4l mirrors this for cross-target preset compatibility (concept.md
+// §"Parameter surface").
+const SEED_MAX = 0xffffff;
 
 export type NoteEvent =
   | { type: "noteOn"; pitch: MidiNote; velocity: number; channel: Channel; delayMs: number }
@@ -47,40 +61,40 @@ export type NoteEvent =
 
 export interface PointsmanParams {
   scale: ScaleName;
-  root: number; // 0..11
+  root: number;            // 0..11
   mode: PointsmanMode;
-  humanizeVelocity: number; // 0..1
-  humanizeGate: number; // 0..1
-  humanizeTiming: number; // 0..1
-  humanizeDrift: number; // 0..1
-  outputLevel: number; // 0..1
-  triggerMode: TriggerMode;
-  inputChannel: number; // 0..16, 0 = omni
-  controlChannel: number; // 1..16
-  harmonyVoices: HarmonyVoice[]; // length 0..3 (UI exposes 3 slots)
-  seed: number; // u31
+  feel: number;            // 0..1
+  drift: number;           // 0..1
+  inputChannel: number;    // 0..16, 0 = omni
+  harmonyVoices: HarmonyVoice[]; // length 0..3
+  seed: number;            // 0..2^24-1 (float32 round-trip safe)
 }
 
+// DEFAULT_PARAMS captures the v2 cold-start surface. Note that seed=0 here
+// is a placeholder for the type — the PointsmanHost constructor draws a
+// random seed when no explicit value is supplied via initialParams.
 export const DEFAULT_PARAMS: PointsmanParams = {
   scale: "major",
   root: 0,
   mode: "scale",
-  humanizeVelocity: 0,
-  humanizeGate: 0,
-  humanizeTiming: 0,
-  humanizeDrift: 0,
-  outputLevel: 1.0,
-  triggerMode: "passthrough",
+  feel: 0,
+  drift: 0,
   inputChannel: 0,
-  controlChannel: 16,
-  harmonyVoices: [],
+  // concept.md §"Scale and chord modes": default 1-3-5 triad so chord
+  // mode ships "single note becomes a chord" out of the box.
+  harmonyVoices: [
+    { interval: 3, direction: "above" },
+    { interval: 5, direction: "above" },
+  ],
   seed: 0,
 };
 
 export type ParamKey = keyof PointsmanParams;
 
-function noteKey(pitch: number, channel: number): string {
-  return `${pitch}:${channel}`;
+function randomSeed(): number {
+  // concept.md §"Per-event humanize": random per fresh instance, range
+  // 0..2^24-1 (float32 exact-representation).
+  return Math.floor(Math.random() * (SEED_MAX + 1));
 }
 
 export class PointsmanHost {
@@ -90,23 +104,25 @@ export class PointsmanHost {
   private driftState: DriftState;
   private notesOn: Set<string>;
   private lastInputTime: number | null;
-  // Chord-mode: controlChannel-held pitch set. chordContext is the
-  // unique pitch-class projection. Stored as Set<pitch> (not pcs) so
-  // we can correctly handle multiple octaves of the same pc — pc only
-  // leaves the chord context when ALL its octave-instances are released.
-  private controlHeldPitches: Set<MidiNote>;
 
-  constructor(params: PointsmanParams = DEFAULT_PARAMS) {
+  constructor(initialParams: Partial<PointsmanParams> = {}) {
+    // Random seed unless caller explicitly supplied one (preset-load
+    // path). The constructor is the single source of "new instance ==
+    // new seed"; setParam("seed", N) overrides at any later point.
+    const seed = initialParams.seed ?? randomSeed();
+    const voices = (initialParams.harmonyVoices ?? DEFAULT_PARAMS.harmonyVoices)
+      .slice(0, MAX_HARMONY_VOICES);
     this.params = {
-      ...params,
-      harmonyVoices: [...params.harmonyVoices].slice(0, MAX_HARMONY_VOICES),
+      ...DEFAULT_PARAMS,
+      ...initialParams,
+      harmonyVoices: [...voices],
+      seed,
     };
     this.scalePitches = buildScalePitches(this.params.scale, this.params.root);
     this.humanizeRng = seedRng(BigInt(this.params.seed));
     this.driftState = { ...NEUTRAL_DRIFT };
     this.notesOn = new Set();
     this.lastInputTime = null;
-    this.controlHeldPitches = new Set();
   }
 
   private channelMatches(ch: number): boolean {
@@ -114,8 +130,7 @@ export class PointsmanHost {
   }
 
   // Empty in mono v1: every emitted noteOn pairs with a scheduled noteOff
-  // in the same call. notesOn is reserved for future polyphony / chord-mode
-  // QT extensions where output gating spans multiple input events.
+  // in the same call. notesOn is reserved for future polyphony.
   private flushNotesOn(events: NoteEvent[]): void {
     for (const k of this.notesOn) {
       const [p, c] = k.split(":").map(Number);
@@ -130,34 +145,12 @@ export class PointsmanHost {
     channel: number,
     nowMs: number,
   ): NoteEvent[] {
-    // Chord mode dominates controlChannel semantics: the held set forms
-    // the chord context, and controlChannel notes are consumed (no quantize
-    // output, no lastInputTime update — control taps are not on the
-    // musical timeline). triggerMode=root is suppressed for that channel.
-    if (
-      this.params.mode === "chord" &&
-      channel === this.params.controlChannel
-    ) {
-      this.controlHeldPitches.add(pitch);
-      return [];
+    // MPE / inputChannel pass-through: notes on non-matching channels are
+    // forwarded verbatim (no quantize, no humanize, no chord expansion).
+    // concept.md §"Input handling".
+    if (!this.channelMatches(channel)) {
+      return [{ type: "noteOn", pitch, velocity, channel, delayMs: 0 }];
     }
-
-    // Root-mode short-circuit: controlChannel events update root and are
-    // not forwarded to the quantize path. Does not update lastInputTime —
-    // root taps are not "musical" events on the rhythmic timeline.
-    if (
-      this.params.triggerMode === "root" &&
-      channel === this.params.controlChannel
-    ) {
-      this.params.root = pitch % 12;
-      this.scalePitches = buildScalePitches(
-        this.params.scale,
-        this.params.root,
-      );
-      return [];
-    }
-
-    if (!this.channelMatches(channel)) return [];
 
     const events: NoteEvent[] = [];
 
@@ -167,18 +160,14 @@ export class PointsmanHost {
         : nowMs - this.lastInputTime;
     this.lastInputTime = nowMs;
 
-    const snapped = this.params.mode === "chord"
-      ? snapToChordTones(pitch, this.computeChordContext(), this.scalePitches)
-      : snapToScale(pitch, this.scalePitches);
+    // Both modes start with scale-snap. Chord mode then expands across
+    // harmonyVoices; scale mode emits only the primary.
+    const snapped = snapToScale(pitch, this.scalePitches);
 
     const out = composeHumanize(this.humanizeRng, this.driftState, {
-      velocity: this.params.humanizeVelocity,
-      gate: this.params.humanizeGate,
-      timing: this.params.humanizeTiming,
-      driftFactor: this.params.humanizeDrift,
+      feel: this.params.feel,
+      drift: this.params.drift,
       inputVelocity: velocity,
-      outputLevel: this.params.outputLevel,
-      outputGateBase: 1.0,
       sourceStepDuration,
     });
     this.humanizeRng = out.rng;
@@ -187,12 +176,10 @@ export class PointsmanHost {
     const noteOnDelay = out.timingOffset;
     const noteOffDelay = noteOnDelay + out.gateFinal * sourceStepDuration;
 
-    // Harmony mode appends parallel diatonic voices; all voices are pitches
-    // of the *same* musical event, so they share velocity / timing / gate
-    // (one humanize draw covers them all). Declared order is preserved so
-    // the patcher's voice-1/2/3 widgets map predictably to output order.
+    // chord = 1-in-N-out: primary + N diatonic voices.
+    // scale = 1-in-1-out: primary only.
     const pitches: MidiNote[] = [snapped];
-    if (this.params.mode === "harmony") {
+    if (this.params.mode === "chord") {
       for (const v of this.params.harmonyVoices) {
         pitches.push(
           diatonicShift(snapped, v.interval, v.direction, this.scalePitches),
@@ -225,15 +212,12 @@ export class PointsmanHost {
     return events;
   }
 
-  // Input-channel noteOffs do not gate output (output noteOff is scheduled
-  // by humanize gate timer at noteIn dispatch). Chord-mode controlChannel
-  // noteOffs DO matter: they release a held pitch from the chord context.
+  // Input noteOffs on the matching channel are silently consumed (output
+  // noteOff is scheduled by humanize gate at noteIn dispatch). Non-matching
+  // channels pass through (paired with the pass-through noteOn).
   noteOff(pitch: number, channel: number): NoteEvent[] {
-    if (
-      this.params.mode === "chord" &&
-      channel === this.params.controlChannel
-    ) {
-      this.controlHeldPitches.delete(pitch);
+    if (!this.channelMatches(channel)) {
+      return [{ type: "noteOff", pitch, channel, delayMs: 0 }];
     }
     return [];
   }
@@ -244,7 +228,6 @@ export class PointsmanHost {
     this.driftState = { ...NEUTRAL_DRIFT };
     this.lastInputTime = null;
     this.humanizeRng = seedRng(BigInt(this.params.seed));
-    this.controlHeldPitches.clear();
     return events;
   }
 
@@ -252,33 +235,26 @@ export class PointsmanHost {
     const events: NoteEvent[] = [];
     this.flushNotesOn(events);
     this.lastInputTime = null;
-    this.controlHeldPitches.clear();
     return events;
   }
 
   panic(): NoteEvent[] {
     const events: NoteEvent[] = [];
     this.flushNotesOn(events);
-    this.controlHeldPitches.clear();
     return events;
   }
 
   setParam<K extends ParamKey>(key: K, value: PointsmanParams[K]): NoteEvent[] {
     const events: NoteEvent[] = [];
-    const flushKeys: ParamKey[] = ["scale", "root", "triggerMode", "mode"];
+    const flushKeys: ParamKey[] = ["scale", "root", "mode"];
     if (flushKeys.includes(key)) {
       this.flushNotesOn(events);
     }
     if (key === "mode") {
-      // Reject invalid mode (silent — bridge already validates, but
-      // defense-in-depth here). Switching away from chord clears the
-      // held set: chord context is meaningless outside chord mode and
-      // would resurface stale on a later switch back.
       const v = value as PointsmanMode;
+      // Silent rejection for removed / unknown values — the bridge is the
+      // user-facing v1-discard log boundary.
       if (!POINTSMAN_MODES.includes(v)) return events;
-      if (this.params.mode === "chord" && v !== "chord") {
-        this.controlHeldPitches.clear();
-      }
       this.params.mode = v;
       return events;
     }
@@ -301,23 +277,7 @@ export class PointsmanHost {
     if (key === "seed") {
       this.humanizeRng = seedRng(BigInt(this.params.seed));
     }
-    if (key === "controlChannel") {
-      // Held pitches on the prior channel are now unreachable: their noteOff
-      // will arrive on a different channel and the chord-mode branch in
-      // noteOff() filters on the *current* controlChannel. Clear the set so
-      // the chord context doesn't fossilise around stuck old-channel pitches.
-      this.controlHeldPitches.clear();
-    }
     return events;
-  }
-
-  // Compute pitch-class chord context from the controlChannel held set.
-  // pc enters when any octave of it is held; pc leaves when ALL its
-  // octave-instances are released.
-  private computeChordContext(): number[] {
-    const pcs = new Set<number>();
-    for (const p of this.controlHeldPitches) pcs.add(p % 12);
-    return [...pcs];
   }
 
   // Inspection (for tests and bridge-side outlet emission).
@@ -329,8 +289,5 @@ export class PointsmanHost {
   }
   getParams(): Readonly<PointsmanParams> {
     return this.params;
-  }
-  getChordContext(): readonly number[] {
-    return this.computeChordContext();
   }
 }

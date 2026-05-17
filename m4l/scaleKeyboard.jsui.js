@@ -46,10 +46,6 @@ var BLACK_KEY_HEIGHT_RATIO = 0.6
 var DOT_INSET_RATIO = 0.15
 var DOT_RADIUS_RATIO = 0.08
 var DOT_RADIUS_MIN_PX = 1.5
-// Chord-context dot radius ratio. Drawn at the same position as the
-// in-scale dot but ~2x the radius so chord-tone PCs read as the
-// "third tier" between in-scale and pulse (ADR 002 line 184).
-var CHORD_DOT_RADIUS_RATIO = 0.16
 
 // Pitch-class intervals per scale, root-relative. Mirror of
 // SCALE_INTERVALS in m4l/engine/quantizer.ts. The drift test
@@ -94,14 +90,6 @@ var COL_HIGHLIGHT   = [0.95, 0.55, 0.40] // warm peach / coral (pulse glow)
 var inScale = []
 for (var i = 0; i < NUM_PITCH_CLASSES; i++) inScale.push(false)
 
-// chordPcs: length-12 boolean array, true for PCs in the current chord
-// context (held controlChannel notes in mode=chord). Replaced wholesale
-// on each chordChanged message -- the bridge emits the *current* held
-// set, not a diff. Same shape as KeyboardModel.chordPcs in
-// scaleKeyboard.logic.ts.
-var chordPcs = []
-for (var ci = 0; ci < NUM_PITCH_CLASSES; ci++) chordPcs.push(false)
-
 // pulses: array of { pitchClass, baseIntensity, intensity, ageMs }. Same
 // shape as scaleKeyboard.logic.ts Pulse type. baseIntensity is the
 // velocity-derived value at age=0 and never changes; intensity is the
@@ -120,7 +108,6 @@ animTask.interval = 16
 //
 // scaleChanged <scale-name> <root>   replace inScale[]
 // notePulse <pitch> <velocity>       append pulse, start anim
-// chordChanged <pc...>               replace chordPcs[]
 //
 // `anything` so unhandled messages get a clear post().
 
@@ -129,7 +116,6 @@ function anything() {
   var args = arrayfromargs(arguments)
   if (msg === 'scaleChanged') { handleScaleChanged(args[0], args[1]); return }
   if (msg === 'notePulse')    { handleNotePulse(args[0], args[1]); return }
-  if (msg === 'chordChanged') { handleChordChanged(args); return }
   post('scaleKeyboard.jsui.js: unhandled message ' + msg + '\n')
 }
 
@@ -150,23 +136,6 @@ function handleNotePulse(pitch, velocity) {
   if (base > 1) base = 1
   pulses.push({ pitchClass: pc, baseIntensity: base, intensity: base, ageMs: 0 })
   startAnim()
-  mgraphics.redraw()
-}
-
-// chordChanged carries the *current* held controlChannel PC set (sorted,
-// deduped by the bridge). Replace chordPcs wholesale; an empty list
-// clears the tier (all controlChannel notes released). Mirrors
-// scaleKeyboard.logic.ts setChord.
-function handleChordChanged(args) {
-  var next = []
-  for (var i = 0; i < NUM_PITCH_CLASSES; i++) next.push(false)
-  for (var j = 0; j < args.length; j++) {
-    var v = Number(args[j])
-    if (isFinite(v) && Math.floor(v) === v && v >= 0 && v < NUM_PITCH_CLASSES) {
-      next[v] = true
-    }
-  }
-  chordPcs = next
   mgraphics.redraw()
 }
 
@@ -387,21 +356,6 @@ function paint() {
       setRgb(COL_ACTIVE_FILL)
     }
     fillCircle(d.cx, d.cy, g.dotRadius)
-  }
-
-  // Chord-tier dots: third highlight tier (between in-scale dot and
-  // pulse glow) for PCs in the current chord context. Drawn AFTER the
-  // in-scale dot so the larger chord dot covers the smaller in-scale
-  // marker for chord PCs. Coral (COL_HIGHLIGHT) shares the pulse hue
-  // so the visual reads as "armed for resolution" -- distinct from
-  // pulse only by being persistent + non-glowing.
-  var chordDotRadius = g.whiteKeyWidth * CHORD_DOT_RADIUS_RATIO
-  if (chordDotRadius < DOT_RADIUS_MIN_PX) chordDotRadius = DOT_RADIUS_MIN_PX
-  for (var pc4 = 0; pc4 < NUM_PITCH_CLASSES; pc4++) {
-    if (!chordPcs[pc4]) continue
-    var dc = dotCenterAt(pc4, g)
-    setRgb(COL_HIGHLIGHT)
-    fillCircle(dc.cx, dc.cy, chordDotRadius)
   }
 }
 

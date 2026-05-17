@@ -1,6 +1,14 @@
-// Pointsman humanize layer — pure functions per ADR 002 §Pointsman humanize.
-// Composes per-event velocity / gate / timing perturbations from a single
-// shared RNG, with optional EMA drift smoothing across consecutive events.
+// Pointsman humanize layer — v2 single-amp (feel) surface.
+//
+// concept.md §"Per-event humanize":
+//   - feel (0..1): one amplitude drives signed uniform noise on three
+//     independently-drawn axes (velocity, gate, timing). Single control
+//     instead of three lets the user dial "how much human" without
+//     balancing three sliders.
+//   - drift (0..1): EMA smoothing applied per-axis (not collapsed —
+//     would phase-lock and sound artificial). 1.0 freezes the layer.
+//
+// Timing offset is bounded to ±0.5 × source step length.
 
 import { nextU32, type RngState } from "../engine/rng.ts";
 
@@ -27,19 +35,15 @@ export function draw(
 }
 
 // EMA smoothing: factor*prev + (1-factor)*raw. Single-pole low-pass over the
-// per-event raw draws, parameterized by the humanizeDrift dial.
+// per-event raw draws, parameterized by the drift dial.
 export function drift(prev: number, raw: number, factor: number): number {
   return factor * prev + (1 - factor) * raw;
 }
 
 export interface ComposeArgs {
-  velocity: number;            // amp 0..1
-  gate: number;                // amp 0..1
-  timing: number;              // amp 0..1
-  driftFactor: number;         // 0..1
+  feel: number;                // 0..1 single amplitude
+  drift: number;               // 0..1 EMA factor per-axis
   inputVelocity: number;       // 1..127
-  outputLevel: number;         // 0..1
-  outputGateBase: number;      // 1.0 in v1
   sourceStepDuration: number;  // ms
 }
 
@@ -52,36 +56,37 @@ export interface ComposeResult {
 }
 
 // Per-event composition. Draw order: velocity → gate → timing (binding for
-// cross-target reproducibility). Drift state always advances even when
-// driftFactor=0, so toggling the dial mid-session does not desync.
+// cross-target reproducibility against vst Source/Engine/Humanize). Drift
+// state always advances even when drift factor = 0, so toggling the dial
+// mid-session does not desync.
 export function composeHumanize(
   rng: RngState,
   driftState: DriftState,
   args: ComposeArgs,
 ): ComposeResult {
-  const dv = draw(rng, args.velocity);
-  const dg = draw(dv.state, args.gate);
-  const dt = draw(dg.state, args.timing);
+  const dv = draw(rng, args.feel);
+  const dg = draw(dv.state, args.feel);
+  const dt = draw(dg.state, args.feel);
 
   const rawVel = dv.value;
   const rawGate = dg.value;
-  const rawTime = dt.value * 0.5; // spec: timing range is ±0.5 step
+  const rawTime = dt.value * 0.5; // concept.md §"Per-event humanize": ±0.5 step
 
   const newDrift: DriftState = {
-    vel: drift(driftState.vel, rawVel, args.driftFactor),
-    gate: drift(driftState.gate, rawGate, args.driftFactor),
-    time: drift(driftState.time, rawTime, args.driftFactor),
+    vel: drift(driftState.vel, rawVel, args.drift),
+    gate: drift(driftState.gate, rawGate, args.drift),
+    time: drift(driftState.time, rawTime, args.drift),
   };
 
-  const usedVel = args.driftFactor > 0 ? newDrift.vel : rawVel;
-  const usedGate = args.driftFactor > 0 ? newDrift.gate : rawGate;
-  const usedTime = args.driftFactor > 0 ? newDrift.time : rawTime;
+  const usedVel = args.drift > 0 ? newDrift.vel : rawVel;
+  const usedGate = args.drift > 0 ? newDrift.gate : rawGate;
+  const usedTime = args.drift > 0 ? newDrift.time : rawTime;
 
-  const velRaw = Math.round(
-    args.inputVelocity * (1 + usedVel) * args.outputLevel,
-  );
+  const velRaw = Math.round(args.inputVelocity * (1 + usedVel));
   const velocityFinal = clamp1to127(velRaw);
-  const gateFinal = clamp01(args.outputGateBase * (1 + usedGate));
+  // outputGateBase was always 1.0 in v1; inlined here for the single
+  // remaining gate-final formula.
+  const gateFinal = clamp01(1.0 * (1 + usedGate));
   const timingRaw = usedTime * args.sourceStepDuration;
   // Normalize -0 → +0 so callers / tests can compare with strict equality.
   const timingOffset = timingRaw === 0 ? 0 : timingRaw;

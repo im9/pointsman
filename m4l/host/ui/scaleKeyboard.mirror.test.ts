@@ -22,7 +22,6 @@ import { dirname, join } from "node:path";
 import {
   BLACK_KEY_HEIGHT_RATIO,
   BLACK_KEY_WIDTH_RATIO,
-  CHORD_DOT_RADIUS_RATIO,
   DOT_INSET_RATIO,
   DOT_RADIUS_RATIO,
   NUM_PITCH_CLASSES,
@@ -94,10 +93,6 @@ test("renderer mirrors DOT_RADIUS_RATIO", () => {
   assert.equal(findVarDecl("DOT_RADIUS_RATIO"), DOT_RADIUS_RATIO);
 });
 
-test("renderer mirrors CHORD_DOT_RADIUS_RATIO", () => {
-  assert.equal(findVarDecl("CHORD_DOT_RADIUS_RATIO"), CHORD_DOT_RADIUS_RATIO);
-});
-
 test("renderer SCALE_INTERVALS matches engine for every scale name", () => {
   // The engine is the source of truth for scale definitions. The renderer
   // duplicates the table out of necessity (jsui can't import); this test
@@ -126,14 +121,13 @@ test("renderer is ASCII-only (Max classic JS parser constraint)", () => {
   }
 });
 
-test("renderer dispatches the message names the bridge emits", () => {
-  // bridge.ts emits `scaleChanged`, `notePulse`, and `chordChanged`
-  // outlets. The renderer must dispatch all three. Cheap text check: a
-  // typo on either side breaks the link silently in Live, so catch it
-  // here before manual verification time.
+test("renderer dispatches the message names the bridge emits (v2: no chordChanged)", () => {
+  // v2 bridge.ts emits `scaleChanged` and `notePulse` only — chordChanged is
+  // removed (chord mode is now configuration-driven, no held context).
   assert.match(RENDERER_SRC, /msg === ['"]scaleChanged['"]/);
   assert.match(RENDERER_SRC, /msg === ['"]notePulse['"]/);
-  assert.match(RENDERER_SRC, /msg === ['"]chordChanged['"]/);
+  assert.doesNotMatch(RENDERER_SRC, /msg === ['"]chordChanged['"]/,
+    "v2: renderer must not dispatch chordChanged (outlet removed from bridge)");
 });
 
 test("renderer handles 'chromatic-half' as the all-true case", () => {

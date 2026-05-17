@@ -1,7 +1,16 @@
-// Tests for host/host.ts — pure logic per ADR 002 §Pointsman.
+// Tests for host/host.ts — Phase 5 v2 surface.
 //
 // State-machine tests, no Max API, no timers. nowMs is injected per
 // noteIn call so tests deliver deterministic time deltas.
+//
+// v2 surface (concept.md §"Parameter surface (canonical)"):
+//   scale | root | mode("scale"|"chord") | harmonyVoices |
+//   feel | drift | inputChannel | seed
+//
+// Removed: humanizeVelocity/Gate/Timing, humanizeDrift, outputLevel,
+// triggerMode, controlChannel, mode="harmony". chord mode is now
+// 1-in-N-out chord expansion (formerly harmony mode's semantic, with the
+// default voices pre-populated as a 1-3-5 triad).
 //
 // Threshold derivation rule (CLAUDE.md global): every numeric assertion
 // is justified inline against the spec or first-principles derivation.
@@ -16,11 +25,13 @@ import {
   type NoteEvent,
   type PointsmanParams,
 } from "./host.ts";
-import { buildScalePitches, diatonicShift, snapToScale } from "../engine/quantizer.ts";
+import { buildScalePitches, diatonicShift } from "../engine/quantizer.ts";
 import { nextU32, seedRng } from "../engine/rng.ts";
 
 function makeHost(overrides: Partial<PointsmanParams> = {}): PointsmanHost {
-  return new PointsmanHost({ ...DEFAULT_PARAMS, ...overrides });
+  // Default seed=0 makes most tests deterministic. Tests that exercise
+  // random-seed-per-instance pass no overrides explicitly.
+  return new PointsmanHost({ seed: 0, ...overrides });
 }
 
 function partition(events: NoteEvent[]): {
@@ -37,21 +48,53 @@ function partition(events: NoteEvent[]): {
 
 // ---------- constructor / state init ----------
 
-test("constructor — defaults match ADR 002 live.* table", () => {
-  const host = makeHost();
-  const p = host.getParams();
-  // Defaults from ADR 002 §live.* parameter surface — Pointsman.
-  assert.equal(p.scale, "major");
-  assert.equal(p.root, 0);
-  assert.equal(p.humanizeVelocity, 0);
-  assert.equal(p.humanizeGate, 0);
-  assert.equal(p.humanizeTiming, 0);
-  assert.equal(p.humanizeDrift, 0);
-  assert.equal(p.outputLevel, 1.0);
-  assert.equal(p.triggerMode, "passthrough");
-  assert.equal(p.inputChannel, 0);
-  assert.equal(p.controlChannel, 16);
-  assert.equal(p.seed, 0);
+test("DEFAULT_PARAMS — v2 surface (concept.md §Parameter surface)", () => {
+  // Defaults pinned by concept.md §"Parameter surface (canonical)" and
+  // §"Scale and chord modes". Default mode is `scale`; default
+  // harmonyVoices is the 1-3-5 triad so `chord` ships "single note becomes
+  // a chord" out of the box. feel/drift default to 0 (no humanize).
+  assert.equal(DEFAULT_PARAMS.scale, "major");
+  assert.equal(DEFAULT_PARAMS.root, 0);
+  assert.equal(DEFAULT_PARAMS.mode, "scale");
+  assert.equal(DEFAULT_PARAMS.feel, 0);
+  assert.equal(DEFAULT_PARAMS.drift, 0);
+  assert.equal(DEFAULT_PARAMS.inputChannel, 0);
+  // 1-3-5 triad: 3rd above + 5th above. Pinned in concept.md §"Scale and
+  // chord modes": "harmonyVoices defaults to [{3, above}, {5, above}] on
+  // new plugin instances".
+  assert.deepEqual(DEFAULT_PARAMS.harmonyVoices, [
+    { interval: 3, direction: "above" },
+    { interval: 5, direction: "above" },
+  ]);
+});
+
+test("constructor — explicit seed is honoured (preset-load path)", () => {
+  // initialParams.seed present → that exact value lands in host.params.
+  const host = new PointsmanHost({ seed: 12345 });
+  assert.equal(host.getParams().seed, 12345);
+});
+
+test("constructor — no seed override draws random in [0, 2^24-1]", () => {
+  // concept.md §"Per-event humanize": "New plugin instances pick a random
+  // seed on construction so two parallel Pointsman instances on
+  // double-tracked parts do not produce phase-coherent identical humanize."
+  // Range bound 2^24 = float32 exact-representation upper edge.
+  const seeds = new Set<number>();
+  for (let i = 0; i < 32; i++) {
+    const h = new PointsmanHost(); // no overrides → random seed path
+    const s = h.getParams().seed;
+    assert.ok(Number.isInteger(s) && s >= 0 && s <= 0xffffff,
+      `seed ${s} out of [0, 2^24-1]`);
+    seeds.add(s);
+  }
+  // Statistical sanity: 32 uniform draws on [0, 2^24) collide entirely
+  // (all equal) with prob (1/2^24)^31 ≈ 4e-225. Anything < 32 distinct
+  // values is acceptable signal of randomness; we test > 16 as a generous
+  // lower bound (one collision per pair = ~16 distinct under heavy birthday
+  // collisions; prob of < 16 distinct in 32 draws on 2^24 is vanishingly
+  // small — N=32, k=16, M=2^24, P(X≤16) ≈ 0 within float precision).
+  assert.ok(seeds.size > 16,
+    `expected > 16 distinct seeds across 32 fresh constructs, got ${seeds.size}`);
 });
 
 test("constructor — scalePitches matches buildScalePitches(scale, root)", () => {
@@ -60,20 +103,28 @@ test("constructor — scalePitches matches buildScalePitches(scale, root)", () =
   assert.deepEqual(host.getScalePitches(), expected);
 });
 
-// ---------- quantize path (passthrough) ----------
+test("constructor — default harmonyVoices produces 1-3-5 triad on noteIn (chord mode)", () => {
+  // The cleanest single observable of the default-triad invariant: in chord
+  // mode, an out-of-the-box host on C major with input C(60) emits
+  // {60, 64, 67}. concept.md §"Scale and chord modes": "chord mode out of
+  // the box emits a diatonic 1-3-5 triad rooted on the input pitch".
+  const host = makeHost({ mode: "chord" });
+  const r = partition(host.noteIn(60, 100, 1, 0));
+  assert.deepEqual(r.noteOns.map((e) => e.pitch), [60, 64, 67]);
+});
 
-test("noteIn passthrough — emits noteOn + noteOff + notePulse", () => {
+// ---------- quantize path (scale mode) ----------
+
+test("scale mode — emits noteOn + noteOff + notePulse", () => {
   const host = makeHost({ scale: "major", root: 0 });
   const events = host.noteIn(60, 100, 1, 0);
   const { noteOns, noteOffs, pulses } = partition(events);
-  // Spec §Per-input-event flow: schedule noteOn, schedule noteOff after
-  // gate, emit notePulse for jsui keyboard.
   assert.equal(noteOns.length, 1);
   assert.equal(noteOffs.length, 1);
   assert.equal(pulses.length, 1);
 });
 
-test("noteIn — in-scale pitch passes through unchanged", () => {
+test("scale mode — in-scale pitch passes through unchanged", () => {
   const host = makeHost({ scale: "major", root: 0 });
   // C major contains 60 (C4). snapToScale identity for in-scale.
   const events = host.noteIn(60, 100, 1, 0);
@@ -81,7 +132,7 @@ test("noteIn — in-scale pitch passes through unchanged", () => {
   assert.equal(noteOns[0].pitch, 60);
 });
 
-test("noteIn — out-of-scale pitch snaps to nearest in-scale", () => {
+test("scale mode — out-of-scale pitch snaps to nearest in-scale (tie-to-lower)", () => {
   const host = makeHost({ scale: "major", root: 0 });
   // C major: ..., 60 (C), 62 (D), 64 (E), ...
   // 61 (C#) → tie-to-lower per snapToScale → 60.
@@ -92,313 +143,142 @@ test("noteIn — out-of-scale pitch snaps to nearest in-scale", () => {
   assert.equal(r2.noteOns[0].pitch, 62);
 });
 
-test("noteIn — output channel preserves input channel", () => {
-  // Spec: 'emit on the same channel as the input event (preserves
-  // multi-channel routing). outputChannel is *not* a parameter.'
+test("scale mode — output channel preserves input channel", () => {
+  // concept.md §"Input handling": each note routes to the input channel
+  // (no outputChannel parameter — preserves multi-channel routing).
   const host = makeHost();
   const r = partition(host.noteIn(60, 100, 7, 0));
   assert.equal(r.noteOns[0].channel, 7);
   assert.equal(r.noteOffs[0].channel, 7);
 });
 
-test("noteIn — channel filter excludes non-matching channel", () => {
-  // inputChannel=3 → only ch=3 events processed; others return [].
-  const host = makeHost({ inputChannel: 3 });
-  assert.deepEqual(host.noteIn(60, 100, 1, 0), []);
-  assert.deepEqual(host.noteIn(60, 100, 2, 100), []);
-  const r = partition(host.noteIn(60, 100, 3, 200));
+test("scale mode — single output (1-in-1-out, no chord expansion)", () => {
+  // mode=scale ignores harmonyVoices — even if voices are populated,
+  // output stays at one note. concept.md §"Scale and chord modes":
+  // "scale (snap to nearest scale degree, 1-in-1-out)".
+  const host = makeHost({
+    mode: "scale",
+    harmonyVoices: [
+      { interval: 3, direction: "above" },
+      { interval: 5, direction: "above" },
+    ],
+  });
+  const r = partition(host.noteIn(60, 100, 1, 0));
   assert.equal(r.noteOns.length, 1);
+  assert.equal(r.noteOns[0].pitch, 60);
 });
 
-test("noteIn — inputChannel=0 is omni", () => {
-  // Spec: '0 = omni' for inputChannel.
+// ---------- inputChannel filter + MPE pass-through ----------
+//
+// concept.md §"Input handling": notes on channels OTHER than inputChannel
+// pass through untouched. This is load-bearing for MPE — per-note
+// channels carrying pitch bend / pressure / timbre flow to the downstream
+// instrument unmodified while the master channel is chord-expanded.
+
+test("inputChannel=0 (omni) — all channels are matching, no pass-through", () => {
   const host = makeHost({ inputChannel: 0 });
   for (const ch of [1, 7, 16]) {
     const r = partition(host.noteIn(60, 100, ch, ch * 100));
     assert.equal(r.noteOns.length, 1, `channel ${ch} should match omni`);
+    assert.equal(r.noteOns[0].pitch, 60);
   }
 });
 
-// ---------- root mode ----------
-
-test("root mode — controlChannel event updates root, returns no notes", () => {
-  const host = makeHost({
-    triggerMode: "root",
-    inputChannel: 1,
-    controlChannel: 16,
-  });
-  // Note pitch=64 on controlChannel=16 → root = 64 % 12 = 4 (E).
-  const r = host.noteIn(64, 100, 16, 0);
-  assert.deepEqual(r, []);
-  assert.equal(host.getParams().root, 4);
+test("inputChannel=3 — non-matching channel passes through unchanged (MPE)", () => {
+  // inputChannel=3 → ch=2 goes through pass-through path: pitch unchanged
+  // (no quantize), velocity unchanged (no humanize), channel preserved.
+  const host = makeHost({ inputChannel: 3, scale: "major", root: 0 });
+  // C#(61) on non-matching ch=2 → must NOT snap (61, not 60).
+  const r = partition(host.noteIn(61, 100, 2, 0));
+  assert.equal(r.noteOns.length, 1);
+  assert.equal(r.noteOns[0].pitch, 61);
+  assert.equal(r.noteOns[0].velocity, 100);
+  assert.equal(r.noteOns[0].channel, 2);
 });
 
-test("root mode — controlChannel update rebuilds scalePitches", () => {
+test("inputChannel=3 — matching channel is quantized normally", () => {
+  // Sanity counter-test: ch=3 still snaps as expected.
+  const host = makeHost({ inputChannel: 3, scale: "major", root: 0 });
+  const r = partition(host.noteIn(61, 100, 3, 0));
+  assert.equal(r.noteOns[0].pitch, 60); // C# → C
+});
+
+test("inputChannel=3 — chord mode does NOT expand pass-through channel", () => {
+  // The chord expansion is a transformation on the matching channel only.
+  // MPE per-note channels would multiply absurdly if expanded.
   const host = makeHost({
-    triggerMode: "root",
+    inputChannel: 3,
+    mode: "chord",
     scale: "major",
-    inputChannel: 1,
-    controlChannel: 16,
+    root: 0,
   });
-  host.noteIn(67, 100, 16, 0); // root = 7 (G)
-  // G major scale must now be cached.
-  const expected = buildScalePitches("major", 7);
-  assert.deepEqual(host.getScalePitches(), expected);
+  // ch=2 (non-matching) → single pass-through.
+  const r1 = partition(host.noteIn(60, 100, 2, 0));
+  assert.equal(r1.noteOns.length, 1);
+  // ch=3 (matching) → triad expansion (default harmonyVoices).
+  const r2 = partition(host.noteIn(60, 100, 3, 100));
+  assert.equal(r2.noteOns.length, 3);
 });
 
-test("root mode — inputChannel event still quantizes (not consumed by root path)", () => {
-  const host = makeHost({
-    triggerMode: "root",
-    inputChannel: 1,
-    controlChannel: 16,
-  });
-  // ch=1 ≠ controlChannel → goes through quantize path.
+test("inputChannel=3 — noteOff on non-matching channel emits pass-through noteOff", () => {
+  // Pass-through noteIn needs a paired pass-through noteOff — otherwise
+  // the synth holds the note forever after release.
+  const host = makeHost({ inputChannel: 3 });
+  const r = host.noteOff(60, 2);
+  // Threshold 1: one immediate noteOff emitted on the same channel.
+  assert.equal(r.length, 1);
+  assert.equal(r[0].type, "noteOff");
+  assert.equal(r[0].pitch, 60);
+  assert.equal((r[0] as Extract<NoteEvent, { type: "noteOff" }>).channel, 2);
+});
+
+test("inputChannel=3 — noteOff on matching channel is silently consumed (gate-driven)", () => {
+  // For the matching channel, output noteOff is scheduled by humanize gate
+  // at noteIn dispatch. Input noteOff is suppressed (concept.md §"Per-event
+  // humanize" implicit: gate length is humanize-driven, not input-driven).
+  const host = makeHost({ inputChannel: 3 });
+  const r = host.noteOff(60, 3);
+  assert.deepEqual(r, []);
+});
+
+// ---------- chord mode (1-in-N-out expansion) ----------
+//
+// concept.md §"Scale and chord modes": chord mode emits the scale-snapped
+// input plus N diatonic voices configured by harmonyVoices (length 0..3).
+// Default voices = [{3 above}, {5 above}] = 1-3-5 triad.
+
+test("chord mode — default 1-3-5 triad (input C in C major)", () => {
+  // Defaults via makeHost + mode override → harmonyVoices = [{3, above},
+  // {5, above}]. Input C(60), C major → primary 60, voice1=3rd above =
+  // diatonicShift(60, 3, above) = 64 (E), voice2=5th above = 67 (G).
+  const host = makeHost({ mode: "chord", scale: "major", root: 0 });
   const r = partition(host.noteIn(60, 100, 1, 0));
-  assert.equal(r.noteOns.length, 1);
-  assert.equal(host.getParams().root, 0); // unchanged
+  assert.deepEqual(r.noteOns.map((e) => e.pitch), [60, 64, 67]);
 });
 
-test("root mode — root update precedes next quantize result", () => {
-  const host = makeHost({
-    triggerMode: "root",
-    scale: "major",
-    inputChannel: 1,
-    controlChannel: 16,
-  });
-  // First, set root to E (pitch class 4).
-  host.noteIn(64, 100, 16, 0);
-  // Then quantize 65 (F): E major contains F#(66), not F(65).
-  // 65 → distances: 64 (E, d=1) vs 66 (F#, d=1) → tie-to-lower → 64.
-  const r = partition(host.noteIn(65, 100, 1, 100));
-  assert.equal(r.noteOns[0].pitch, 64);
+test("chord mode — non-tonic input gets its diatonic triad (D in C major)", () => {
+  // Input D(62), C major. diatonicShift(62, 3, above) = 65 (F), (5, above)
+  // = 69 (A). Diatonic triad rooted on D = D-F-A.
+  const host = makeHost({ mode: "chord", scale: "major", root: 0 });
+  const r = partition(host.noteIn(62, 100, 1, 0));
+  assert.deepEqual(r.noteOns.map((e) => e.pitch), [62, 65, 69]);
 });
 
-test("passthrough mode — controlChannel events ARE quantized (root mode only consumes them)", () => {
-  const host = makeHost({
-    triggerMode: "passthrough",
-    inputChannel: 0, // omni
-    controlChannel: 16,
-  });
-  const r = partition(host.noteIn(64, 100, 16, 0));
-  // Goes through quantize path, no root mutation.
-  assert.equal(r.noteOns.length, 1);
-  assert.equal(host.getParams().root, 0);
-});
-
-// ---------- chord mode ----------
-//
-// ADR 003 § quantize mode: when mode='chord', held notes on
-// controlChannel form chord context. Each noteIn adds pitch%12; each
-// noteOff removes. Input notes get snapToChordTones (within 2 semis,
-// scale fallback). Replaces inboil's offline chords[] / chordSource —
-// any chord generator (clip, oedipa, manual play) drives the same path.
-
-test("chord mode — controlChannel noteIn adds pitch class to chordContext, returns no notes", () => {
-  const host = makeHost({
-    mode: "chord",
-    inputChannel: 1,
-    controlChannel: 16,
-  });
-  // pitch=64 (E4) on controlChannel=16 → chordContext gains pc 4.
-  const r = host.noteIn(64, 100, 16, 0);
-  assert.deepEqual(r, []);
-  assert.deepEqual(host.getChordContext(), [4]);
-});
-
-test("chord mode — multiple controlChannel notes build a multi-PC chord context", () => {
-  const host = makeHost({
-    mode: "chord",
-    inputChannel: 1,
-    controlChannel: 16,
-  });
-  // C-E-G triad: pcs 0, 4, 7. Held simultaneously, all should be present.
-  host.noteIn(60, 100, 16, 0);
-  host.noteIn(64, 100, 16, 0);
-  host.noteIn(67, 100, 16, 0);
-  // Order doesn't matter for chord context; sort for stable comparison.
-  assert.deepEqual([...host.getChordContext()].sort((a, b) => a - b), [0, 4, 7]);
-});
-
-test("chord mode — same pc held twice (different octaves) deduplicates", () => {
-  const host = makeHost({
-    mode: "chord",
-    inputChannel: 1,
-    controlChannel: 16,
-  });
-  // C4 (60) and C5 (72) both contribute pc=0; chord context is by PC.
-  host.noteIn(60, 100, 16, 0);
-  host.noteIn(72, 100, 16, 0);
-  assert.deepEqual(host.getChordContext(), [0]);
-});
-
-test("chord mode — controlChannel noteOff removes pc from chord context", () => {
-  const host = makeHost({
-    mode: "chord",
-    inputChannel: 1,
-    controlChannel: 16,
-  });
-  host.noteIn(60, 100, 16, 0);
-  host.noteIn(64, 100, 16, 0);
-  host.noteOff(64, 16);
-  // pc 4 released → context shrinks to [0].
-  assert.deepEqual(host.getChordContext(), [0]);
-});
-
-test("chord mode — overlapping octaves of same pc require all releases to remove", () => {
-  // C4 and C5 both contribute pc 0. Releasing C4 alone should NOT clear
-  // pc 0 from chord context — C5 is still held. (Matches MIDI hold-set
-  // semantics: pc 0 leaves only when no octave of it is held.)
-  const host = makeHost({
-    mode: "chord",
-    inputChannel: 1,
-    controlChannel: 16,
-  });
-  host.noteIn(60, 100, 16, 0);
-  host.noteIn(72, 100, 16, 0);
-  host.noteOff(60, 16);
-  assert.deepEqual(host.getChordContext(), [0]);
-  host.noteOff(72, 16);
-  assert.deepEqual(host.getChordContext(), []);
-});
-
-test("chord mode — input note snaps to chord tone when chord held", () => {
-  const host = makeHost({
-    mode: "chord",
-    inputChannel: 1,
-    controlChannel: 16,
-    scale: "major",
-    root: 0,
-  });
-  // Hold C+E+G chord on controlChannel.
-  host.noteIn(60, 100, 16, 0);
-  host.noteIn(64, 100, 16, 0);
-  host.noteIn(67, 100, 16, 0);
-  // Input C# (61) on inputChannel: nearest chord tone = C(60), distance 1
-  // <= 2 → snap to 60.
-  const r = partition(host.noteIn(61, 100, 1, 100));
-  assert.equal(r.noteOns[0].pitch, 60);
-});
-
-test("chord mode — input note beyond tolerance falls back to scale snap", () => {
-  const host = makeHost({
-    mode: "chord",
-    inputChannel: 1,
-    controlChannel: 16,
-    scale: "major",
-    root: 0,
-  });
-  // Hold single C as chord context. F (65) is 5 semitones from nearest C.
-  host.noteIn(60, 100, 16, 0);
-  // 5 > 2 (tolerance) → fall back. F is in C major → returns 65.
-  const r = partition(host.noteIn(65, 100, 1, 100));
-  assert.equal(r.noteOns[0].pitch, 65);
-});
-
-test("chord mode — empty chord context behaves like scale snap", () => {
-  const host = makeHost({
-    mode: "chord",
-    inputChannel: 1,
-    controlChannel: 16,
-    scale: "major",
-    root: 0,
-  });
-  // No controlChannel notes held → chord context is empty.
-  // Input C# (61) → falls back to scale snap. C major: 60 vs 62, tie-to-lower.
+test("chord mode — out-of-scale input snaps first then expands", () => {
+  // concept.md §"Scale and chord modes": "Out-of-scale input is snapped to
+  // the nearest scale degree first, so e.g. C# in C major → C, then the
+  // chord is built rooted on C."
+  // C#(61) → snap to C(60) → 1-3-5 triad on C = [60, 64, 67].
+  const host = makeHost({ mode: "chord", scale: "major", root: 0 });
   const r = partition(host.noteIn(61, 100, 1, 0));
-  assert.equal(r.noteOns[0].pitch, 60);
+  assert.deepEqual(r.noteOns.map((e) => e.pitch), [60, 64, 67]);
 });
 
-test("chord mode — controlChannel events do NOT update root (unlike triggerMode=root)", () => {
-  // mode=chord overrides triggerMode for controlChannel semantics:
-  // controlChannel notes form chord context; root is left alone.
+test("chord mode — empty harmonyVoices collapses to 1-in-1-out (identical to scale)", () => {
+  // concept.md: "clearing all voices collapses chord to 1-in-1-out
+  // (identical to scale mode)."
   const host = makeHost({
     mode: "chord",
-    triggerMode: "root", // even with this set, mode=chord wins for controlChannel
-    inputChannel: 1,
-    controlChannel: 16,
-    root: 0,
-  });
-  host.noteIn(64, 100, 16, 0); // would set root=4 in mode=scale + triggerMode=root
-  assert.equal(host.getParams().root, 0); // unchanged in mode=chord
-  assert.deepEqual(host.getChordContext(), [4]); // went to chord context instead
-});
-
-test("chord mode — panic clears chord context", () => {
-  const host = makeHost({
-    mode: "chord",
-    inputChannel: 1,
-    controlChannel: 16,
-  });
-  host.noteIn(60, 100, 16, 0);
-  host.noteIn(64, 100, 16, 0);
-  host.panic();
-  assert.deepEqual(host.getChordContext(), []);
-});
-
-test("chord mode — transportStop clears chord context", () => {
-  const host = makeHost({
-    mode: "chord",
-    inputChannel: 1,
-    controlChannel: 16,
-  });
-  host.noteIn(60, 100, 16, 0);
-  host.transportStop();
-  assert.deepEqual(host.getChordContext(), []);
-});
-
-test("setParam mode — accepts 'scale' | 'chord' | 'harmony'", () => {
-  const host = makeHost();
-  host.setParam("mode", "chord");
-  assert.equal(host.getParams().mode, "chord");
-  host.setParam("mode", "harmony");
-  assert.equal(host.getParams().mode, "harmony");
-  host.setParam("mode", "scale");
-  assert.equal(host.getParams().mode, "scale");
-});
-
-test("setParam mode — switching away from chord clears chord context", () => {
-  // When user switches mode to scale or harmony, the previously-held chord
-  // context becomes meaningless (chord-tone snap is no longer the path).
-  // Clearing avoids stale state surfacing if user later returns to chord.
-  const host = makeHost({
-    mode: "chord",
-    inputChannel: 1,
-    controlChannel: 16,
-  });
-  host.noteIn(60, 100, 16, 0);
-  host.noteIn(64, 100, 16, 0);
-  host.setParam("mode", "scale");
-  assert.deepEqual(host.getChordContext(), []);
-});
-
-test("setParam controlChannel — clears stale chord context from old channel", () => {
-  // Held pitches on the previous controlChannel can never be released
-  // (their noteOff arrives on a different channel and is dropped), so a
-  // channel switch must reset the held set or the chord context fossilises.
-  const host = makeHost({
-    mode: "chord",
-    inputChannel: 1,
-    controlChannel: 16,
-  });
-  host.noteIn(60, 100, 16, 0);
-  host.noteIn(64, 100, 16, 0);
-  assert.deepEqual([...host.getChordContext()].sort((a, b) => a - b), [0, 4]);
-  host.setParam("controlChannel", 15);
-  assert.deepEqual(host.getChordContext(), []);
-});
-
-// ---------- harmony mode ----------
-//
-// ADR 003 § quantize mode: when mode='harmony', input note + N parallel
-// diatonic voices (harmonyVoices[], 0..3, each {interval, direction}).
-// Engine logic: snap input to scale first, then compute each voice via
-// diatonicShift from snapped. All voices share one humanize draw — the
-// input event is a single musical event, voiced multiple ways.
-
-test("harmony mode — empty harmonyVoices behaves like scale snap", () => {
-  // voices=[] → no extra notes, single output identical to scale mode.
-  const host = makeHost({
-    mode: "harmony",
     scale: "major",
     root: 0,
     harmonyVoices: [],
@@ -408,54 +288,13 @@ test("harmony mode — empty harmonyVoices behaves like scale snap", () => {
   assert.equal(r.noteOns[0].pitch, 60);
 });
 
-test("harmony mode — 1 voice (3rd above) emits primary + voiced", () => {
-  // C major, input C(60), voice = 3rd above. Primary stays at 60, voiced
-  // = diatonicShift(60, 3, above) = 64 (E, two scale steps above C).
-  const host = makeHost({
-    mode: "harmony",
-    scale: "major",
-    root: 0,
-    harmonyVoices: [{ interval: 3, direction: "above" }],
-  });
-  const r = partition(host.noteIn(60, 100, 1, 0));
-  assert.equal(r.noteOns.length, 2);
-  // Declared-order emission: primary first, then voices in harmonyVoices[]
-  // order. Order is purely an output convention (all voices fire at the
-  // same delayMs) but must be deterministic for tests and downstream tools.
-  assert.equal(r.noteOns[0].pitch, 60);
-  assert.equal(r.noteOns[1].pitch, 64);
-});
-
-test("harmony mode — 3 voices emit primary + 3 voiced notes in declared order", () => {
-  // C major, input C(60). Voices in declared order:
-  //   3rd above → 64 (E, 2 steps up)
-  //   5th above → 67 (G, 4 steps up)
-  //   3rd below → 57 (A below, 2 steps down)
-  const host = makeHost({
-    mode: "harmony",
-    scale: "major",
-    root: 0,
-    harmonyVoices: [
-      { interval: 3, direction: "above" },
-      { interval: 5, direction: "above" },
-      { interval: 3, direction: "below" },
-    ],
-  });
-  const r = partition(host.noteIn(60, 100, 1, 0));
-  assert.equal(r.noteOns.length, 4);
-  assert.deepEqual(
-    r.noteOns.map((e) => e.pitch),
-    [60, 64, 67, 57],
-  );
-});
-
-test("harmony mode — voice pitches match diatonicShift on a non-C scale", () => {
+test("chord mode — voice pitches match diatonicShift on a non-C scale", () => {
   // A minor (root=9), input A(69). Scale degrees include 69(A), 71(B),
   // 72(C), 74(D), 76(E), 77(F), 79(G), 81(A).
   //   3rd above A → 2 steps up → 72 (C)
   //   6th below A → 5 steps down → 60 (C below: A→G→F→E→D→C)
   const host = makeHost({
-    mode: "harmony",
+    mode: "chord",
     scale: "minor",
     root: 9,
     harmonyVoices: [
@@ -467,48 +306,44 @@ test("harmony mode — voice pitches match diatonicShift on a non-C scale", () =
   assert.equal(r.noteOns[0].pitch, 69);
   assert.equal(r.noteOns[1].pitch, 72);
   assert.equal(r.noteOns[2].pitch, 60);
-  // Mirror against the helper too — guards against engine drift renaming
-  // the function or changing its signature without updating the host.
+  // Mirror against the engine helper — guards against future renames.
   const scalePitches = buildScalePitches("minor", 9);
   assert.equal(r.noteOns[1].pitch, diatonicShift(69, 3, "above", scalePitches));
   assert.equal(r.noteOns[2].pitch, diatonicShift(69, 6, "below", scalePitches));
 });
 
-test("harmony mode — out-of-scale input snaps to scale before voicing", () => {
-  // C major, input C#(61). snapToScale → 60 (tie distance, lower wins).
-  // Voice 3rd above is computed from snapped (60), not raw input (61):
-  //   diatonicShift(60, 3, above, C-major) = 64 (E)
-  // Note: diatonicShift internally snaps too, so this test would also pass
-  // if the host fed raw 61 to diatonicShift — but the spec says snap once
-  // up front so velocity / pulse / primary noteOn pitch all agree.
+test("chord mode — declared voice order preserved in output", () => {
+  // Output convention: primary first, then voices in harmonyVoices[] order.
   const host = makeHost({
-    mode: "harmony",
+    mode: "chord",
     scale: "major",
     root: 0,
-    harmonyVoices: [{ interval: 3, direction: "above" }],
+    harmonyVoices: [
+      { interval: 5, direction: "above" }, // G=67
+      { interval: 3, direction: "below" }, // A below = 57
+      { interval: 3, direction: "above" }, // E=64
+    ],
   });
-  const r = partition(host.noteIn(61, 100, 1, 0));
-  assert.equal(r.noteOns[0].pitch, 60);
-  assert.equal(r.noteOns[1].pitch, 64);
+  const r = partition(host.noteIn(60, 100, 1, 0));
+  assert.deepEqual(r.noteOns.map((e) => e.pitch), [60, 67, 57, 64]);
 });
 
-test("harmony mode — all voices share same noteOn delayMs (timing lockstep)", () => {
-  // One humanize draw per input event → one timingOffset, applied
-  // identically to primary + every voice. Voices are different pitches
-  // of the same musical event, not separate events with their own timing.
+test("chord mode — all voices share noteOn delayMs (one humanize draw)", () => {
+  // Voices are different pitches of the *same* musical event; one humanize
+  // draw covers them all so timing is lockstep.
   const host = makeHost({
-    mode: "harmony",
+    mode: "chord",
     scale: "major",
     root: 0,
-    humanizeTiming: 1,
+    feel: 1,
     seed: 13,
     harmonyVoices: [
       { interval: 3, direction: "above" },
       { interval: 5, direction: "above" },
     ],
   });
-  // Establish prior input so sourceStepDuration > 0 and humanizeTiming
-  // actually deflects the noteOn delay.
+  // Establish prior input so sourceStepDuration > 0 → timingOffset can
+  // actually deflect non-zero.
   host.noteIn(60, 100, 1, 0);
   const r = partition(host.noteIn(60, 100, 1, 200));
   assert.equal(r.noteOns.length, 3);
@@ -517,14 +352,12 @@ test("harmony mode — all voices share same noteOn delayMs (timing lockstep)", 
   assert.equal(r.noteOns[2].delayMs, d0);
 });
 
-test("harmony mode — all voices share same noteOff delayMs (lockstep release)", () => {
-  // Same gateFinal × sourceStepDuration for all voices → identical
-  // noteOff timing. Voices release together as a chord.
+test("chord mode — all voices share noteOff delayMs (lockstep release)", () => {
   const host = makeHost({
-    mode: "harmony",
+    mode: "chord",
     scale: "major",
     root: 0,
-    humanizeGate: 1,
+    feel: 1,
     seed: 21,
     harmonyVoices: [
       { interval: 3, direction: "above" },
@@ -539,15 +372,12 @@ test("harmony mode — all voices share same noteOff delayMs (lockstep release)"
   assert.equal(r.noteOffs[2].delayMs, d0);
 });
 
-test("harmony mode — all voices share same velocity (one humanize draw)", () => {
-  // velocityFinal computed once per input event, applied to all voices.
-  // (Inboil's harmony mode treats voices as a single trig with multiple
-  // notes; Stencil emits separate events but preserves shared velocity.)
+test("chord mode — all voices share velocity (one humanize draw)", () => {
   const host = makeHost({
-    mode: "harmony",
+    mode: "chord",
     scale: "major",
     root: 0,
-    humanizeVelocity: 0.5,
+    feel: 0.5,
     seed: 7,
     harmonyVoices: [
       { interval: 3, direction: "above" },
@@ -560,11 +390,10 @@ test("harmony mode — all voices share same velocity (one humanize draw)", () =
   assert.equal(r.noteOns[2].velocity, v0);
 });
 
-test("harmony mode — notePulse fires for every voiced note", () => {
+test("chord mode — notePulse fires for every voiced note", () => {
   // Keyboard should highlight every sounded key, not just the primary.
-  // Pulse count == noteOn count, same pitch set.
   const host = makeHost({
-    mode: "harmony",
+    mode: "chord",
     scale: "major",
     root: 0,
     harmonyVoices: [
@@ -580,12 +409,9 @@ test("harmony mode — notePulse fires for every voiced note", () => {
   );
 });
 
-test("harmony mode — output channel preserves input channel for all voices", () => {
-  // Spec (scale mode): 'emit on the same channel as the input event'.
-  // Multi-voice doesn't change that — every voice routes to the input
-  // channel so a user can route specific input channels to specific synths.
+test("chord mode — output channel preserves input channel for all voices", () => {
   const host = makeHost({
-    mode: "harmony",
+    mode: "chord",
     scale: "major",
     root: 0,
     harmonyVoices: [{ interval: 3, direction: "above" }],
@@ -595,20 +421,38 @@ test("harmony mode — output channel preserves input channel for all voices", (
   for (const e of r.noteOffs) assert.equal(e.channel, 7);
 });
 
-test("harmony mode — switching to scale suppresses voicing on next noteIn", () => {
-  // mode change is the trigger — harmonyVoices is left intact (config, not
-  // held state) but the next noteIn must produce single output.
+test("chord → scale mode switch — next noteIn produces single output", () => {
   const host = makeHost({
-    mode: "harmony",
+    mode: "chord",
     scale: "major",
     root: 0,
-    harmonyVoices: [{ interval: 3, direction: "above" }],
   });
   const r1 = partition(host.noteIn(60, 100, 1, 0));
-  assert.equal(r1.noteOns.length, 2);
+  assert.equal(r1.noteOns.length, 3); // default triad
   host.setParam("mode", "scale");
   const r2 = partition(host.noteIn(60, 100, 1, 100));
   assert.equal(r2.noteOns.length, 1);
+});
+
+// ---------- setParam dispatch ----------
+
+test("setParam mode — accepts 'scale' | 'chord' only", () => {
+  const host = makeHost();
+  host.setParam("mode", "chord");
+  assert.equal(host.getParams().mode, "chord");
+  host.setParam("mode", "scale");
+  assert.equal(host.getParams().mode, "scale");
+});
+
+test("setParam mode — rejects pre-v2 'harmony' value (silent no-op)", () => {
+  // concept.md §"Parameter surface" v2 removes the harmony mode value.
+  // mode set to a removed value is a silent no-op so a stale .maxpat /
+  // preset doesn't poison live state — the bridge's v1-state-discard log
+  // is the user-facing signal.
+  const host = makeHost();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  host.setParam("mode", "harmony" as any);
+  assert.equal(host.getParams().mode, "scale");
 });
 
 test("setParam harmonyVoices — replaces voice list, takes effect immediately", () => {
@@ -617,7 +461,7 @@ test("setParam harmonyVoices — replaces voice list, takes effect immediately",
   //   5th above → 67 (G)
   //   5th below → 53 (F below: 59→57→55→53)
   const host = makeHost({
-    mode: "harmony",
+    mode: "chord",
     scale: "major",
     root: 0,
     harmonyVoices: [{ interval: 3, direction: "above" }],
@@ -628,20 +472,13 @@ test("setParam harmonyVoices — replaces voice list, takes effect immediately",
   ]);
   const r = partition(host.noteIn(60, 100, 1, 0));
   assert.equal(r.noteOns.length, 3);
-  assert.deepEqual(
-    r.noteOns.map((e) => e.pitch),
-    [60, 67, 53],
-  );
+  assert.deepEqual(r.noteOns.map((e) => e.pitch), [60, 67, 53]);
 });
 
 test("setParam harmonyVoices — over-cap input is clamped at MAX_HARMONY_VOICES", () => {
   // concept.md §"Parameter surface" pins harmonyVoices length at 0..3.
-  // The bridge today projects from a 3-slot widget cluster (so the cap
-  // is naturally enforced upstream), but host.setParam is a public API
-  // — initialParams or any future direct caller could bypass the
-  // bridge. Defense-in-depth at the host boundary, mirroring the vst
-  // setHarmonyVoices() clamp. Threshold (3): concept.md §"Parameter
-  // surface" + m4l/host/host.ts harmonyVoices comment "length 0..3".
+  // Defense-in-depth at the host boundary, mirroring vst setHarmonyVoices()
+  // clamp at kHarmonyVoicesMax.
   const host = makeHost();
   host.setParam("harmonyVoices", [
     { interval: 3, direction: "above" },
@@ -650,17 +487,13 @@ test("setParam harmonyVoices — over-cap input is clamped at MAX_HARMONY_VOICES
     { interval: 6, direction: "above" }, // 4th — must be dropped
   ]);
   const stored = host.getParams().harmonyVoices;
+  // Threshold 3: concept.md §"Parameter surface" + concept.md §"Scale and
+  // chord modes" cap.
   assert.equal(stored.length, 3);
-  assert.deepEqual(
-    stored.map((v) => v.interval),
-    [3, 4, 5],
-  );
+  assert.deepEqual(stored.map((v) => v.interval), [3, 4, 5]);
 });
 
 test("constructor — over-cap initialParams.harmonyVoices is clamped", () => {
-  // Same boundary as setParam: an initialParams payload from the
-  // bridge / tests / future preset loader must not slip a 4th voice
-  // past the host's contract.
   const host = makeHost({
     harmonyVoices: [
       { interval: 3, direction: "above" },
@@ -671,131 +504,6 @@ test("constructor — over-cap initialParams.harmonyVoices is clamped", () => {
   });
   assert.equal(host.getParams().harmonyVoices.length, 3);
 });
-
-// ---------- source step / timing ----------
-
-test("noteIn first event — uses FIRST_EVENT_STEP_MS as sourceStepDuration", () => {
-  // First event has no prior input to derive a gap from. Default 250 ms ≈
-  // 16th note at 60 BPM / 8th at 120 BPM — generic musical fallback.
-  const host = makeHost({
-    humanizeGate: 0, // gateFinal = outputGateBase = 1.0 → noteOff at +1.0 step
-  });
-  const r = partition(host.noteIn(60, 100, 1, 0));
-  // delayMs of the noteOff = 1.0 (gate) × FIRST_EVENT_STEP_MS = 250.
-  assert.equal(r.noteOffs[0].delayMs, FIRST_EVENT_STEP_MS);
-});
-
-test("noteIn second event — sourceStepDuration = nowMs delta", () => {
-  // First event at t=0, second at t=400 ms → delta=400 ms is the step
-  // reference for the second event's gate scaling.
-  const host = makeHost({ humanizeGate: 0 });
-  host.noteIn(60, 100, 1, 0);
-  const r = partition(host.noteIn(60, 100, 1, 400));
-  assert.equal(r.noteOffs[0].delayMs, 400);
-});
-
-test("noteIn — lastInputTime tracks across multiple events", () => {
-  const host = makeHost({ humanizeGate: 0 });
-  host.noteIn(60, 100, 1, 0);
-  host.noteIn(60, 100, 1, 200); // delta = 200
-  const r = partition(host.noteIn(60, 100, 1, 350)); // delta = 150
-  assert.equal(r.noteOffs[0].delayMs, 150);
-});
-
-// ---------- humanize integration ----------
-
-test("noteIn zero amplitudes — velocity = inputVelocity × outputLevel", () => {
-  // All humanize amps 0, outputLevel=1 → velocityFinal = inputVelocity.
-  const host = makeHost();
-  const r = partition(host.noteIn(60, 100, 1, 0));
-  assert.equal(r.noteOns[0].velocity, 100);
-});
-
-test("noteIn outputLevel=0.5 — velocity scaled, gate unchanged", () => {
-  const host = makeHost({ outputLevel: 0.5, humanizeGate: 0 });
-  const r = partition(host.noteIn(60, 100, 1, 0));
-  // 100 × 0.5 = 50.
-  assert.equal(r.noteOns[0].velocity, 50);
-  // gate fully opens, noteOff at 1.0 × FIRST_EVENT_STEP_MS.
-  assert.equal(r.noteOffs[0].delayMs, FIRST_EVENT_STEP_MS);
-});
-
-test("noteIn — humanize draws are reproducible per seed", () => {
-  // Two hosts with the same seed produce identical event sequences.
-  const a = makeHost({ humanizeVelocity: 1, seed: 99 });
-  const b = makeHost({ humanizeVelocity: 1, seed: 99 });
-  const ra = a.noteIn(60, 100, 1, 0);
-  const rb = b.noteIn(60, 100, 1, 0);
-  assert.deepEqual(ra, rb);
-});
-
-test("noteIn — different seeds produce different humanize results", () => {
-  // Sanity: seed actually threads through. With humanizeVelocity=1 the
-  // velocity output depends on the first nextU32, which differs per seed.
-  const a = makeHost({ humanizeVelocity: 1, seed: 1 });
-  const b = makeHost({ humanizeVelocity: 1, seed: 2 });
-  const ra = partition(a.noteIn(60, 100, 1, 0));
-  const rb = partition(b.noteIn(60, 100, 1, 0));
-  assert.notEqual(ra.noteOns[0].velocity, rb.noteOns[0].velocity);
-});
-
-// ---------- notePulse outlet ----------
-
-test("notePulse — pitch and velocity match scheduled noteOn", () => {
-  // Spec: 'pulse outlet fires at the same time the scheduled noteOn is
-  // dispatched, not at noteIn arrival, so the visual pulse coincides with
-  // the audible note.'
-  const host = makeHost({ humanizeVelocity: 0.5, seed: 7 });
-  const r = partition(host.noteIn(60, 100, 1, 0));
-  assert.equal(r.pulses[0].pitch, r.noteOns[0].pitch);
-  assert.equal(r.pulses[0].velocity, r.noteOns[0].velocity);
-});
-
-test("notePulse — delayMs lockstep with scheduled noteOn", () => {
-  // pulse and noteOn must dispatch at the same wall time so the visual
-  // pulse coincides with the audible note.
-  const host = makeHost({ humanizeTiming: 1, seed: 13 });
-  // Establish prior input so sourceStepDuration is non-default.
-  host.noteIn(60, 100, 1, 0);
-  const r = partition(host.noteIn(60, 100, 1, 200));
-  assert.equal(r.pulses[0].delayMs, r.noteOns[0].delayMs);
-});
-
-// ---------- note-off discipline ----------
-
-test("transportStart — resets driftState, lastInputTime, and humanizeRng", () => {
-  // Spec §State persistence: 'drift state resets to neutral on preset
-  // load.' transportStart is the in-session reset moment.
-  const host = makeHost({ humanizeVelocity: 1, seed: 42 });
-  // Walk the rng + drift state forward.
-  host.noteIn(60, 100, 1, 0);
-  host.noteIn(60, 100, 1, 100);
-  host.transportStart();
-  // After reset, the next event should reproduce the very first event
-  // (post-reset host == fresh host).
-  const fresh = makeHost({ humanizeVelocity: 1, seed: 42 });
-  const a = host.noteIn(60, 100, 1, 0);
-  const b = fresh.noteIn(60, 100, 1, 0);
-  assert.deepEqual(a, b);
-});
-
-test("transportStop — flushes notesOn (no-op in mono v1, returns no events)", () => {
-  // notesOn stays empty in mono passthrough (paired noteOn/noteOff
-  // emitted together, bridge schedules). flushNotesOn is
-  // the safety hook for future polyphony — current contract: returns [].
-  const host = makeHost();
-  host.noteIn(60, 100, 1, 0);
-  assert.deepEqual(host.transportStop(), []);
-});
-
-test("panic — returns no events in mono v1, but resets state", () => {
-  // Same rationale as transportStop: notesOn empty in steady state.
-  const host = makeHost();
-  host.noteIn(60, 100, 1, 0);
-  assert.deepEqual(host.panic(), []);
-});
-
-// ---------- setParam dispatch ----------
 
 test("setParam scale — rebuilds scalePitches", () => {
   const host = makeHost({ scale: "major", root: 0 });
@@ -809,43 +517,137 @@ test("setParam root — rebuilds scalePitches", () => {
   assert.deepEqual(host.getScalePitches(), buildScalePitches("major", 5));
 });
 
-test("setParam non-scale — does NOT rebuild scalePitches", () => {
-  // outputLevel doesn't affect scale; pitches array reference stays.
+test("setParam feel/drift — non-scale keys do NOT rebuild scalePitches", () => {
+  // Identity-via-reference check: scalePitches array reference unchanged.
   const host = makeHost();
   const before = host.getScalePitches();
-  host.setParam("outputLevel", 0.7);
+  host.setParam("feel", 0.5);
+  host.setParam("drift", 0.5);
   assert.equal(host.getScalePitches(), before);
 });
 
-test("setParam triggerMode — switching modes does not corrupt state", () => {
-  const host = makeHost({ triggerMode: "passthrough" });
-  host.setParam("triggerMode", "root");
-  assert.equal(host.getParams().triggerMode, "root");
-  // Subsequent controlChannel event behaves as root mode.
-  const r = host.noteIn(67, 100, 16, 0);
-  assert.deepEqual(r, []);
-  assert.equal(host.getParams().root, 7);
+test("setParam seed — re-seeds humanizeRng so subsequent draws restart", () => {
+  // setParam seed is the on-disk-preset entry point: setting it must
+  // re-seed so deterministic playback is reproducible.
+  const a = makeHost({ feel: 1 });
+  a.setParam("seed", 99);
+  const b = makeHost({ feel: 1 });
+  b.setParam("seed", 99);
+  assert.deepEqual(a.noteIn(60, 100, 1, 0), b.noteIn(60, 100, 1, 0));
+});
+
+// ---------- source step / timing ----------
+
+test("noteIn first event — uses FIRST_EVENT_STEP_MS as sourceStepDuration", () => {
+  // First event has no prior input to derive a gap from. Default 250 ms ≈
+  // 16th note at 60 BPM / 8th at 120 BPM — generic musical fallback.
+  // feel=0 → gateFinal = 1.0 → noteOff at +1.0 step.
+  const host = makeHost();
+  const r = partition(host.noteIn(60, 100, 1, 0));
+  assert.equal(r.noteOffs[0].delayMs, FIRST_EVENT_STEP_MS);
+});
+
+test("noteIn second event — sourceStepDuration = nowMs delta", () => {
+  // First event at t=0, second at t=400 ms → delta=400 ms is the step
+  // reference for the second event's gate scaling.
+  const host = makeHost();
+  host.noteIn(60, 100, 1, 0);
+  const r = partition(host.noteIn(60, 100, 1, 400));
+  assert.equal(r.noteOffs[0].delayMs, 400);
+});
+
+test("noteIn — lastInputTime tracks across multiple events", () => {
+  const host = makeHost();
+  host.noteIn(60, 100, 1, 0);
+  host.noteIn(60, 100, 1, 200); // delta = 200
+  const r = partition(host.noteIn(60, 100, 1, 350)); // delta = 150
+  assert.equal(r.noteOffs[0].delayMs, 150);
+});
+
+// ---------- humanize integration ----------
+
+test("noteIn feel=0 — velocity = inputVelocity (no perturbation)", () => {
+  // feel=0 collapses all three axes to identity. velocityFinal = inputVel.
+  const host = makeHost();
+  const r = partition(host.noteIn(60, 100, 1, 0));
+  assert.equal(r.noteOns[0].velocity, 100);
+});
+
+test("noteIn — humanize draws are reproducible per seed", () => {
+  // Two hosts with the same seed produce identical event sequences.
+  const a = makeHost({ feel: 1, seed: 99 });
+  const b = makeHost({ feel: 1, seed: 99 });
+  const ra = a.noteIn(60, 100, 1, 0);
+  const rb = b.noteIn(60, 100, 1, 0);
+  assert.deepEqual(ra, rb);
+});
+
+test("noteIn — different seeds produce different humanize results", () => {
+  // Sanity: seed actually threads through. With feel=1 the first nextU32
+  // differs per seed → velocityFinal differs.
+  const a = makeHost({ feel: 1, seed: 1 });
+  const b = makeHost({ feel: 1, seed: 2 });
+  const ra = partition(a.noteIn(60, 100, 1, 0));
+  const rb = partition(b.noteIn(60, 100, 1, 0));
+  assert.notEqual(ra.noteOns[0].velocity, rb.noteOns[0].velocity);
+});
+
+// ---------- notePulse outlet ----------
+
+test("notePulse — pitch and velocity match scheduled noteOn", () => {
+  // Pulse outlet fires at the same time the scheduled noteOn dispatches.
+  const host = makeHost({ feel: 0.5, seed: 7 });
+  const r = partition(host.noteIn(60, 100, 1, 0));
+  assert.equal(r.pulses[0].pitch, r.noteOns[0].pitch);
+  assert.equal(r.pulses[0].velocity, r.noteOns[0].velocity);
+});
+
+test("notePulse — delayMs lockstep with scheduled noteOn", () => {
+  const host = makeHost({ feel: 1, seed: 13 });
+  host.noteIn(60, 100, 1, 0);
+  const r = partition(host.noteIn(60, 100, 1, 200));
+  assert.equal(r.pulses[0].delayMs, r.noteOns[0].delayMs);
+});
+
+// ---------- note-off discipline ----------
+
+test("transportStart — resets driftState, lastInputTime, and humanizeRng", () => {
+  // concept.md §"Transport": humanize state resets on transport start so
+  // each play loop reproduces bit-for-bit from the same seed.
+  const host = makeHost({ feel: 1, seed: 42 });
+  host.noteIn(60, 100, 1, 0);
+  host.noteIn(60, 100, 1, 100);
+  host.transportStart();
+  // After reset, the next event should reproduce the very first event.
+  const fresh = makeHost({ feel: 1, seed: 42 });
+  const a = host.noteIn(60, 100, 1, 0);
+  const b = fresh.noteIn(60, 100, 1, 0);
+  assert.deepEqual(a, b);
+});
+
+test("transportStop — flushes notesOn (no-op in mono v1, returns no events)", () => {
+  const host = makeHost();
+  host.noteIn(60, 100, 1, 0);
+  assert.deepEqual(host.transportStop(), []);
+});
+
+test("panic — returns no events in mono v1, but resets state", () => {
+  const host = makeHost();
+  host.noteIn(60, 100, 1, 0);
+  assert.deepEqual(host.panic(), []);
 });
 
 // ---------- humanize draw order through host (regression) ----------
 
 test("noteIn draw order — host consumes velocity → gate → timing per event", () => {
-  // Compare host's internal RNG advancement against three direct
-  // nextU32 calls. This guards against accidentally reordering the
-  // composeHumanize draws inside the host wiring.
+  // Compare host's internal RNG advancement against the first nextU32 of
+  // seedRng(seed). With feel=1 and inputVel=100, velocityFinal =
+  // round(100 * (1 + aSigned)).
   const seed = 77;
-  const host = makeHost({
-    humanizeVelocity: 1,
-    humanizeGate: 0,
-    humanizeTiming: 0,
-    seed,
-  });
-  // Manual replay: first nextU32 of seedRng(seed) is the velocity draw.
+  const host = makeHost({ feel: 1, seed });
   let m = seedRng(BigInt(seed));
   const u1 = nextU32(m); m = u1.state;
   const aSigned = u1.value / 0x80000000 - 1;
-  // Host with humanizeVelocity=1, others 0 → only velocity uses the draw.
-  // velocityFinal = round(100 × (1 + aSigned) × 1).
   const expectedVel = Math.max(1, Math.min(127, Math.round(100 * (1 + aSigned))));
   const r = partition(host.noteIn(60, 100, 1, 0));
   assert.equal(r.noteOns[0].velocity, expectedVel);
