@@ -454,6 +454,12 @@ void PointsmanProcessor::syncHarmonyVoicesToTree()
     auto child = root.getOrCreateChildWithName(kPointsmanStateTag, nullptr);
     child.setProperty(kVersionAttr, kStateVersion, nullptr);
     child.removeAllChildren(nullptr);
+    // Defense in depth: most hosts call getStateInformation on the message
+    // thread (single-writer with setHarmonyVoices), but some preset-preview /
+    // batch-save paths call it from a background thread. Take the lock so
+    // the read is well-defined regardless. Caller (setHarmonyVoices) has
+    // already released its lock by this point, so no re-entrancy.
+    const juce::SpinLock::ScopedLockType lock(harmonyVoicesLock_);
     for (const auto& v : harmonyVoices)
     {
         juce::ValueTree node(kHarmonyVoiceTag);
