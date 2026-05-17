@@ -109,9 +109,9 @@ them):
 ```bash
 test -n "${DEVELOPER_TEAM_ID:-}" || echo "missing DEVELOPER_TEAM_ID"
 xcrun notarytool history \
-  --keychain-profile "${NOTARY_PROFILE:-pointsman-notary}" \
+  --keychain-profile "${NOTARY_PROFILE:-im9-notary}" \
   >/dev/null 2>&1 \
-  || echo "missing notary keychain profile: ${NOTARY_PROFILE:-pointsman-notary}"
+  || echo "missing notary keychain profile: ${NOTARY_PROFILE:-im9-notary}"
 ```
 
 Halt if either is missing.

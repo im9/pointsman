@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-NOTARY_PROFILE="${NOTARY_PROFILE:-pointsman-notary}"
+NOTARY_PROFILE="${NOTARY_PROFILE:-im9-notary}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ARTEFACTS_DIR="$SCRIPT_DIR/../build/Pointsman_artefacts/Release"
