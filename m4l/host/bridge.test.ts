@@ -294,6 +294,26 @@ test("setParam controlChannel — validates 1..16 integer", () => {
   assert.equal(f.notes.length, before);
 });
 
+test("setParam controlChannel — emits chordChanged [] so the jsui dots clear", () => {
+  // host.setParam("controlChannel") clears the held set (held notes on
+  // the prior channel can never release through the new one). The
+  // bridge must surface that to the jsui keyboard or the chord-tier
+  // dots stay lit on stale pitch classes until the next chordChanged
+  // event from a real noteIn.
+  const f = makeFakeDeps();
+  const b = new PointsmanBridge(f.deps);
+  b.setParam("mode", "chord");
+  b.noteIn(60, 100, 16); // C → pc 0
+  b.noteIn(64, 100, 16); // E → pc 4
+  // Sanity: dots are lit before the switch.
+  let cc = f.outlets.filter((o) => o.channel === "chordChanged");
+  assert.deepEqual(cc[cc.length - 1].args, [0, 4]);
+
+  b.setParam("controlChannel", 15);
+  cc = f.outlets.filter((o) => o.channel === "chordChanged");
+  assert.deepEqual(cc[cc.length - 1].args, []);
+});
+
 test("setParam unknown key — silent no-op", () => {
   const f = makeFakeDeps();
   const b = new PointsmanBridge(f.deps);

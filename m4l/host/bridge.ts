@@ -266,6 +266,11 @@ export class PointsmanBridge {
         const v = Number(value);
         if (!Number.isInteger(v) || v < 1 || v > 16) return;
         events = this.host.setParam("controlChannel", v);
+        // host.setParam clears controlHeldPitches on a channel change
+        // (notes held on the old channel can never release through the
+        // new one). Surface that clear to the jsui keyboard via the
+        // chord-changed outlet so the chord-tier dots clear in sync.
+        modeChanged = true;
         break;
       }
       case "seed": {
