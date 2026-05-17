@@ -253,14 +253,14 @@ test('Pointsman.maxpat — every patchline source/destination id resolves to a k
 
 // ---- patcher checklist --------------------------------------------------
 
-test('Pointsman.maxpat — devicewidth = 880 and openinpresentation = 1', () => {
-  // Strip narrowed from 1000 → 880 after the v2 UI cleanup removed
-  // outputLevel, triggerMode, controlChannel and condensed the right
-  // column to IN-CH / FEEL / DRIFT / SEED / RND. Effective content ends
-  // at x=858 (RND button right edge); 880 keeps an 8 px right margin
-  // mirroring the left margin plus ~14 px visual breathing room.
+test('Pointsman.maxpat — devicewidth = 772 and openinpresentation = 1', () => {
+  // Strip narrowed in stages: 1000 → 880 (v2 cleanup) → 772 (after the
+  // voices direction column shrank to 56 px and the keyboard+right
+  // column shifted left by 108 px). Effective content ends at x=750
+  // (RND button right edge); 22 px right margin mirrors the original
+  // breathing room.
   const { parsed } = loadPatcher(POINTSMAN_MAXPAT)
-  assert.equal(parsed.patcher.devicewidth, 880)
+  assert.equal(parsed.patcher.devicewidth, 772)
   assert.equal(parsed.patcher.openinpresentation, 1)
 })
 

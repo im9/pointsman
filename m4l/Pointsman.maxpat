@@ -17,7 +17,7 @@
         ],
         "bglocked": 0,
         "openinpresentation": 1,
-        "devicewidth": 880,
+        "devicewidth": 772,
         "default_fontsize": 9,
         "default_fontface": 0,
         "default_fontname": "Andale Mono",
@@ -538,7 +538,7 @@
                     ],
                     "presentation": 1,
                     "presentation_rect": [
-                        308,
+                        200,
                         32,
                         416,
                         132
@@ -597,7 +597,7 @@
                     "presentation_rect": [
                         20,
                         24,
-                        140,
+                        80,
                         16
                     ],
                     "saved_attribute_attributes": {
@@ -956,7 +956,7 @@
                     ],
                     "presentation": 1,
                     "presentation_rect": [
-                        176,
+                        108,
                         8,
                         32,
                         14
@@ -983,7 +983,7 @@
                     ],
                     "presentation": 1,
                     "presentation_rect": [
-                        176,
+                        108,
                         24,
                         56,
                         16
@@ -1240,7 +1240,7 @@
                     ],
                     "presentation": 1,
                     "presentation_rect": [
-                        756,
+                        648,
                         8,
                         48,
                         14
@@ -1266,7 +1266,7 @@
                     ],
                     "presentation": 1,
                     "presentation_rect": [
-                        756,
+                        648,
                         24,
                         48,
                         16
@@ -1328,7 +1328,7 @@
                     ],
                     "presentation": 1,
                     "presentation_rect": [
-                        756,
+                        648,
                         128,
                         40,
                         14
@@ -1354,7 +1354,7 @@
                     ],
                     "presentation": 1,
                     "presentation_rect": [
-                        756,
+                        648,
                         144,
                         80,
                         16
@@ -1557,7 +1557,7 @@
                     "presentation_rect": [
                         108,
                         104,
-                        164,
+                        56,
                         16
                     ],
                     "saved_attribute_attributes": {
@@ -1813,7 +1813,7 @@
                     "presentation_rect": [
                         108,
                         124,
-                        164,
+                        56,
                         16
                     ],
                     "saved_attribute_attributes": {
@@ -2069,7 +2069,7 @@
                     "presentation_rect": [
                         108,
                         144,
-                        164,
+                        56,
                         16
                     ],
                     "saved_attribute_attributes": {
@@ -2184,7 +2184,7 @@
                     ],
                     "presentation": 1,
                     "presentation_rect": [
-                        760,
+                        652,
                         64,
                         36,
                         52
@@ -2224,7 +2224,7 @@
                     ],
                     "presentation": 1,
                     "presentation_rect": [
-                        810,
+                        702,
                         64,
                         36,
                         52
@@ -2297,7 +2297,7 @@
                     ],
                     "presentation": 1,
                     "presentation_rect": [
-                        284,
+                        176,
                         8,
                         1,
                         176
@@ -2320,7 +2320,7 @@
                     ],
                     "presentation": 1,
                     "presentation_rect": [
-                        744,
+                        636,
                         8,
                         1,
                         176
@@ -2363,7 +2363,7 @@
                     ],
                     "presentation": 1,
                     "presentation_rect": [
-                        842,
+                        734,
                         128,
                         24,
                         14
@@ -2391,7 +2391,7 @@
                     ],
                     "presentation": 1,
                     "presentation_rect": [
-                        842,
+                        734,
                         144,
                         16,
                         16
