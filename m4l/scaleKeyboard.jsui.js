@@ -77,7 +77,16 @@ var WHITE_INDEX_OF = { 0: 0, 2: 1, 4: 2, 5: 3, 7: 4, 9: 5, 11: 6 }
 // Boundary white-key index (left of the black key) for each black pitch class.
 var BLACK_BOUNDARY_INDEX = { 1: 1, 3: 2, 6: 4, 8: 5, 10: 6 }
 
-// --- Visual identity (placeholder until slice (i) samples inboil) ---
+// --- Visual identity (inboil-derived cream / olive / coral) ---
+//
+// Same palette as vst Editor/Theme so the two targets share identity.
+// A brief experiment with an Ableton-native greyscale + Live orange
+// pulse exposed two issues: (a) the orange overlay at partial alpha
+// blends with grey into a muddy brown during pulse decay; (b) Live
+// selection blue dots clashed with the warm pulse. The cohesive warm
+// palette below keeps decay states in the same chromatic family, so
+// the keyboard reads as "designed" rather than blending into Live's
+// chrome.
 
 var COL_BG          = [0.96, 0.94, 0.86] // cream / oat
 var COL_OUTLINE     = [0.70, 0.66, 0.54] // pale taupe (key borders, hollow dots)
