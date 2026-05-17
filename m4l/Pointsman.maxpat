@@ -539,9 +539,9 @@
                     "presentation": 1,
                     "presentation_rect": [
                         200,
-                        32,
+                        8,
                         416,
-                        132
+                        156
                     ]
                 }
             },
