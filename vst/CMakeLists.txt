@@ -98,7 +98,7 @@ target_compile_definitions(pointsman_plugin_core PUBLIC
 # --- Plugin -------------------------------------------------------------------
 juce_add_plugin(Pointsman
     COMPANY_NAME "im9"
-    BUNDLE_ID "com.im9.pointsman"
+    BUNDLE_ID "fm.im9.pointsman"
     IS_SYNTH FALSE
     NEEDS_MIDI_INPUT TRUE
     NEEDS_MIDI_OUTPUT TRUE
@@ -150,7 +150,7 @@ target_compile_definitions(Pointsman PRIVATE
 # Pointsman.clap alongside Pointsman.vst3 / Pointsman.component. CLAP is
 # Bitwig's native format; the same pattern + SHA ships on oedipa.
 clap_juce_extensions_plugin(TARGET Pointsman
-    CLAP_ID "com.im9.pointsman"
+    CLAP_ID "fm.im9.pointsman"
     CLAP_FEATURES note-effect utility
     CLAP_MANUAL_URL "https://github.com/im9/pointsman"
     CLAP_SUPPORT_URL "https://github.com/im9/pointsman/issues"

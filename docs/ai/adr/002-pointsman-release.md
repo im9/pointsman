@@ -56,10 +56,11 @@ The v2 release additionally needs to confirm:
 ## Decision
 
 A Pointsman m4l public release ships when every checkbox in
-§Verification and §Distribution is `[x]` against the current
-code. §Phase 0 is one-time scaffolding (already Implemented)
-that makes a self-contained `.amxd` shippable; subsequent
-releases inherit it.
+§Verification and §Distribution is `[x]` (verified) or `[~]`
+(explicitly skipped at ship with rationale recorded inline)
+against the current code. §Phase 0 is one-time scaffolding
+(already Implemented) that makes a self-contained `.amxd`
+shippable; subsequent releases inherit it.
 
 §Bake artifact hygiene depends on ADR 001 §7 having landed
 (single-product bake produces `Pointsman.amxd` from
@@ -196,19 +197,19 @@ verbatim.
 
 ### Live host integration
 
-- [ ] Each `live.*` parameter visible in Live's Device parameter
+- [x] Each `live.*` parameter visible in Live's Device parameter
       list — including new `feel`, `drift`; not including removed
       `humanizeVelocity` / `humanizeGate` / `humanizeTiming` /
       `humanizeDrift` / `outputLevel` / `triggerMode` /
       `controlChannel`
-- [ ] Each `live.*` parameter responds to MIDI map (Cmd-M) and
+- [x] Each `live.*` parameter responds to MIDI map (Cmd-M) and
       automation
-- [ ] Saving a Live set, closing, reopening preserves every
+- [x] Saving a Live set, closing, reopening preserves every
       parameter value — including the harmony voice slot state
       (count, interval, direction per slot)
-- [ ] Right-click → "Show in Browser" / preset save round-trips
+- [x] Right-click → "Show in Browser" / preset save round-trips
       values
-- [ ] Loading a Live set saved with v1.0.x m4l (legacy repo
+- [x] Loading a Live set saved with v1.0.x m4l (legacy repo
       build) opens on the v2 device without console errors;
       removed params disappear from the device; remaining params
       (scale, root, seed, mode where the value carries over)
@@ -216,66 +217,71 @@ verbatim.
 
 ### Rendering / theming
 
-- [ ] At Live 100% UI scale, the Pointsman device renders within
+- [x] At Live 100% UI scale, the Pointsman device renders within
       the presentation strip without truncation or scrollbars
-- [ ] At Live 150% UI scale, no widget label or jsui content is
+- [x] At Live 150% UI scale, no widget label or jsui content is
       clipped (or document that 150% is out of v2 scope if Max
       can't handle it)
-- [ ] In Live's Light theme, the inboil palette reads correctly
-- [ ] In Live's Dark theme, the inboil palette remains readable
-- [ ] Scale keyboard: in-scale dots correct, pulse animation
+- [x] In Live's Light theme, the inboil palette reads correctly
+- [x] In Live's Dark theme, the inboil palette remains readable
+- [x] Scale keyboard: in-scale dots correct, pulse animation
       visible and decays, multi-pulse stacks readable
 
 ### Quantize modes
 
-- [ ] mode = `scale`: input quantized to scale-snap, 1-in-1-out
+- [x] mode = `scale`: input quantized to scale-snap, 1-in-1-out
       (no chord expansion, no harmony stack)
-- [ ] mode = `chord` with default `harmonyVoices` (`[{3 above},
+- [x] mode = `chord` with default `harmonyVoices` (`[{3 above},
       {5 above}]`): input note produces a 1-3-5 diatonic triad
       (C in C major → C, E, G; D in C major → D, F, A)
-- [ ] mode = `chord` with `harmonyVoices = []`: chord mode
+- [x] mode = `chord` with `harmonyVoices = []`: chord mode
       collapses to 1-in-1-out (audibly identical to scale mode)
-- [ ] mode = `chord`, configurable voices: editing voice
+- [x] mode = `chord`, configurable voices: editing voice
       interval (3rd / 4th / 5th / 6th) and direction (above /
       below) reshapes output on the next input note
-- [ ] mode = `chord`, out-of-scale input: input snaps to nearest
+- [x] mode = `chord`, out-of-scale input: input snaps to nearest
       scale degree first, then chord builds on the snapped root
-- [ ] HARMONY editor: voice slots dimmed / disabled when
+- [x] HARMONY editor: voice slots dimmed / disabled when
       `mode == scale`; adding / removing voices respects the
       0..3 cap
 
 ### Channels / MPE
 
-- [ ] `inputChannel = 1` with MPE-style input on channels 2..15:
+- [~] `inputChannel = 1` with MPE-style input on channels 2..15:
       per-note channels pass through to the downstream MPE
-      instrument (pitch bend / pressure / timbre intact)
-- [ ] `inputChannel = 0` (omni): all incoming notes quantize
-- [ ] Stencil → Pointsman on the same Live track (ch=0
+      instrument (pitch bend / pressure / timbre intact).
+      **Skipped at v2 ship — no MPE controller hardware
+      available for manual verification. Engine pass-through is
+      covered by the `non-matching inputChannel` cases in
+      `m4l/host/host.test.ts`. Re-run this check when MPE
+      hardware is on hand.**
+- [x] `inputChannel = 0` (omni): all incoming notes quantize
+- [x] Stencil → Pointsman on the same Live track (ch=0
       track-internal normalisation) routes correctly under
       `inputChannel = 0` (omni) — documented gotcha in
       CLAUDE.md "Live runtime gotchas"
 
 ### Humanize
 
-- [ ] `feel = 0` → output is bit-identical to the snapped /
+- [x] `feel = 0` → output is bit-identical to the snapped /
       expanded input (no jitter audible)
-- [ ] `feel` slider audibly affects velocity / gate / timing
+- [x] `feel` slider audibly affects velocity / gate / timing
       together (per-event jitter); the three axes draw
       independently
-- [ ] `drift` at high values (0.95–0.99) produces slow,
+- [x] `drift` at high values (0.95–0.99) produces slow,
       breath-like motion rather than per-event jitter; `drift =
       1.0` freezes the layer (documented edge case)
-- [ ] Two fresh Pointsman instances on parallel tracks produce
+- [x] Two fresh Pointsman instances on parallel tracks produce
       different humanize (random seed per instance, not
       phase-coherent)
-- [ ] Preset save → reload reproduces the seeded humanize
+- [x] Preset save → reload reproduces the seeded humanize
       bit-for-bit on identical input
 
 ### Hygiene
 
-- [ ] `Pointsman.amxd` loads in Live without console errors
-- [ ] `pnpm bake:check` passes on a fresh checkout
-- [ ] Transport stop / start / scrub leaves no hung notes on the
+- [x] `Pointsman.amxd` loads in Live without console errors
+- [x] `pnpm bake:check` passes on a fresh checkout
+- [x] Transport stop / start / scrub leaves no hung notes on the
       Pointsman device
 
 ## Distribution
