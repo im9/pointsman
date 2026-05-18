@@ -96,8 +96,8 @@ load-cleanly + bake:check items, not a duplicate "bake produces
   bake) — not duplicated here. §Phase 0 below covers the
   *distribution-side* scaffolding (esbuild bundle, Makefile,
   freeze) that ADR 001 §8 did not address.
-- vst target verification and distribution — separate ADR series
-  (ADR 003, Implemented).
+- vst target verification and distribution — covered in
+  [ADR 003 §Release procedure](003-pointsman-vst-architecture.md#release-procedure).
 - Multi-device DAW chain scenarios — Pointsman is independently
   functional; chain testing is a user-level DAW concern.
 

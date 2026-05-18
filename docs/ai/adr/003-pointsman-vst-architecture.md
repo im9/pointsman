@@ -1,9 +1,11 @@
 # ADR 003: Pointsman vst — architecture
 
-## Status: Implemented
+## Status: Proposed
 
 **Created**: 2026-05-10
-**Implemented**: 2026-05-17 (Phase 0–5 shipped: pure-C++17 engine + APVTS plugin core + inboil-derived editor across AU / VST3 / CLAP, v2 parameter surface from Phase 5 chord/harmony merge, signing + notarization pipeline producing `dist/Pointsman.dmg` verified end-to-end)
+**Phases 0–5 shipped**: 2026-05-17 — pure-C++17 engine + APVTS plugin core + inboil-derived editor across AU / VST3 / CLAP, v2 parameter surface from Phase 5 chord/harmony merge, signing + notarization pipeline producing `dist/Pointsman.dmg` verified end-to-end.
+
+**Revised**: 2026-05-18 — added §Release procedure at the foot of this ADR (pkg port from oedipa + `release-vst` Makefile target + Polar distribution channel + first `vst-v0.1.0` ship). Phases 0–5 architecture work remains shipped; status flipped Implemented → Proposed and the file moved out of `archive/` to track the new checklist. Flips back to Implemented and re-archives when §Release procedure is `[x]` end-to-end.
 
 **Revised**: 2026-05-16 — parameter surface redesign (Phase 5). The
 2026-05-10 ↔ 2026-05-15 phases (0–4) shipped a working vst against
@@ -1027,3 +1029,72 @@ shares the chord-context-derivation update with vst via the
 updated JSON test vectors. m4l v2.0.0 is also a hard break with no
 v1 preset migration (v1.0.0 canary release, effectively zero
 installed base).
+
+## Release procedure
+
+Added 2026-05-18. Mirrors oedipa's ADR 009 (dmg) / ADR 010 (CLAP
+joins dmg); oedipa later added a pkg installer paired with the
+dmg, which this section ports across.
+
+The dmg path is already shipping:
+[`vst/scripts/codesign.sh`](../../../vst/scripts/codesign.sh),
+[`notarize.sh`](../../../vst/scripts/notarize.sh),
+[`build-dmg.sh`](../../../vst/scripts/build-dmg.sh) +
+[`entitlements.plist`](../../../vst/scripts/entitlements.plist)
+produce a signed + notarized + stapled
+[`dist/Pointsman.dmg`](../../../dist/Pointsman.dmg) (verified
+end-to-end 2026-05-17 against the shared `im9-notary` keychain
+profile and `DEVELOPER_TEAM_ID=8TUXRN8XUZ`). The new work is a
+paired `.pkg` installer mechanically ported from
+`~/src/vst/oedipa/vst/scripts/` — per-format opt-out at install
+time (VST3 / AU / CLAP each toggleable), system-wide install
+only (mirrors oedipa's domain choice — `~/Library` placement
+stays the dmg's job), en + ja localized welcome / license /
+conclusion. `productsign` uses the matching `Developer ID
+Installer` cert under the same team ID.
+
+**Distribution channel**: tag `vst-vX.Y.Z` on `im9/pointsman`
+carries **no GH binary asset**. Pointsman vst is paid via Polar
+per the im9 distribution strategy (2026-05-17);
+`dist/Pointsman.dmg` and `dist/Pointsman.pkg` are uploaded to
+Polar manually. (m4l stays free with `m4l-vX.Y.Z` tags + `.amxd`
+attached as the GH Release asset, unchanged from ADR 002.)
+
+- [ ] Port `vst/scripts/build-pkg.sh` from
+      `~/src/vst/oedipa/vst/scripts/build-pkg.sh` with mechanical
+      substitutions (`Oedipa` → `Pointsman`,
+      `fm.im9.oedipa.{vst3,au,clap}` →
+      `fm.im9.pointsman.{vst3,au,clap}`,
+      `Oedipa_artefacts` → `Pointsman_artefacts`).
+- [ ] Port `vst/scripts/distribution.xml` and
+      `vst/scripts/pkg-resources/{en,ja}.lproj/{welcome,license,conclusion}.txt`
+      with the same substitutions. `license.txt` reflects the
+      vst-side proprietary terms
+      ([`vst/LICENSE`](../../../vst/LICENSE) per c6311f0), not
+      the m4l MIT license.
+- [ ] Add `release-vst` to root
+      [`Makefile`](../../../Makefile) chaining
+      `cd vst && make build` → `codesign.sh` → `notarize.sh` →
+      `build-dmg.sh` → `build-pkg.sh`. Make `release` depend on
+      `release-m4l release-vst`. Remove the stale
+      `release-vst is deferred (see ADR 002 §Out of scope)`
+      comment.
+- [ ] Update [`.claude/skills/release/SKILL.md`](../../../.claude/skills/release/SKILL.md)
+      so `/release vst` produces the dmg + pkg pair (Step 2.5
+      invokes `make release-vst`; pre-flight Check 4, Step 4
+      verify, and Step 4.5 Polar reminder all mention both
+      artifacts). Mirrors oedipa / stencil's vst artifact-pair
+      operation; the tag-only-no-GH-asset pattern stays per the im9
+      distribution strategy.
+- [ ] Verification: `make release-vst` on a clean tree produces
+      both `dist/Pointsman.dmg` and `dist/Pointsman.pkg`, both
+      `xcrun stapler validate`-clean; pkg installs on the author
+      machine with at least one format opt-out exercised on the
+      choices screen; bundles load in Logic Pro (AU MIDI FX)
+      and Bitwig Studio (CLAP + VST3) without Gatekeeper
+      friction.
+- [ ] `gh release create vst-v0.1.0` on `im9/pointsman` with no
+      binary asset attached; upload `dist/Pointsman.dmg` and
+      `dist/Pointsman.pkg` to Polar manually; flip the vst rows
+      in [`README.md`](../../../README.md) §Targets to "Released
+      (vst-v0.1.0)" and add the Polar product link.
