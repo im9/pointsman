@@ -5,7 +5,7 @@
 **Created**: 2026-05-10
 **Phases 0–5 shipped**: 2026-05-17 — pure-C++17 engine + APVTS plugin core + inboil-derived editor across AU / VST3 / CLAP, v2 parameter surface from Phase 5 chord/harmony merge, signing + notarization pipeline producing `dist/Pointsman.dmg` verified end-to-end.
 
-**Revised**: 2026-05-18 — added §Release procedure at the foot of this ADR (pkg port from oedipa + `release-vst` Makefile target + Polar distribution channel + first `vst-v0.1.0` ship). Phases 0–5 architecture work remains shipped; status flipped Implemented → Proposed and the file moved out of `archive/` to track the new checklist. Flips back to Implemented and re-archives when §Release procedure is `[x]` end-to-end.
+**Revised**: 2026-05-18 — added §Release procedure at the foot of this ADR (pkg port from oedipa + `release-vst` Makefile target + paid-via-Polar distribution, no tag / no GH release for vst + first `v0.1.0` ship). Phases 0–5 architecture work remains shipped; status flipped Implemented → Proposed and the file moved out of `archive/` to track the new checklist. Flips back to Implemented and re-archives when §Release procedure is `[x]` end-to-end.
 
 **Revised**: 2026-05-16 — parameter surface redesign (Phase 5). The
 2026-05-10 ↔ 2026-05-15 phases (0–4) shipped a working vst against
@@ -1053,12 +1053,15 @@ stays the dmg's job), en + ja localized welcome / license /
 conclusion. `productsign` uses the matching `Developer ID
 Installer` cert under the same team ID.
 
-**Distribution channel**: tag `vst-vX.Y.Z` on `im9/pointsman`
-carries **no GH binary asset**. Pointsman vst is paid via Polar
-per the im9 distribution strategy (2026-05-17);
-`dist/Pointsman.dmg` and `dist/Pointsman.pkg` are uploaded to
-Polar manually. (m4l stays free with `m4l-vX.Y.Z` tags + `.amxd`
-attached as the GH Release asset, unchanged from ADR 002.)
+**Distribution channel**: vst is local-only on GitHub — no tag,
+no GH release. Pointsman vst is paid via Polar per the im9
+distribution strategy (2026-05-17); `dist/Pointsman.dmg` and
+`dist/Pointsman.pkg` are uploaded to Polar manually, out of band.
+The in-tree `project(Pointsman VERSION …)` line in
+[`vst/CMakeLists.txt`](../../../vst/CMakeLists.txt) is the
+authoritative version source. (m4l stays free with `m4l-vX.Y.Z`
+tags + `.amxd` attached as the GH Release asset, unchanged from
+ADR 002.)
 
 - [x] Port `vst/scripts/build-pkg.sh` from
       `~/src/vst/oedipa/vst/scripts/build-pkg.sh` with mechanical
@@ -1080,12 +1083,12 @@ attached as the GH Release asset, unchanged from ADR 002.)
       `release-vst is deferred (see ADR 002 §Out of scope)`
       comment.
 - [x] Update [`.claude/skills/release/SKILL.md`](../../../.claude/skills/release/SKILL.md)
-      so `/release vst` produces the dmg + pkg pair (Step 2.5
-      invokes `make release-vst`; pre-flight Check 4, Step 4
-      verify, and Step 4.5 Polar reminder all mention both
-      artifacts). Mirrors oedipa / stencil's vst artifact-pair
-      operation; the tag-only-no-GH-asset pattern stays per the im9
-      distribution strategy.
+      so `/release vst` produces the dmg + pkg pair locally. Skill
+      mirrors oedipa's structure: Step 1.5 bumps `CMakeLists.txt`
+      VERSION (skipped on `none`), Step 1.6 runs `make release-vst`
+      inside the skill and verifies both stapler-validate, vst
+      flow stops there. No tag, no GH release — downstream handling
+      of the local artifacts is out of skill scope.
 - [ ] Verification: `make release-vst` on a clean tree produces
       both `dist/Pointsman.dmg` and `dist/Pointsman.pkg`, both
       `xcrun stapler validate`-clean; pkg installs on the author
@@ -1093,8 +1096,7 @@ attached as the GH Release asset, unchanged from ADR 002.)
       choices screen; bundles load in Logic Pro (AU MIDI FX)
       and Bitwig Studio (CLAP + VST3) without Gatekeeper
       friction.
-- [ ] `gh release create vst-v0.1.0` on `im9/pointsman` with no
-      binary asset attached; upload `dist/Pointsman.dmg` and
-      `dist/Pointsman.pkg` to Polar manually; flip the vst rows
-      in [`README.md`](../../../README.md) §Targets to "Released
-      (vst-v0.1.0)" and add the Polar product link.
+- [ ] Upload `dist/Pointsman.dmg` and `dist/Pointsman.pkg` to
+      Polar manually (no GitHub tag / release for vst); flip the
+      vst rows in [`README.md`](../../../README.md) §Targets to
+      "Released (`v0.1.0`)" and add the Polar product link.

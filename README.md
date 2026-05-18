@@ -72,9 +72,11 @@ editor, and the Phase 5 parameter-surface redesign (chord/harmony
 merge, `feel` + `drift`, `kStateVersion=2`) have all shipped. The
 build produces VST3 + AU + CLAP bundles for Logic / Bitwig / Reaper,
 mirroring oedipa's DAW support stance. The first vst public release
-(`vst-v0.1.0`, paid via Polar) is in prep per ADR 003 §Release
+(`v0.1.0`, paid via Polar) is in prep per ADR 003 §Release
 procedure — signed + notarized + stapled `Pointsman.dmg` and
-`Pointsman.pkg` are produced locally; Polar upload is manual.
+`Pointsman.pkg` are produced locally; no GitHub tag / release for
+vst (the in-tree `project(Pointsman VERSION …)` line is the
+authoritative version source); Polar upload is manual.
 
 [adr2]: docs/ai/adr/002-pointsman-release.md
 [adr3]: docs/ai/adr/003-pointsman-vst-architecture.md
@@ -94,9 +96,9 @@ see [Build](#build) below.
 | Target | Status | Notes |
 |---|---|---|
 | [Max for Live](m4l/) | v0.1.0 shipped; v2 surface in distribution prep | Ableton Live MIDI effect. Current primary target. |
-| [VST3](vst/) | Built; `vst-v0.1.0` in release prep (paid via Polar) | DAW-native plugin. |
-| [AU](vst/) | Built; `vst-v0.1.0` in release prep (paid via Polar) | Same codebase as the VST3. |
-| [CLAP](vst/) | Built; `vst-v0.1.0` in release prep (paid via Polar) | Same codebase, wrapped via `clap-juce-extensions` (Bitwig's native format). |
+| [VST3](vst/) | Built; `v0.1.0` in release prep (paid via Polar) | DAW-native plugin. |
+| [AU](vst/) | Built; `v0.1.0` in release prep (paid via Polar) | Same codebase as the VST3. |
+| [CLAP](vst/) | Built; `v0.1.0` in release prep (paid via Polar) | Same codebase, wrapped via `clap-juce-extensions` (Bitwig's native format). |
 
 Musical logic is shared as a specification, not as code. m4l and vst
 are independent native implementations. Cross-target conformance is

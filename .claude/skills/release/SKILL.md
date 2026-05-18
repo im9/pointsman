@@ -1,47 +1,65 @@
 ---
 name: release
-description: Cut a versioned per-target release of Pointsman (m4l or vst). Bumps the source-of-truth version (vst/CMakeLists.txt project(...) for vst, m4l/package.json for m4l), verifies repo state (clean / synced / CI green / artifact freshness), drafts release notes from the per-target commit log, and runs the tag → push → gh release create flow with explicit user approval at each step.
-argument-hint: "<m4l|vst> [major|minor|patch]"
-allowed-tools: Read, Write, Edit, Bash(git *), Bash(gh *), Bash(stat *), Bash(ls *), Bash(xcrun *), Bash(rm /tmp/pointsman-*)
+description: Cut a versioned per-target release of Pointsman. m4l publishes to GitHub Releases (tag + asset + notes); vst is local-only (CMakeLists VERSION bump + `make release-vst` to produce signed/notarized dmg AND pkg in dist/, no tag, no GH release — downstream handling is out of skill scope). Verifies repo state, bumps semver, runs the build (vst), drafts notes (m4l), and walks each step with explicit user approval. `none` bump (vst only) keeps the current version and regenerates artifacts — for doc-only fixes to bundled files.
+argument-hint: "<m4l|vst> [major|minor|patch|none]"
+allowed-tools: Read, Write, Edit, Bash(git *), Bash(gh *), Bash(stat *), Bash(ls *), Bash(rm /tmp/pointsman-*), Bash(make release-vst), Bash(xcrun stapler validate *)
 ---
 
 # Release Pointsman
 
 Cut a versioned per-target release. The first $ARGUMENT selects the
 target (`m4l` or `vst`); the second is the bump (`major` / `minor` /
-`patch`, default `patch`).
+`patch` / `none`, default `patch`). `none` is vst-only — keep the
+current version and regenerate artifacts only.
 
-Both targets tag on the source repo `im9/pointsman`; the tag prefix
-is what distinguishes them:
+m4l publishes to GitHub Releases with tags namespaced as
+`m4l-vX.Y.Z`. vst is local-only — no tag, no GH release; the
+in-tree `vst/CMakeLists.txt` `project(Pointsman VERSION …)` is the
+version source of record. The skill stops after producing the
+signed/notarized dmg + pkg in `dist/`; whatever happens to those
+artifacts after that is out of skill scope.
 
-- **m4l** → tag `m4l-vX.Y.Z` on `im9/pointsman`. Asset:
-  `dist/Pointsman.amxd` — frozen `.amxd`, manual freeze in Max
-  required. GitHub Releases is the distribution channel (free).
-  Mirrors oedipa's pattern.
-- **vst** → tag `vst-vX.Y.Z` on `im9/pointsman`. Distributed via
-  Polar (paid) — see
-  ([ADR 003 §Release procedure](../../../docs/ai/adr/003-pointsman-vst-architecture.md#release-procedure)).
-  The skill produces **both** `dist/Pointsman.dmg` (drag-to-install
-  fallback) **and** `dist/Pointsman.pkg` (recommended installer with
-  per-format opt-out), both signed + notarized + stapled, mirroring
-  oedipa / stencil's vst artifact pair; **upload to Polar is manual,
-  out of skill scope**. GH Releases stays **tag-only** — no binary
-  asset attached. **HALT and ask the user before publishing any vst
-  binary (dmg or pkg) as a free GH Releases download.**
+The legacy `im9/pointsman-m4l/v1.0.0` (canary distribution on a
+separate binary-only repo) is retained on that repo as legacy;
+future m4l releases live on `im9/pointsman` with the
+`m4l-v*` tag namespace.
 
-The historical `im9/pointsman-m4l/v1.0.0` (canary distribution on a
-separate binary-only repo) is retained on that repo as legacy; future
-m4l releases live on `im9/pointsman` and start fresh at `m4l-v1.0.0`.
+The release asset is target-specific:
 
-## Pre-flight checks (do these BEFORE creating the tag)
+- **m4l** → `dist/Pointsman.amxd` — frozen `.amxd`. Manual freeze
+  in Max required (snowflake button → *File → Save As*). See
+  [ADR 002](../../../docs/ai/adr/002-pointsman-release.md).
+- **vst** → `dist/Pointsman.pkg` (recommended installer) **and**
+  `dist/Pointsman.dmg` (drag-to-install fallback) — both signed /
+  notarized / stapled, built in lockstep by `make release-vst`.
+  Local artifacts only; GitHub Releases is not used for vst. See
+  [ADR 003 §Release procedure](../../../docs/ai/adr/003-pointsman-vst-architecture.md#release-procedure).
 
-Tags are durable. Once pushed, a release with downloads is harder to
-undo cleanly. Run all checks; STOP and ask the user if any fail.
+> **⚠️ vst is local-only.** No tag is created, no GH release is
+> created, no asset is uploaded by this skill. `/release vst` ends
+> at Step 1.6: a signed/notarized/stapled `dist/Pointsman.pkg` **and**
+> `dist/Pointsman.dmg` in `dist/` + (when bumping) a CMakeLists
+> VERSION bump committed to main. The build itself
+> (`make release-vst`) runs inside the skill at Step 1.6.
+> Downstream handling of the local artifacts (uploads, listing
+> copy, channel-specific metadata) is out of skill scope.
+>
+> No prior `vst-v*` tags exist on this repo; none will be created
+> going forward. The in-tree `project(Pointsman VERSION …)` line
+> in `vst/CMakeLists.txt` is the single authoritative version
+> source. m4l remains a free GitHub Releases distribution (tag +
+> release + asset).
+
+## Pre-flight checks (do these BEFORE the publish step)
+
+Once a release ships (m4l: tag pushed + GH release; vst:
+artifacts handed off downstream), it is harder to undo cleanly.
+Run all checks; STOP and ask the user if any fail.
 
 ### Check 1 — Working tree is clean
 
-`git status --porcelain` must be empty. Uncommitted changes leak into
-the release context if you tag now. Halt if dirty.
+`git status --porcelain` must be empty. Uncommitted changes leak
+into the release context. Halt if dirty.
 
 ### Check 2 — main is synced with origin
 
@@ -51,8 +69,9 @@ git rev-list --count main..origin/main   # must be 0 (origin not ahead)
 git rev-list --count origin/main..main   # must be 0 (local not ahead)
 ```
 
-If origin is ahead, `git pull`. If local is ahead, push first (via
-`/commit` for any unstaged work, then a normal push). Then re-run.
+If origin is ahead, `git pull`. If local is ahead, push first
+(via `/commit` for any unstaged work, then a normal push). Then
+re-run.
 
 ### Check 3 — CI is green on HEAD
 
@@ -61,18 +80,21 @@ gh run list --branch main --limit 5 --json conclusion,headSha,workflowName
 ```
 
 The most recent completed run for the current HEAD SHA must have
-`conclusion: "success"`. If still in progress or failed, halt and ask.
+`conclusion: "success"`. If still in progress or failed, halt and
+ask. Don't ship distribution artifacts past a red gate — chasing
+"probably just CI flake" has historically masked real regressions.
 
-### Check 4 — Artifact exists and reflects current target source
+### Check 4 — Asset reflects current source (m4l only)
 
-The artifact is gitignored, so it lives only on the build machine.
-Verify per target.
-
-#### m4l target
+For **m4l**, the asset is produced by manual Max freeze (no CLI
+freeze available), so this is a pre-flight gate — the user has to
+have done the freeze before the skill runs. For **vst**, skip this
+check; the build is run by the skill itself in Step 1.6, and the
+artifact freshness check moves there too.
 
 ```bash
 ls -la dist/Pointsman.amxd
-stat -f '%m' dist/Pointsman.amxd                # mtime as epoch
+stat -f '%m' dist/Pointsman.amxd                       # mtime as epoch
 git log -1 --format=%ct -- m4l/Pointsman.maxpat \
                             m4l/pointsman.mjs \
                             m4l/pointsman.entry.mjs \
@@ -80,86 +102,32 @@ git log -1 --format=%ct -- m4l/Pointsman.maxpat \
                             m4l/engine m4l/host        # latest m4l-source commit time
 ```
 
-`dist/Pointsman.amxd` mtime must be **>=** the latest m4l-source commit
-time. If older, halt and remind:
+`dist/Pointsman.amxd` mtime must be **>=** the latest m4l-source
+commit time. If older, halt and remind:
 
 > Open `m4l/Pointsman.amxd` in Max → click the snowflake (Freeze)
 > button in the patcher toolbar → *File → Save As*
 > `dist/Pointsman.amxd`.
 
-Even when the mtime check passes, **manual smoke test in a fresh Live
-track is recommended before tagging** — drag `dist/Pointsman.amxd`
-onto a new MIDI track, confirm it loads, scale-snap works, chord /
-harmony modes respond, MIDI flows through. CI does not (and cannot)
-cover this.
-
-#### vst target
-
-The skill produces `dist/Pointsman.dmg` AND `dist/Pointsman.pkg`
-(both signed / notarized / stapled) for manual upload to Polar.
-GH Releases stays tag-only.
-
-Run a local build sanity check:
-
-```bash
-(cd vst && make build && make test)
-```
-
-Verify `vst/CMakeLists.txt`'s `project(Pointsman VERSION X.Y.Z)`
-matches the version about to be tagged — the plist version the plugin
-reports to the host and the `v…` label drawn in the editor header are
-both sourced from this line via `POINTSMAN_VERSION_STRING`. If it
-doesn't match, bump first via Step 0 below.
-
-Verify signing / notarization credentials are present (Step 2.5 needs
-them):
-
-```bash
-test -n "${DEVELOPER_TEAM_ID:-}" || echo "missing DEVELOPER_TEAM_ID"
-xcrun notarytool history \
-  --keychain-profile "${NOTARY_PROFILE:-im9-notary}" \
-  >/dev/null 2>&1 \
-  || echo "missing notary keychain profile: ${NOTARY_PROFILE:-im9-notary}"
-```
-
-Halt if either is missing.
-
-Manual host smoke (Logic AU MIDI FX + Bitwig VST3 MIDI fx + Bitwig CLAP)
-is recommended before tagging — see ADR 003's host-load matrix.
+Even when the mtime check passes, **manual smoke test in a fresh
+Live track is recommended before tagging** — drag
+`dist/Pointsman.amxd` onto a new MIDI track, confirm it loads,
+scale-snap works, chord / harmony modes respond, MIDI flows
+through. CI does not (and cannot) cover this.
 
 ## Drafting
 
 After pre-flight passes:
 
-### Step 0 — Bump the source-of-truth version
-
-The displayed version in the editor header (`v0.1.x` right of the
-title) is fed from `project(Pointsman VERSION ...)` in
-`vst/CMakeLists.txt` via `POINTSMAN_VERSION_STRING`. The tag and the
-in-binary version **must move together** — otherwise the loaded plugin
-claims one version while the GH release announces another.
-
-```bash
-# Determine next version (logic in Step 1 below) and edit BEFORE tagging:
-#   vst target → vst/CMakeLists.txt   line 2: project(Pointsman VERSION x.y.z)
-#   m4l target → m4l/package.json     "version": "x.y.z"
-#                m4l/engine/package.json + m4l/host/package.json if you
-#                version them in lockstep
-```
-
-Commit this bump as `chore(<target>): vX.Y.Z` BEFORE creating the tag,
-so the tag points at a commit whose source already reports the new
-version. Then re-run pre-flight Check 4 (artifact mtime must now
-post-date the bump commit — for m4l, this means re-baking the
-`.amxd`).
-
-**Confirm with the user before committing the bump** — same gate as
-any other commit.
-
 ### Step 1 — Determine next version
 
-For **m4l**, parse the highest `m4l-v*` tag on the source repo and
-bump per the second $ARGUMENT (default `patch`):
+The second $ARGUMENT is the bump (default `patch`). `none` is
+**vst-only** and means "keep the current version, just regenerate
+artifacts" — useful when only bundled docs / readmes change and the
+plug-in binary doesn't actually need a new version.
+
+For **m4l**, parse the highest `m4l-v*` tag and bump per the second
+$ARGUMENT:
 
 ```bash
 git tag -l 'm4l-v*' | sort -V | tail -1
@@ -167,50 +135,111 @@ git tag -l 'm4l-v*' | sort -V | tail -1
 
 If no prior `m4l-v*` tag (first release on `im9/pointsman` — the
 legacy `v1.0.0` lives on `im9/pointsman-m4l` and does not count),
-propose `m4l-v1.0.0`.
+propose `m4l-v0.1.0`.
 
-For **vst**, query the source repo:
+(`none` is rejected for m4l — m4l version metadata isn't in-tree,
+so re-freezing at the same version would just produce a duplicate
+tag, which the skill blocks.)
+
+For **vst**, no tags are created — the in-tree
+`project(Pointsman VERSION X.Y.Z)` line in `vst/CMakeLists.txt` is
+the authoritative previous version. Bump from there, or keep with
+`none`:
 
 ```bash
-git tag -l 'vst-v*' | sort -V | tail -1
+grep '^project(Pointsman VERSION' vst/CMakeLists.txt
 ```
 
-If no prior `vst-v*` tag, propose `vst-v0.1.0`.
+Show the proposed version to the user and **confirm before
+proceeding**. The user can override.
 
-Show the proposed version to the user and **confirm before proceeding
-to Step 0**. The user can override.
+### Step 1.5 — Bump version metadata (vst only; skipped on `none`)
 
-### Step 2 — Draft release notes
+If Step 1 resolved to a new version (bump): edit
+`vst/CMakeLists.txt` so `project(Pointsman VERSION X.Y.Z)` matches
+the target version, commit, and push to main BEFORE the build runs
+in Step 1.6. The plist version reported to the DAW and the `v…`
+label drawn in the editor header both come from this line via
+`POINTSMAN_VERSION_STRING`.
 
-Generate the draft from the commit log between the previous per-target
-tag and HEAD.
+```bash
+# In vst/CMakeLists.txt, line 2:
+# project(Pointsman VERSION <old>) → project(Pointsman VERSION <new>)
+git add vst/CMakeLists.txt
+git commit -m "chore(vst): bump version to X.Y.Z"
+git push origin main
+```
 
-For **m4l**, use the previous `m4l-v*` tag:
+If Step 1 was `none` (regen at same version): skip this step
+entirely — nothing to commit, nothing to push. Proceed to Step 1.6
+so the build picks up whatever other source changes triggered the
+regen (e.g. bundled README / INSTALL.txt fixes).
+
+For m4l this step is skipped — m4l version metadata isn't in-tree
+(the freeze captures whatever is on disk).
+
+### Step 1.6 — Build and verify (vst only)
+
+Run `make release-vst` to produce both artifacts (codesign +
+notarize + staple + dmg + pkg are wrapped in the script chain):
+
+```bash
+make release-vst
+```
+
+This takes a few minutes — notarization is the long leg (waits on
+Apple's service). Requires `DEVELOPER_TEAM_ID` env var +
+`im9-notary` keychain profile + `Developer ID Application` and
+`Developer ID Installer` certs in the login keychain. If
+`make release-vst` fails, halt and surface the error; do not retry
+blindly — notarization rejections, expired certs, and missing env
+all need investigation before re-run.
+
+After build, verify both artifacts are present, fresh, and have a
+stapled notarization ticket:
+
+```bash
+ls -la dist/Pointsman.pkg dist/Pointsman.dmg
+stat -f '%m' dist/Pointsman.pkg                        # mtime as epoch
+stat -f '%m' dist/Pointsman.dmg                        # mtime as epoch
+git log -1 --format=%ct -- vst/Source/ \
+                            vst/CMakeLists.txt \
+                            vst/scripts/ \
+                            vst/tests/                 # latest vst-source commit time
+xcrun stapler validate dist/Pointsman.pkg
+xcrun stapler validate dist/Pointsman.dmg
+```
+
+Both `dist/Pointsman.pkg` AND `dist/Pointsman.dmg` mtimes must be
+**>=** the latest vst-source commit time, and `stapler validate`
+must succeed on both. If either check fails, halt — something went
+wrong in build or notarization.
+
+Manual host smoke (Logic AU MIDI FX + Bitwig VST3 MIDI fx + Bitwig
+CLAP) is recommended before handing the artifacts off downstream.
+
+**vst stops here.** Steps 2-5 are m4l-only. Downstream handling of
+`dist/Pointsman.dmg` and `dist/Pointsman.pkg` is out of skill scope.
+
+### Step 2 — Draft release notes (m4l only)
+
+For **vst**, skip this step — the skill does not draft downstream
+listing copy. Write any release-side description out of band.
+
+For **m4l**, compute the previous-release boundary (highest
+`m4l-v*` tag) and generate the changelog from the commit log
+between it and HEAD:
 
 ```bash
 PREV=$(git tag -l 'm4l-v*' | sort -V | tail -1)
-git log "${PREV:-}"..HEAD --pretty=format:'- %s' -- m4l/ docs/ai/
+git log "${PREV:-}"..HEAD --pretty=format:'- %s' -- m4l/
 ```
 
-If `$PREV` is empty (first m4l release on `im9/pointsman`), scope to
-m4l-touching commits since the repo started:
+If `$PREV` is empty (first m4l release on `im9/pointsman`), scope
+to m4l-touching commits since the repo started:
 
 ```bash
 git log --pretty=format:'- %s' -- m4l/ docs/ai/adr/
-```
-
-For **vst**, use the previous `vst-v*` tag:
-
-```bash
-PREV=$(git tag -l 'vst-v*' | sort -V | tail -1)
-git log "${PREV:-}"..HEAD --pretty=format:'- %s' -- vst/ docs/ai/
-```
-
-If `$PREV` is empty (first vst release), scope to vst-touching commits
-since the repo started:
-
-```bash
-git log --pretty=format:'- %s' -- vst/ docs/ai/adr/
 ```
 
 Categorize commits by their `type(scope):` prefix into sections:
@@ -220,169 +249,99 @@ Categorize commits by their `type(scope):` prefix into sections:
 - **Docs / housekeeping** — `docs:` / `chore:` / `style:` / `refactor:`
 - **CI / build** — `ci:`
 
-Drop the `Co-Authored-By` lines and trailing housekeeping noise. Keep
-the section short — release notes are for users, not contributors;
-detailed history is in `git log`.
+Drop the `Co-Authored-By` lines and trailing housekeeping noise.
+Keep the section short — release notes are for users, not
+contributors; detailed history is in `git log`.
 
-For the very first vst release (no prior `vst-v*` tag), use a
-project-intro template instead of a changelog: "What it does" /
-"Install" / "Requirements". For the first `m4l-v*` release on
-`im9/pointsman`, also use the project-intro template — the legacy
-`v1.0.0` on `im9/pointsman-m4l` is on a different repo and does not
-count as a prior boundary here. Subsequent m4l releases are
-changelog-style.
+For the very first `m4l-v*` release on `im9/pointsman`, use a
+project-intro template ("What it does" / "Install" /
+"Requirements") instead of a changelog — the legacy `v1.0.0` on
+`im9/pointsman-m4l` is on a different repo and does not count as a
+prior boundary here.
 
-Write the draft to `/tmp/pointsman-<tag>-notes.md` and show it to the
-user. **Wait for explicit "ok" or edit instructions** before Step 2.5
-(vst) or Step 3 (m4l).
+Write the draft to `/tmp/pointsman-m4l-vX.Y.Z-notes.md` and show it
+to the user. **Wait for explicit "ok" or edit instructions** before
+continuing. The file is fed to `gh release create --notes-file` in
+Step 3.
 
-### Step 2.5 — Build the dmg + pkg (vst only)
+### Step 3 — Tag, push, create release (m4l only)
 
-Skip for m4l. For vst, after notes are approved, build the signed +
-notarized dmg AND pkg **before** tagging — if notarization fails or
-the build is broken, no tag has been created yet, so we can re-run
-cleanly. The Makefile target chains the four scripts in the right
-order:
-
-```bash
-make release-vst    # cd vst && make build → codesign → notarize → build-dmg → build-pkg
-```
-
-Notarize can take 1–10 minutes per artifact (dmg and pkg are
-notarized as separate submissions). The scripts wait synchronously
-on `xcrun notarytool submit --wait`; do not background them.
-
-Verify both results:
-
-```bash
-ls -la dist/Pointsman.dmg dist/Pointsman.pkg
-xcrun stapler validate dist/Pointsman.dmg
-xcrun stapler validate dist/Pointsman.pkg
-pkgutil --check-signature dist/Pointsman.pkg
-```
-
-Both artifacts are signed-and-stapled at the wrapper layer, with
-the bundles inside also signed-and-stapled (belt-and-braces);
-offline Gatekeeper accepts both layers. The pkg additionally
-carries a `Developer ID Installer` signature on the productbuild
-wrapper (distinct from the `Developer ID Application` cert on the
-bundles).
-
-**Confirm both artifacts with the user before tagging.** Ideally
-install the pkg (or mount the dmg) and smoke-test in Logic / Bitwig
-first — once we tag, the version number baked into the artifacts is
+For **vst**, skip this step entirely — vst is local-only (see the
+block at the top). vst's flow already ended at Step 1.6 with both
+artifacts in `dist/` and (when bumping) the CMakeLists bump
 committed.
-
-### Step 3 — Tag, push, create release
-
-For **m4l** (tag + asset on the source repo):
 
 ```bash
 TAG=m4l-vX.Y.Z
+ASSET=dist/Pointsman.amxd
 TITLE="Pointsman m4l vX.Y.Z"
 
 git tag "$TAG"
 git push origin "$TAG"
-gh release create "$TAG" dist/Pointsman.amxd \
+gh release create "$TAG" "$ASSET" \
   --title "$TITLE" \
   --notes-file "/tmp/pointsman-$TAG-notes.md"
 ```
 
-For **vst** (tag on the source repo, no asset):
+### Step 4 — Verify (m4l only)
 
 ```bash
-TAG=vst-vX.Y.Z
-TITLE="Pointsman vst vX.Y.Z"
-
-git tag "$TAG"
-git push origin "$TAG"
-gh release create "$TAG" \
-  --title "$TITLE" \
-  --notes-file "/tmp/pointsman-$TAG-notes.md"
-```
-
-### Step 4 — Verify
-
-```bash
-# m4l
 gh release view "$TAG" --json name,tagName,assets,url
-
-# vst
-gh release view "$TAG" --json name,tagName,assets,url
-ls -la dist/Pointsman.dmg dist/Pointsman.pkg   # local deliverables for Polar upload
 ```
 
 Confirm:
 
-- For m4l: `assets[0].name == "Pointsman.amxd"`, `assets[0].size > 0`,
-  and matches the local file's size.
-- For vst: `assets == []` (tag-only by design — distribution via
-  Polar, not GH Releases) AND both `dist/Pointsman.dmg` and
-  `dist/Pointsman.pkg` exist with non-zero size.
+- `assets[0].name` is `Pointsman.amxd`.
+- `assets[0].size` > 0 and matches the local file's size.
 - The release URL is reachable.
 
 Show the release URL to the user.
 
-### Step 4.5 — Polar upload reminder (vst only)
-
-Skip for m4l. For vst, remind the user:
-
-> Upload **both** `dist/Pointsman.dmg` and `dist/Pointsman.pkg` to
-> Polar:
->   https://polar.sh/dashboard
-> Polar serves both as the download options on the product page —
-> dmg for users who want drag-install, pkg for users who want a
-> per-format opt-out installer. Update the product version and
-> release notes there manually. The GH Releases tag is for source-
-> history bookkeeping; Polar is the actual distribution channel.
-
-This step is informational only — uploading is manual and out of
-skill scope. Do not attempt to automate via Polar API without a
-follow-up ADR.
-
-### Step 5 — Cleanup
+### Step 5 — Cleanup (m4l only)
 
 ```bash
-rm "/tmp/pointsman-$TAG-notes.md"
+rm "/tmp/pointsman-m4l-vX.Y.Z-notes.md"
 ```
 
 ## Rules
 
-- **Bump before tag.** `project(Pointsman VERSION ...)` (vst) or
-  `package.json` (m4l) must be edited and committed BEFORE the tag
-  exists. The editor reads the version at compile time via
-  `POINTSMAN_VERSION_STRING`, so a tag that pre-dates the bump points
-  at a binary reporting the OLD version.
-- **Asset is target-specific; both tags live on the source repo.**
-  m4l → `dist/Pointsman.amxd` attached to GH Releases on
-  `im9/pointsman` (free, mirrors oedipa). vst → tag-only on
-  `im9/pointsman`; **both** `dist/Pointsman.dmg` and
-  `dist/Pointsman.pkg` produced locally for Polar upload (manual),
-  mirroring oedipa / stencil's vst artifact pair. Never mix.
-- **Tag scheme is target-prefixed.** m4l uses `m4l-vX.Y.Z`, vst uses
-  `vst-vX.Y.Z`, both on `im9/pointsman`. The prefixes keep the two
-  release lines from colliding on a single repo. The legacy
-  `im9/pointsman-m4l/v1.0.0` lives on a separate binary-only repo
-  and is not part of this tag line — `m4l-v1.0.0` here is the first
-  release of the new line.
-- **Manual Freeze required for m4l.** Max has no CLI freeze; this skill
-  does not automate it.
-- **Tag once, never re-tag.** If a tag for the proposed version already
-  exists, bump again rather than overwrite. Force-deleting a pushed
-  tag is messy and breaks anyone who pulled it.
-- **Notes via `--notes-file`, not `--notes`.** The temp-file flow lets
-  the user edit before publish.
-- **Halt on any pre-flight failure.** Don't release past a red gate.
-- **Halt on any user-confirmation gate.** Steps 0 (bump commit),
-  1 (version number), 2 (notes) each require explicit "ok" — don't
-  proceed silently.
-- **vst dmg + pkg are local-only.** The skill produces both
-  `dist/Pointsman.dmg` and `dist/Pointsman.pkg` for manual upload to
-  Polar (paid distribution channel). GH Releases stays tag-only —
-  never attach either artifact to `gh release create` for vst. Halt
-  and ask the user before publishing any vst binary (dmg or pkg) as
-  a free GH Releases download.
-- **Polar API automation is out of scope.** Until a follow-up ADR
-  records the API contract and credentials handling, dmg + pkg
-  upload to Polar stays manual. Do not call Polar's API from this
-  skill.
+- **Asset is target-specific.** m4l → `dist/Pointsman.amxd`
+  (frozen); vst → both `dist/Pointsman.pkg`
+  (signed/notarized/stapled installer) and `dist/Pointsman.dmg`
+  (signed/notarized/stapled drag-to-install). Never mix.
+- **m4l publishes to GitHub; vst does not.** m4l tags
+  `m4l-vX.Y.Z`, creates a GH release, attaches the `.amxd`. vst
+  skips Step 3/4 entirely — no tag, no GH release, no asset
+  upload. Downstream handling of vst artifacts is out of skill
+  scope.
+- **vst version source of record = CMakeLists.** Since vst has no
+  tags going forward, `project(Pointsman VERSION X.Y.Z)` in
+  `vst/CMakeLists.txt` is the single authoritative version. Bump
+  at Step 1.5 (skipped on `none`) and commit + push before Step
+  1.6 builds the artifacts.
+- **Manual Freeze required for m4l.** Max has no CLI freeze; this
+  skill does not automate it.
+- **`make release-vst` runs inside the skill (Step 1.6).** Both
+  the dmg and the pkg are built + signed + notarized + stapled by
+  the script chain (`codesign.sh` → `notarize.sh` →
+  `build-dmg.sh` → `build-pkg.sh`). The skill invokes it after
+  Step 1.5 — the user doesn't run it manually. Requires
+  `DEVELOPER_TEAM_ID` + `im9-notary` keychain profile + signing
+  certs in the login keychain (see ADR 003 §Release procedure).
+- **`none` bump is vst-only.** A vst regen at the same version is
+  for doc-only fixes (bundled README / INSTALL.txt) where the
+  plug-in binary doesn't need a version change. Step 1.5 is
+  skipped; Step 1.6 still rebuilds artifacts so the new bundled
+  files land in dmg + pkg.
+- **Tag once, never re-tag (m4l).** If an `m4l-v*` tag for the
+  proposed version already exists, bump again rather than
+  overwrite. Force-deleting a tag that was already pushed is
+  messy and breaks anyone who pulled it.
+- **Notes via `--notes-file`, not `--notes`** (m4l). The temp-file
+  flow lets the user edit before publish. vst has no
+  notes-drafting step — downstream listing copy is written out of
+  band.
+- **Halt on any pre-flight failure.** Don't release past a red
+  gate.
+- **Halt on any user-confirmation gate.** Steps 1 (version) and 2
+  (notes) require explicit "ok" — don't proceed silently.
