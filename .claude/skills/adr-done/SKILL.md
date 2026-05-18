@@ -31,7 +31,7 @@ Mark ADR $ARGUMENTS as completed and archive it.
    - Add a dated line under the existing `**Created**` / `**Revised**` block:
      `**Implemented**: YYYY-MM-DD (one-line summary of what was verified)`
      — use today's date, mirror the wording style of the most recent archived
-     ADR (e.g. `archive/001-engine-interface.md`).
+     ADR (e.g. `archive/001-pointsman-base.md`).
 
 6. **Move to archive** (use `git mv` so history is preserved):
    - `git mv docs/ai/adr/NNN-...md docs/ai/adr/archive/NNN-...md`

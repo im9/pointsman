@@ -93,8 +93,8 @@ Default structure (omit sections that don't apply):
 
 Why is this needed? What is the current situation? What problems exist?
 State the **musical motivation first**, before implementation concerns —
-Stencil is a generative MIDI effect, and design rationale starts with
-the sonic / compositional reason for the change.
+Pointsman is a scale-quantizer MIDI effect, and design rationale
+starts with the sonic / compositional reason for the change.
 
 ## Decision
 
@@ -137,10 +137,12 @@ prose preamble or `§Verification` notes (per
 
 ## Per-target notes
 
-m4l / vst considerations. Engine-level decisions update the shared test
-vectors at
-[docs/ai/turing-test-vectors.json](../../../docs/ai/turing-test-vectors.json)
-(or `quantizer-test-vectors.json` for QT semantics) per ADR 001.
+m4l / vst considerations. Engine-level decisions update the shared
+test vectors at
+[docs/ai/quantizer-test-vectors.json](../../../docs/ai/quantizer-test-vectors.json)
+(scale snap / chord expansion semantics) and/or
+[docs/ai/rng-test-vectors.json](../../../docs/ai/rng-test-vectors.json)
+(humanize RNG primitives) per ADR 001.
 
 ## Supersedes (if applicable)
 
