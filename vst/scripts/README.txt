@@ -1,5 +1,5 @@
 Pointsman — Scale quantizer MIDI effect
-im9 / Free distribution
+im9
 
 
 About
@@ -57,4 +57,7 @@ device chain.
 License
 -------
 
-MIT — https://github.com/im9/pointsman/blob/main/LICENSE
+Proprietary, im9. Personal non-commercial use is permitted for
+binaries built from source. Redistribution and commercial use require
+written permission. See vst/LICENSE in the source repository:
+https://github.com/im9/pointsman/blob/main/vst/LICENSE
