@@ -20,12 +20,14 @@ is what distinguishes them:
   Mirrors oedipa's pattern.
 - **vst** → tag `vst-vX.Y.Z` on `im9/pointsman`. Distributed via
   Polar (paid) — see
-  ([ADR 003 §Out of scope](../../../docs/ai/adr/archive/003-pointsman-vst-architecture.md)).
-  The skill produces `dist/Pointsman.dmg` (signed + notarized +
-  stapled) locally; **upload to Polar is manual, out of skill scope**.
-  GH Releases stays **tag-only** — no binary asset attached. **HALT
-  and ask the user before publishing any vst binary as a free GH
-  Releases download.**
+  ([ADR 003 §Release procedure](../../../docs/ai/adr/003-pointsman-vst-architecture.md#release-procedure)).
+  The skill produces **both** `dist/Pointsman.dmg` (drag-to-install
+  fallback) **and** `dist/Pointsman.pkg` (recommended installer with
+  per-format opt-out), both signed + notarized + stapled, mirroring
+  oedipa / stencil's vst artifact pair; **upload to Polar is manual,
+  out of skill scope**. GH Releases stays **tag-only** — no binary
+  asset attached. **HALT and ask the user before publishing any vst
+  binary (dmg or pkg) as a free GH Releases download.**
 
 The historical `im9/pointsman-m4l/v1.0.0` (canary distribution on a
 separate binary-only repo) is retained on that repo as legacy; future
@@ -93,8 +95,9 @@ cover this.
 
 #### vst target
 
-The skill produces `dist/Pointsman.dmg` (signed / notarized / stapled)
-for manual upload to Polar. GH Releases stays tag-only.
+The skill produces `dist/Pointsman.dmg` AND `dist/Pointsman.pkg`
+(both signed / notarized / stapled) for manual upload to Polar.
+GH Releases stays tag-only.
 
 Run a local build sanity check:
 
@@ -233,35 +236,42 @@ Write the draft to `/tmp/pointsman-<tag>-notes.md` and show it to the
 user. **Wait for explicit "ok" or edit instructions** before Step 2.5
 (vst) or Step 3 (m4l).
 
-### Step 2.5 — Build the dmg (vst only)
+### Step 2.5 — Build the dmg + pkg (vst only)
 
 Skip for m4l. For vst, after notes are approved, build the signed +
-notarized dmg **before** tagging — if notarization fails or the build
-is broken, no tag has been created yet, so we can re-run cleanly.
+notarized dmg AND pkg **before** tagging — if notarization fails or
+the build is broken, no tag has been created yet, so we can re-run
+cleanly. The Makefile target chains the four scripts in the right
+order:
 
 ```bash
-cd vst
-./scripts/codesign.sh
-./scripts/notarize.sh
-./scripts/build-dmg.sh   # → dist/Pointsman.dmg
+make release-vst    # cd vst && make build → codesign → notarize → build-dmg → build-pkg
 ```
 
-Notarize can take 1–10 minutes. The scripts wait synchronously on
-`xcrun notarytool submit --wait`; do not background them.
+Notarize can take 1–10 minutes per artifact (dmg and pkg are
+notarized as separate submissions). The scripts wait synchronously
+on `xcrun notarytool submit --wait`; do not background them.
 
-Verify the result:
+Verify both results:
 
 ```bash
-ls -la dist/Pointsman.dmg
+ls -la dist/Pointsman.dmg dist/Pointsman.pkg
 xcrun stapler validate dist/Pointsman.dmg
+xcrun stapler validate dist/Pointsman.pkg
+pkgutil --check-signature dist/Pointsman.pkg
 ```
 
-The dmg is signed-and-stapled with the bundles inside also signed-
-and-stapled (belt-and-braces); offline Gatekeeper accepts both layers.
+Both artifacts are signed-and-stapled at the wrapper layer, with
+the bundles inside also signed-and-stapled (belt-and-braces);
+offline Gatekeeper accepts both layers. The pkg additionally
+carries a `Developer ID Installer` signature on the productbuild
+wrapper (distinct from the `Developer ID Application` cert on the
+bundles).
 
-**Confirm the dmg with the user before tagging.** Ideally mount and
-smoke-test in Logic / Bitwig first — once we tag, the version number
-baked into the dmg is committed.
+**Confirm both artifacts with the user before tagging.** Ideally
+install the pkg (or mount the dmg) and smoke-test in Logic / Bitwig
+first — once we tag, the version number baked into the artifacts is
+committed.
 
 ### Step 3 — Tag, push, create release
 
@@ -299,7 +309,7 @@ gh release view "$TAG" --json name,tagName,assets,url
 
 # vst
 gh release view "$TAG" --json name,tagName,assets,url
-ls -la dist/Pointsman.dmg     # local deliverable for Polar upload
+ls -la dist/Pointsman.dmg dist/Pointsman.pkg   # local deliverables for Polar upload
 ```
 
 Confirm:
@@ -307,8 +317,8 @@ Confirm:
 - For m4l: `assets[0].name == "Pointsman.amxd"`, `assets[0].size > 0`,
   and matches the local file's size.
 - For vst: `assets == []` (tag-only by design — distribution via
-  Polar, not GH Releases) AND `dist/Pointsman.dmg` exists with
-  non-zero size.
+  Polar, not GH Releases) AND both `dist/Pointsman.dmg` and
+  `dist/Pointsman.pkg` exist with non-zero size.
 - The release URL is reachable.
 
 Show the release URL to the user.
@@ -317,11 +327,14 @@ Show the release URL to the user.
 
 Skip for m4l. For vst, remind the user:
 
-> Upload `dist/Pointsman.dmg` to Polar:
+> Upload **both** `dist/Pointsman.dmg` and `dist/Pointsman.pkg` to
+> Polar:
 >   https://polar.sh/dashboard
-> Update the product version and release notes there manually. The
-> GH Releases tag is for source-history bookkeeping; Polar is the
-> actual distribution channel.
+> Polar serves both as the download options on the product page —
+> dmg for users who want drag-install, pkg for users who want a
+> per-format opt-out installer. Update the product version and
+> release notes there manually. The GH Releases tag is for source-
+> history bookkeeping; Polar is the actual distribution channel.
 
 This step is informational only — uploading is manual and out of
 skill scope. Do not attempt to automate via Polar API without a
@@ -343,8 +356,9 @@ rm "/tmp/pointsman-$TAG-notes.md"
 - **Asset is target-specific; both tags live on the source repo.**
   m4l → `dist/Pointsman.amxd` attached to GH Releases on
   `im9/pointsman` (free, mirrors oedipa). vst → tag-only on
-  `im9/pointsman`; `dist/Pointsman.dmg` produced locally for Polar
-  upload (manual). Never mix.
+  `im9/pointsman`; **both** `dist/Pointsman.dmg` and
+  `dist/Pointsman.pkg` produced locally for Polar upload (manual),
+  mirroring oedipa / stencil's vst artifact pair. Never mix.
 - **Tag scheme is target-prefixed.** m4l uses `m4l-vX.Y.Z`, vst uses
   `vst-vX.Y.Z`, both on `im9/pointsman`. The prefixes keep the two
   release lines from colliding on a single repo. The legacy
@@ -362,11 +376,13 @@ rm "/tmp/pointsman-$TAG-notes.md"
 - **Halt on any user-confirmation gate.** Steps 0 (bump commit),
   1 (version number), 2 (notes) each require explicit "ok" — don't
   proceed silently.
-- **vst dmg is local-only.** The skill produces `dist/Pointsman.dmg`
-  for manual upload to Polar (paid distribution channel). GH Releases
-  stays tag-only — never attach the dmg to `gh release create` for
-  vst. Halt and ask the user before publishing any vst binary as a
-  free GH Releases download.
+- **vst dmg + pkg are local-only.** The skill produces both
+  `dist/Pointsman.dmg` and `dist/Pointsman.pkg` for manual upload to
+  Polar (paid distribution channel). GH Releases stays tag-only —
+  never attach either artifact to `gh release create` for vst. Halt
+  and ask the user before publishing any vst binary (dmg or pkg) as
+  a free GH Releases download.
 - **Polar API automation is out of scope.** Until a follow-up ADR
-  records the API contract and credentials handling, dmg upload to
-  Polar stays manual. Do not call Polar's API from this skill.
+  records the API contract and credentials handling, dmg + pkg
+  upload to Polar stays manual. Do not call Polar's API from this
+  skill.

@@ -1,0 +1,15 @@
+Installation complete.
+
+Pointsman is now available system-wide. Where to find it:
+
+    Logic Pro       AU MIDI FX slot on a software-instrument track
+    Bitwig Studio   Note FX slot, as VST3 or CLAP, before an instrument
+    Reaper          VST3 or CLAP in any MIDI / FX chain
+    Studio One      VST3 in the MIDI fx slot
+
+Your DAW may need a plug-in rescan or restart before Pointsman appears in the browser.
+
+Project: https://github.com/im9/pointsman
+Support: https://github.com/im9/pointsman/issues
+
+Thank you for installing Pointsman.

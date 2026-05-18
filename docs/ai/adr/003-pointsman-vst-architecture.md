@@ -1060,26 +1060,26 @@ per the im9 distribution strategy (2026-05-17);
 Polar manually. (m4l stays free with `m4l-vX.Y.Z` tags + `.amxd`
 attached as the GH Release asset, unchanged from ADR 002.)
 
-- [ ] Port `vst/scripts/build-pkg.sh` from
+- [x] Port `vst/scripts/build-pkg.sh` from
       `~/src/vst/oedipa/vst/scripts/build-pkg.sh` with mechanical
       substitutions (`Oedipa` → `Pointsman`,
       `fm.im9.oedipa.{vst3,au,clap}` →
       `fm.im9.pointsman.{vst3,au,clap}`,
       `Oedipa_artefacts` → `Pointsman_artefacts`).
-- [ ] Port `vst/scripts/distribution.xml` and
+- [x] Port `vst/scripts/distribution.xml` and
       `vst/scripts/pkg-resources/{en,ja}.lproj/{welcome,license,conclusion}.txt`
       with the same substitutions. `license.txt` reflects the
       vst-side proprietary terms
       ([`vst/LICENSE`](../../../vst/LICENSE) per c6311f0), not
       the m4l MIT license.
-- [ ] Add `release-vst` to root
+- [x] Add `release-vst` to root
       [`Makefile`](../../../Makefile) chaining
       `cd vst && make build` → `codesign.sh` → `notarize.sh` →
       `build-dmg.sh` → `build-pkg.sh`. Make `release` depend on
       `release-m4l release-vst`. Remove the stale
       `release-vst is deferred (see ADR 002 §Out of scope)`
       comment.
-- [ ] Update [`.claude/skills/release/SKILL.md`](../../../.claude/skills/release/SKILL.md)
+- [x] Update [`.claude/skills/release/SKILL.md`](../../../.claude/skills/release/SKILL.md)
       so `/release vst` produces the dmg + pkg pair (Step 2.5
       invokes `make release-vst`; pre-flight Check 4, Step 4
       verify, and Step 4.5 Polar reminder all mention both

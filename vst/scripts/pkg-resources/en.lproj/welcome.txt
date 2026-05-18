@@ -1,0 +1,13 @@
+Welcome to the Pointsman installer.
+
+Pointsman is a scale-quantizer MIDI effect by im9: it snaps incoming notes to a user-selected scale, with an optional chord mode that expands each input note into a configurable diatonic voice stack, plus a per-event humanize layer. This installer places the Pointsman plug-in (VST3, AU, and CLAP formats) into the system-wide Audio Plug-Ins folders, so any DAW on this Mac can find it:
+
+    /Library/Audio/Plug-Ins/VST3/Pointsman.vst3
+    /Library/Audio/Plug-Ins/Components/Pointsman.component
+    /Library/Audio/Plug-Ins/CLAP/Pointsman.clap
+
+You will be asked for your administrator password before installation.
+
+If you would rather place the bundles in a custom location, quit this installer and use the Pointsman.dmg distribution instead — it lets you drag the bundles wherever you want.
+
+In the Customize step you can deselect any plug-in format you do not need (for example, skip CLAP on a Logic-only setup). All three are selected by default.
