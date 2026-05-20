@@ -47,6 +47,28 @@ namespace
             1, false);
     }
 
+    // Drag event: `startPt` is where mouseDown landed, `currentPt` is
+    // where the mouse has dragged to. numClicks=1, draggedSinceMouseDown=true.
+    juce::MouseEvent makeFakeMouseDrag(juce::Component& target,
+                                       juce::Point<int> startPt,
+                                       juce::Point<int> currentPt)
+    {
+        const auto src = juce::Desktop::getInstance().getMainMouseSource();
+        const auto curPos   = currentPt.toFloat();
+        const auto startPos = startPt.toFloat();
+        return juce::MouseEvent(
+            src, curPos, juce::ModifierKeys(),
+            juce::MouseInputSource::defaultPressure,
+            juce::MouseInputSource::defaultOrientation,
+            juce::MouseInputSource::defaultRotation,
+            juce::MouseInputSource::defaultTiltX,
+            juce::MouseInputSource::defaultTiltY,
+            &target, &target,
+            juce::Time::getCurrentTime(),
+            startPos, juce::Time::getCurrentTime(),
+            1, true);
+    }
+
     int loadInt(juce::AudioProcessorValueTreeState& s, const char* p)
     {
         return static_cast<int>(s.getRawParameterValue(p)->load());
@@ -506,9 +528,13 @@ TEST_CASE("ControlsView: range slider round-trips with kbdRange APVTS params",
     REQUIRE(slider.getMaxValue() == defaults::kbdRangeHiNote);
 
     // Slider → APVTS (user drag). Setting min/max with sendNotification
-    // fires onValueChange → writes APVTS.
-    slider.setMinValue(48.0, juce::sendNotificationSync);
+    // fires onValueChange → writes APVTS. Set max BEFORE min so the
+    // intermediate state still satisfies the 25-key minimum span the
+    // RangeSlider enforces (see the dedicated min-span test below):
+    // going min(48)→max(96) would hit a transient max=71 still on the
+    // default, leaving a 23-semitone gap that the clamp narrows.
     slider.setMaxValue(96.0, juce::sendNotificationSync);
+    slider.setMinValue(48.0, juce::sendNotificationSync);
     REQUIRE(loadInt(proc.apvts, pid::kbdRangeLoNote) == 48);
     REQUIRE(loadInt(proc.apvts, pid::kbdRangeHiNote) == 96);
 
@@ -519,6 +545,161 @@ TEST_CASE("ControlsView: range slider round-trips with kbdRange APVTS params",
     // in the scientific (C4 = 60) convention that the 2026-05-21
     // NoteFormat fix corrected — see commit notes there.
     REQUIRE(ctl.getRangeValueLabelForTest().getText() == juce::String("C2 - C6"));
+}
+
+TEST_CASE("ControlsView: range slider enforces a 25-key minimum span on release",
+          "[editor][controls][range]")
+{
+    // Pins the post-drag min-span snap added 2026-05-21: when the user
+    // releases the range slider with the two thumbs closer than 25 keys
+    // (24 semitones), enforceMinSpan() — invoked from mouseUp — anchors
+    // min and pushes max out so the visible keyboard never settles
+    // below 25 keys. If max would exceed the param ceiling, max
+    // anchors instead and min is pulled down.
+    //
+    // Derivation for "25 keys" = "max - min == 24 semitones": a 2-octave
+    // keyboard (C..C inclusive) is the smallest range that still reads
+    // as a playable keyboard rather than a stripe of pixels. Two octaves
+    // span 24 semitones; with both endpoints visible the count is 25.
+    //
+    // The clamp runs on mouseUp only — the earlier per-tick variant
+    // fought JUCE's drag handler (JUCE re-set the value to the mouse
+    // position every frame, the clamp pushed back, and the thumb
+    // flickered between the two positions). Programmatic setMin / setMax
+    // in tests don't fire JUCE's mouseUp, so tests trigger the clamp
+    // explicitly via commitRangeDragForTest().
+
+    SECTION("release with gap < 25 keys pushes max outward")
+    {
+        PointsmanProcessor proc;
+        pointsman::editor::ControlsView ctl(proc);
+        ctl.setSize(280, 600);
+        auto& slider = ctl.getRangeSliderForTest();
+
+        // Drag min from default (36) up to 60. Default max=71 → gap
+        // shrinks to 11; release-clamp pushes max to 60+24=84.
+        slider.setMinValue(60.0, juce::sendNotificationSync);
+        ctl.commitRangeDragForTest();
+        REQUIRE(loadInt(proc.apvts, pid::kbdRangeLoNote) == 60);
+        REQUIRE(loadInt(proc.apvts, pid::kbdRangeHiNote) == 60 + 24);
+    }
+
+    SECTION("release at param floor anchors max as the fallback")
+    {
+        PointsmanProcessor proc;
+        pointsman::editor::ControlsView ctl(proc);
+        ctl.setSize(280, 600);
+        auto& slider = ctl.getRangeSliderForTest();
+
+        // Drag max down to 50 from a widened starting point. Gap=14
+        // on release; clamp anchors min at 36 (param floor) and pushes
+        // max up to 36+24=60.
+        slider.setMaxValue(96.0, juce::sendNotificationSync);
+        slider.setMaxValue(50.0, juce::sendNotificationSync);
+        ctl.commitRangeDragForTest();
+        REQUIRE(loadInt(proc.apvts, pid::kbdRangeLoNote) == 36);
+        REQUIRE(loadInt(proc.apvts, pid::kbdRangeHiNote) == 36 + 24);
+    }
+
+    SECTION("during drag, min thumb cannot pass max-24 wall (no flicker)")
+    {
+        // This is the test the user-visible flicker fix actually
+        // requires: simulate a real mouseDown → mouseDrag sequence
+        // (the path JUCE invokes from the host) and confirm the
+        // dragged thumb stays at the wall, never exposing the
+        // past-wall value to the host or the visual. A
+        // setMinValue()-only test (above) bypasses this code path
+        // entirely.
+        PointsmanProcessor proc;
+        pointsman::editor::ControlsView ctl(proc);
+        ctl.setSize(280, 600);
+        auto& slider = ctl.getRangeSliderForTest();
+
+        // Defaults: min=36, max=71, slider range [36, 108]. Drag wall
+        // for the min thumb = 71 - 24 = 47.
+        REQUIRE(slider.getMinValue() == 36.0);
+        REQUIRE(slider.getMaxValue() == 71.0);
+
+        const int sliderW = slider.getWidth();
+        REQUIRE(sliderW > 0);
+
+        auto valueToX = [&](double v)
+        {
+            const double prop = (v - 36.0) / (108.0 - 36.0);
+            return static_cast<int>(prop * sliderW);
+        };
+
+        // mouseDown at the min thumb's pixel position.
+        const auto downPt = juce::Point<int>(
+            valueToX(slider.getMinValue()), slider.getHeight() / 2);
+        slider.mouseDown(makeFakeMouseDown(slider, downPt));
+
+        // mouseDrag toward a pixel that would set min to 60 — well
+        // past the wall (47). The clamp must pin min at 47.
+        const auto dragPt = juce::Point<int>(
+            valueToX(60.0), slider.getHeight() / 2);
+        slider.mouseDrag(makeFakeMouseDrag(slider, downPt, dragPt));
+
+        // Derivation: max stays at the default 71; the min-span floor
+        // is max - 24 = 47. Anything past 47 is clamped to 47.
+        REQUIRE(slider.getMinValue() == 47.0);
+        REQUIRE(slider.getMaxValue() == 71.0);
+        // APVTS reflects the clamp too (sendNotificationSync writes back).
+        REQUIRE(loadInt(proc.apvts, pid::kbdRangeLoNote) == 47);
+        REQUIRE(loadInt(proc.apvts, pid::kbdRangeHiNote) == 71);
+    }
+
+    SECTION("during drag, max thumb cannot pass min+24 wall")
+    {
+        PointsmanProcessor proc;
+        pointsman::editor::ControlsView ctl(proc);
+        ctl.setSize(280, 600);
+        auto& slider = ctl.getRangeSliderForTest();
+        const int sliderW = slider.getWidth();
+        REQUIRE(sliderW > 0);
+
+        auto valueToX = [&](double v)
+        {
+            const double prop = (v - 36.0) / (108.0 - 36.0);
+            return static_cast<int>(prop * sliderW);
+        };
+
+        // mouseDown at the max thumb (default 71).
+        const auto downPt = juce::Point<int>(
+            valueToX(slider.getMaxValue()), slider.getHeight() / 2);
+        slider.mouseDown(makeFakeMouseDown(slider, downPt));
+
+        // Drag max down toward 40 — well past the wall (min+24 = 60).
+        const auto dragPt = juce::Point<int>(
+            valueToX(40.0), slider.getHeight() / 2);
+        slider.mouseDrag(makeFakeMouseDrag(slider, downPt, dragPt));
+
+        // Derivation: min stays at the default 36; floor for max is
+        // min + 24 = 60. Anything dragged below 60 clamps to 60.
+        REQUIRE(slider.getMinValue() == 36.0);
+        REQUIRE(slider.getMaxValue() == 60.0);
+    }
+
+    SECTION("release at param ceiling pulls min back as the fallback")
+    {
+        PointsmanProcessor proc;
+        pointsman::editor::ControlsView ctl(proc);
+        ctl.setSize(280, 600);
+        auto& slider = ctl.getRangeSliderForTest();
+
+        // Widen max to the param ceiling first; JUCE caps any
+        // setMinValue() at the current max, so the ceiling-fallback
+        // path can only be reached when max already has room above
+        // the dragged min.
+        slider.setMaxValue(108.0, juce::sendNotificationSync);
+        // Drag min up to 100. Push would put max at 100+24=124, above
+        // the param ceiling (108); fallback anchors max at 108 and
+        // pulls min back to 84.
+        slider.setMinValue(100.0, juce::sendNotificationSync);
+        ctl.commitRangeDragForTest();
+        REQUIRE(loadInt(proc.apvts, pid::kbdRangeLoNote) == 108 - 24);
+        REQUIRE(loadInt(proc.apvts, pid::kbdRangeHiNote) == 108);
+    }
 }
 
 TEST_CASE("ScaleKeyboardView: buildKeys honours the APVTS range",

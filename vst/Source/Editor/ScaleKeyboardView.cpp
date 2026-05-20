@@ -383,17 +383,6 @@ namespace pointsman::editor
                 g.setColour(theme::kbdWhiteDot);
                 g.fillEllipse(cx - dotR, cy - dotR, dotR * 2, dotR * 2);
             }
-
-            // Subtle root marker — a thin underline at the bottom of the
-            // root pc's white key. Replaces the bold note label that
-            // previously identified the root by font weight; the
-            // underline survives at narrow key widths where text would
-            // be illegible.
-            if (k.pc == rootPc)
-            {
-                g.setColour(theme::fg.withAlpha(0.85f));
-                g.fillRect(r.getX(), r.getBottom() - 4.0f, r.getWidth(), 2.0f);
-            }
         }
 
         // Black keys.
@@ -420,7 +409,7 @@ namespace pointsman::editor
                 g.fillRoundedRectangle(r, 3.0f);
             }
 
-            g.setColour(theme::kbdKeyStroke);
+            g.setColour(theme::kbdBlackKeyStroke);
             g.drawRoundedRectangle(r, 3.0f, 1.0f);
 
             // In-scale dot. Inboil black-key dot: r=3, cy = h-10.

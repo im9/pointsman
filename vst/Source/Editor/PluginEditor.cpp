@@ -65,7 +65,7 @@ void PointsmanEditor::paint(juce::Graphics& g)
     g.fillAll(theme::bg);
 
     g.setColour(theme::fg);
-    g.setFont(theme::dataFont(theme::fsLg, true));
+    g.setFont(theme::dataFont(theme::fsXl, true));
     g.drawText("Pointsman",
                theme::railPad, 0,
                getWidth() - theme::railPad * 2, theme::headerHeight,

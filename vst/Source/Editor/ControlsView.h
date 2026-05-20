@@ -59,6 +59,12 @@ namespace pointsman::editor
         juce::ComboBox* getHarmonyBadgeComboForTest(int idx);
         juce::Slider&  getRangeSliderForTest();
         juce::Label&   getRangeValueLabelForTest() { return rangeValueLabel_; }
+        // Triggers the on-mouseUp min-span clamp that the slider runs
+        // when the user releases a thumb drag. Programmatic setMinValue
+        // / setMaxValue calls in tests don't go through JUCE's drag
+        // pipeline, so tests must invoke this explicitly to pin the
+        // post-release behavior.
+        void commitRangeDragForTest();
 
     private:
         // APVTS listener — repaint mode pill highlight when mode changes
@@ -85,7 +91,7 @@ namespace pointsman::editor
         PointsmanProcessor& processor_;
 
         // Scale group
-        juce::Label    scaleLegend_, rootLabel_;
+        juce::Label    scaleLabel_, rootLabel_;
         juce::ComboBox scaleCombo_, rootCombo_;
         // ComboBoxAttachment owns the initial setSelectedId, which silently
         // no-ops on an empty combo. Items must be added BEFORE the
@@ -95,23 +101,20 @@ namespace pointsman::editor
             scaleAtt_, rootAtt_;
 
         // Mode group (2 pills + descriptive text below — Phase 5 post-merge)
-        juce::Label    modeLegend_, modeDesc_;
+        juce::Label    modeDesc_;
         std::array<std::unique_ptr<ModePill>, 2> pills_;
 
         // Harmony group (dynamic badges + add button)
-        juce::Label    harmonyLegend_;
         juce::TextButton addHarmonyBtn_ {"+"};
         std::vector<std::unique_ptr<HarmonyBadge>> badges_;
 
         // Humanize group (2 sliders — Phase 5 collapse)
-        juce::Label  humanizeLegend_;
         juce::Label  feelLabel_, driftLabel_;
         juce::Slider feelSlider_, driftSlider_;
         juce::AudioProcessorValueTreeState::SliderAttachment
             feelAtt_, driftAtt_;
 
         // Routing group (Phase 5: IN CH only)
-        juce::Label    routingLegend_;
         juce::Label    inChLabel_;
         juce::ComboBox inChCombo_;
         // See scaleAtt_/rootAtt_ above — same items-before-attachment dance.
@@ -123,7 +126,6 @@ namespace pointsman::editor
         // APVTS Int params (kbdRangeLoNote / kbdRangeHiNote). JUCE has no
         // built-in two-value attachment; the wrapper lives in
         // ControlsView.cpp anonymous namespace.
-        juce::Label  displayLegend_;
         juce::Label  rangeLabel_;
         juce::Label  rangeValueLabel_;
         std::unique_ptr<RangeSlider> rangeSlider_;
@@ -132,6 +134,17 @@ namespace pointsman::editor
         // badge stack + add-button row, so rebuildHarmonyBadges() can
         // re-layout without a full re-resized.
         juce::Rectangle<int> harmonyAreaBounds_ {};
+
+        // Per-group fieldset frame bounds — set in resized(), consumed by
+        // paint() to draw the border + legend notch (Stencil pattern).
+        // The legend label is drawn directly via g.drawText, not a Label
+        // component, so the notch's bg fill can occlude the border stroke.
+        juce::Rectangle<int> scaleFrame_      {};
+        juce::Rectangle<int> modeFrame_       {};
+        juce::Rectangle<int> harmonyFrame_    {};
+        juce::Rectangle<int> humanizeFrame_   {};
+        juce::Rectangle<int> routingFrame_    {};
+        juce::Rectangle<int> displayFrame_    {};
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ControlsView)
     };

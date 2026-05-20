@@ -41,12 +41,28 @@ namespace pointsman::editor
             s.setTextBoxStyle(juce::Slider::TextBoxRight, false, 44, theme::rowHeight);
         }
 
-        void styleLegend(juce::Label& l, juce::String text)
+        // Fieldset frame + legend notch. Ports stencil's drawFieldsetFrame
+        // 1:1: rounded-rect border with the legend text straddling the
+        // top edge so the border appears to dip under the text. The notch
+        // is what makes a bare bordered group read as "this is the SCALE
+        // section" without a duplicated row label.
+        void drawFieldsetFrame(juce::Graphics& g, juce::Rectangle<int> frame,
+                               const juce::String& legend)
         {
-            l.setText(std::move(text), juce::dontSendNotification);
-            l.setFont(theme::dataFont(theme::fsSm, true));
-            l.setColour(juce::Label::textColourId, theme::fg.withAlpha(0.45f));
-            l.setJustificationType(juce::Justification::centredLeft);
+            g.setColour(theme::lzBorder);
+            g.drawRoundedRectangle(frame.toFloat().reduced(0.5f), 2.0f, 1.0f);
+
+            g.setFont(theme::dataFont(theme::fsSm, true));
+            const int legendW = g.getCurrentFont().getStringWidth(legend) + 8;
+            const juce::Rectangle<int> legendBox{
+                frame.getX() + 8,
+                frame.getY() - static_cast<int>(theme::fsSm) / 2 - 1,
+                legendW,
+                static_cast<int>(theme::fsSm) + 2 };
+            g.setColour(theme::bg);
+            g.fillRect(legendBox);
+            g.setColour(theme::fgAlpha(0.45f));
+            g.drawText(legend, legendBox, juce::Justification::centred);
         }
 
         void styleControlLabel(juce::Label& l, juce::String text)
@@ -124,10 +140,105 @@ namespace pointsman::editor
             };
         }
 
+        // Override the drag pipeline so the dragged thumb can never
+        // visually pass the kMinSpan wall in the first place. The
+        // earlier per-tick clamp inside onValueChange let JUCE write
+        // the past-wall value before our correction fired, which
+        // produced a one-frame visible jump (the "flicker"). We bypass
+        // juce::Slider::mouseDrag for the value-set step entirely:
+        // compute the proposed value from the mouse position
+        // ourselves, clamp it against the other thumb, then call
+        // setMin/MaxValue with the already-valid value. The dragged
+        // thumb sticks at the wall when the user pulls past it.
+        void mouseDown(const juce::MouseEvent& e) override
+        {
+            // Pick the closer thumb at mouseDown so subsequent drag
+            // ticks know which one to move. Distance is in slider
+            // value units (proportional to width), which matches
+            // JUCE's own thumb-selection heuristic.
+            const double clickValue = mouseXToValue(e.position.x);
+            const double dMin = std::abs(clickValue - getMinValue());
+            const double dMax = std::abs(clickValue - getMaxValue());
+            draggingThumb_ = (dMin <= dMax) ? DragThumb::Min : DragThumb::Max;
+            juce::Slider::mouseDown(e);
+        }
+
+        void mouseDrag(const juce::MouseEvent& e) override
+        {
+            if (draggingThumb_ == DragThumb::None)
+            {
+                juce::Slider::mouseDrag(e);
+                return;
+            }
+            const double proposed = mouseXToValue(e.position.x);
+            if (draggingThumb_ == DragThumb::Min)
+            {
+                double v = std::min(proposed, getMaxValue() - kMinSpan);
+                v = std::clamp(v, getMinimum(), getMaximum());
+                suppressUiToParam_ = false;  // allow APVTS write on real drag
+                setMinValue(v, juce::sendNotificationSync);
+            }
+            else
+            {
+                double v = std::max(proposed, getMinValue() + kMinSpan);
+                v = std::clamp(v, getMinimum(), getMaximum());
+                suppressUiToParam_ = false;
+                setMaxValue(v, juce::sendNotificationSync);
+            }
+        }
+
+        void mouseUp(const juce::MouseEvent& e) override
+        {
+            draggingThumb_ = DragThumb::None;
+            juce::Slider::mouseUp(e);
+            // Defensive snap — covers any edge case (modifier-keyed
+            // drag, programmatic setValue during a drag, etc.) where
+            // the gap somehow ended below kMinSpan despite the per-
+            // tick clamp above.
+            enforceMinSpan();
+        }
+
         ~RangeSlider() override
         {
             apvts_.removeParameterListener(loPid_, this);
             apvts_.removeParameterListener(hiPid_, this);
+        }
+
+        // Snap the slider to a valid (>= kMinSpan) configuration after
+        // a user drag finishes. Public so the test inspector can fire
+        // it without simulating a real mouseUp event. If the gap is
+        // already >= kMinSpan this is a no-op. Otherwise: keep min
+        // anchored, push max to min+kMinSpan; if max would exceed the
+        // param ceiling, anchor max at the ceiling and pull min down
+        // instead.
+        void enforceMinSpan()
+        {
+            const double minV0 = getMinValue();
+            const double maxV0 = getMaxValue();
+            if (maxV0 - minV0 >= kMinSpan) return;
+
+            double minV = minV0;
+            double maxV = maxV0;
+            double newMax = minV + kMinSpan;
+            if (newMax <= getMaximum())
+            {
+                maxV = newMax;
+            }
+            else
+            {
+                maxV = getMaximum();
+                minV = maxV - kMinSpan;
+            }
+            suppressUiToParam_ = true;
+            setMinAndMaxValues(minV, maxV, juce::sendNotificationSync);
+            suppressUiToParam_ = false;
+            auto* lo = apvts_.getParameter(loPid_);
+            auto* hi = apvts_.getParameter(hiPid_);
+            lo->setValueNotifyingHost(lo->convertTo0to1(
+                static_cast<float>(minV)));
+            hi->setValueNotifyingHost(hi->convertTo0to1(
+                static_cast<float>(maxV)));
+            if (onChanged_) onChanged_();
         }
 
     private:
@@ -152,11 +263,33 @@ namespace pointsman::editor
                 });
         }
 
+        // 25 keys inclusive = 24-semitone gap between min and max thumb.
+        // Two octaves is the smallest range that still reads as a
+        // playable keyboard rather than a sliver.
+        static constexpr double kMinSpan = 24.0;
+
+        enum class DragThumb { None, Min, Max };
+
+        // Convert a horizontal pixel position (in the slider's local
+        // coords) to a slider value. JUCE's proportionOfLengthToValue
+        // expects 0..1; the slider's drawable track sits across the
+        // full local width here (no padding configured), so the
+        // proportion is just x / width clamped to [0, 1].
+        double mouseXToValue(float pixelX)
+        {
+            const double w = static_cast<double>(getWidth());
+            if (w <= 0.0) return getMinimum();
+            const double prop = std::clamp(
+                static_cast<double>(pixelX) / w, 0.0, 1.0);
+            return proportionOfLengthToValue(prop);
+        }
+
         juce::AudioProcessorValueTreeState& apvts_;
         juce::String                        loPid_;
         juce::String                        hiPid_;
         std::function<void()>               onChanged_;
         bool                                suppressUiToParam_ = false;
+        DragThumb                           draggingThumb_     = DragThumb::None;
     };
 
     // ── Mode pill (small TextButton with inboil active/inactive look) ───
@@ -284,13 +417,12 @@ namespace pointsman::editor
         // ComboBox attachments are constructed below, AFTER addItem() — see
         // the scaleAtt_/rootAtt_ comment in ControlsView.h.
 
-        // Scale group
-        styleLegend(scaleLegend_, "SCALE");
-        addAndMakeVisible(scaleLegend_);
-        // No row-level "SCALE" label — the group legend already says
-        // SCALE and a second copy on the row just reads as duplicated
-        // text. The ROOT row keeps its label because it sits in the same
-        // group and the two combos otherwise look identical.
+        // Scale group — legend is drawn by paint()/drawFieldsetFrame.
+        // SCALE / ROOT row labels mirror each other so the two combos
+        // read symmetrically (the prior "no SCALE row label" design
+        // left the scale combo visually unlabelled next to ROOT).
+        styleControlLabel(scaleLabel_, "SCALE");
+        addAndMakeVisible(scaleLabel_);
         styleCombo(scaleCombo_);
         for (std::size_t i = 0; i < kScaleChoiceLabels.size(); ++i)
             scaleCombo_.addItem(kScaleChoiceLabels[i], static_cast<int>(i + 1));
@@ -307,9 +439,7 @@ namespace pointsman::editor
             p.apvts, pid::root, rootCombo_);
         addAndMakeVisible(rootCombo_);
 
-        // Mode group
-        styleLegend(modeLegend_, "MODE");
-        addAndMakeVisible(modeLegend_);
+        // Mode group — legend drawn by paint().
         const std::array<juce::String, 2> pillNames {"SCALE", "CHORD"};
         for (std::size_t i = 0; i < pills_.size(); ++i)
         {
@@ -323,18 +453,14 @@ namespace pointsman::editor
         addAndMakeVisible(modeDesc_);
         syncModeHighlights();
 
-        // Harmony group
-        styleLegend(harmonyLegend_, "HARMONY");
-        addAndMakeVisible(harmonyLegend_);
+        // Harmony group — legend drawn by paint().
         addHarmonyBtn_.setColour(juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
         addHarmonyBtn_.setColour(juce::TextButton::textColourOffId, theme::fg);
         addHarmonyBtn_.onClick = [this]{ onAddHarmonyClicked(); };
         addAndMakeVisible(addHarmonyBtn_);
         rebuildHarmonyBadges();
 
-        // Humanize group (Phase 5: 2 sliders)
-        styleLegend(humanizeLegend_, "HUMANIZE");
-        addAndMakeVisible(humanizeLegend_);
+        // Humanize group (Phase 5: 2 sliders) — legend drawn by paint().
         struct SS { juce::Label* lbl; juce::Slider* s; const char* text; };
         const std::array<SS, 2> sliders = {{
             {&feelLabel_,  &feelSlider_,  "FEEL"},
@@ -353,10 +479,7 @@ namespace pointsman::editor
             addAndMakeVisible(*ss.s);
         }
 
-        // Routing group (Phase 5: IN CH only)
-        styleLegend(routingLegend_, "ROUTING");
-        addAndMakeVisible(routingLegend_);
-
+        // Routing group (Phase 5: IN CH only) — legend drawn by paint().
         styleControlLabel(inChLabel_, "IN CH");
         addAndMakeVisible(inChLabel_);
         styleCombo(inChCombo_);
@@ -375,9 +498,10 @@ namespace pointsman::editor
         // Display group — keyboard range slider. Range syncs from APVTS
         // (host preset / undo); the RangeSlider's onChanged_ callback keeps
         // rangeValueLabel_ ("C3 - B5") in sync with the slider drag.
-        styleLegend(displayLegend_, "DISPLAY");
-        addAndMakeVisible(displayLegend_);
-        styleControlLabel(rangeLabel_, "RANGE");
+        // Legend drawn by paint(). Row label "KEYS" (vs the original
+        // ambiguous "RANGE") so the row reads as "the range of keys
+        // shown on the keyboard above" rather than just "some range".
+        styleControlLabel(rangeLabel_, "KEYS");
         addAndMakeVisible(rangeLabel_);
         rangeValueLabel_.setFont(theme::dataFont(theme::fsMd));
         rangeValueLabel_.setColour(juce::Label::textColourId, theme::fg.withAlpha(0.7f));
@@ -551,6 +675,11 @@ namespace pointsman::editor
         return *rangeSlider_;
     }
 
+    void ControlsView::commitRangeDragForTest()
+    {
+        if (rangeSlider_ != nullptr) rangeSlider_->enforceMinSpan();
+    }
+
     void ControlsView::valueTreeChildAdded(juce::ValueTree&, juce::ValueTree&)
     {
         juce::MessageManager::callAsync(
@@ -583,6 +712,16 @@ namespace pointsman::editor
         g.fillAll(theme::bg);
         g.setColour(theme::lzBorder);
         g.drawLine(0.0f, 0.0f, 0.0f, (float) getHeight(), 1.0f);
+
+        // Fieldset frames — drawn after resized() has populated the
+        // bounds. Empty rects (initial state before first resized())
+        // short-circuit harmlessly inside drawRoundedRectangle.
+        if (! scaleFrame_   .isEmpty()) drawFieldsetFrame(g, scaleFrame_,    "SCALE");
+        if (! modeFrame_    .isEmpty()) drawFieldsetFrame(g, modeFrame_,     "MODE");
+        if (! harmonyFrame_ .isEmpty()) drawFieldsetFrame(g, harmonyFrame_,  "HARMONY");
+        if (! humanizeFrame_.isEmpty()) drawFieldsetFrame(g, humanizeFrame_, "HUMANIZE");
+        if (! routingFrame_ .isEmpty()) drawFieldsetFrame(g, routingFrame_,  "ROUTING");
+        if (! displayFrame_ .isEmpty()) drawFieldsetFrame(g, displayFrame_,  "DISPLAY");
     }
 
     void ControlsView::layoutHarmonyArea(juce::Rectangle<int> area)
@@ -623,102 +762,110 @@ namespace pointsman::editor
 
     void ControlsView::resized()
     {
-        const int pad = theme::railPad;
-        auto bounds = getLocalBounds().reduced(pad, pad);
+        const int pad      = theme::railPad;
+        const int padX     = theme::groupPadX;
+        const int padY     = theme::groupPadY;
+        const int legendH  = (int) theme::fsSm + 4;
+        const int row      = theme::rowHeight;
+        const int gap      = theme::rowGap;
+        const int groupGap = theme::groupGap;
+        const int labelW   = 56;
 
-        const int legendH    = (int) theme::fsSm + 4;
-        const int row        = theme::rowHeight;
-        const int gap        = theme::rowGap;
-        const int groupGap   = theme::groupGap;
-        const int labelW     = 56;
+        const auto outer = getLocalBounds().reduced(pad, pad);
+        const int frameX = outer.getX();
+        const int frameW = outer.getWidth();
 
-        auto placeRow = [&](juce::Rectangle<int>& area)
+        // Reserve a frame for the group: returns the inner content
+        // rectangle (already offset by padY top / padY bottom / padX
+        // left+right, and below the legend overhang). Stores the
+        // outer frame rect in `outFrame` for paint().
+        auto reserveGroup = [&](int& cursorY, int innerContentH,
+                                juce::Rectangle<int>& outFrame)
         {
-            return area.removeFromTop(row);
+            const int frameH = padY + legendH + innerContentH + padY;
+            outFrame = { frameX, cursorY, frameW, frameH };
+            cursorY += frameH + groupGap;
+            return juce::Rectangle<int>{
+                frameX + padX,
+                outFrame.getY() + padY + legendH,
+                frameW - padX * 2,
+                innerContentH };
         };
 
-        // ── Scale group ─────────────────────────────────────────────
-        scaleLegend_.setBounds(bounds.removeFromTop(legendH));
-        bounds.removeFromTop(2);
+        int y = outer.getY();
+
+        // ── Scale group: 2 combo rows ────────────────────────────────
         {
-            // No SCALE row label — see ControlsView ctor. Reserve the same
-            // labelW gutter as ROOT so the two combos still line up.
-            auto r1 = placeRow(bounds);
-            r1.removeFromLeft(labelW);
+            const int contentH = row * 2 + gap;
+            auto inner = reserveGroup(y, contentH, scaleFrame_);
+            auto r1 = inner.removeFromTop(row);
+            scaleLabel_.setBounds(r1.removeFromLeft(labelW));
             scaleCombo_.setBounds(r1);
-            bounds.removeFromTop(gap);
-            auto r2 = placeRow(bounds);
+            inner.removeFromTop(gap);
+            auto r2 = inner.removeFromTop(row);
             rootLabel_.setBounds(r2.removeFromLeft(labelW));
             rootCombo_.setBounds(r2);
         }
-        bounds.removeFromTop(groupGap);
 
-        // ── Mode group ──────────────────────────────────────────────
-        modeLegend_.setBounds(bounds.removeFromTop(legendH));
-        bounds.removeFromTop(2);
+        // ── Mode group: pill row + description row ───────────────────
         {
-            auto pillsRow = placeRow(bounds);
+            const int contentH = row + gap + legendH;
+            auto inner = reserveGroup(y, contentH, modeFrame_);
+            auto pillsRow = inner.removeFromTop(row);
             const int pillW = (pillsRow.getWidth() - gap * 2) / 3;
             for (auto& p : pills_)
             {
                 p->setBounds(pillsRow.removeFromLeft(pillW));
                 pillsRow.removeFromLeft(gap);
             }
-            bounds.removeFromTop(gap);
-            modeDesc_.setBounds(bounds.removeFromTop(legendH));
+            inner.removeFromTop(gap);
+            modeDesc_.setBounds(inner.removeFromTop(legendH));
         }
-        bounds.removeFromTop(groupGap);
 
-        // ── Harmony group ───────────────────────────────────────────
-        // Always reserve kHarmonyVoicesMax rows so the layout stays stable
-        // as voices are added/removed. The add button shares a row with
-        // the last-occupied badge slot, so the worst case (3 badges OR
-        // 2 badges + add) is exactly kHarmonyVoicesMax rows.
-        harmonyLegend_.setBounds(bounds.removeFromTop(legendH));
-        bounds.removeFromTop(2);
+        // ── Harmony group ────────────────────────────────────────────
+        // Always reserve kHarmonyVoicesMax rows so the layout stays
+        // stable as voices are added/removed. The add button shares a
+        // row with the last-occupied badge slot.
         {
-            const int harmonyRows  = kHarmonyVoicesMax;
-            const int harmonyAreaH = harmonyRows * row + (harmonyRows - 1) * gap;
-            auto area = bounds.removeFromTop(harmonyAreaH);
-            harmonyAreaBounds_ = area;
-            layoutHarmonyArea(area);
+            const int harmonyRows = kHarmonyVoicesMax;
+            const int contentH    = harmonyRows * row + (harmonyRows - 1) * gap;
+            auto inner = reserveGroup(y, contentH, harmonyFrame_);
+            harmonyAreaBounds_ = inner;
+            layoutHarmonyArea(inner);
         }
-        bounds.removeFromTop(groupGap);
 
-        // ── Humanize group (Phase 5: 2 sliders) ─────────────────────
-        humanizeLegend_.setBounds(bounds.removeFromTop(legendH));
-        bounds.removeFromTop(2);
-        const std::array<std::pair<juce::Label*, juce::Slider*>, 2> humSliders = {{
-            {&feelLabel_,  &feelSlider_},
-            {&driftLabel_, &driftSlider_},
-        }};
-        for (auto& [lbl, s] : humSliders)
+        // ── Humanize group: 2 sliders ────────────────────────────────
         {
-            auto r = placeRow(bounds);
-            lbl->setBounds(r.removeFromLeft(labelW));
-            s  ->setBounds(r);
-            bounds.removeFromTop(gap);
+            const int contentH = row * 2 + gap;
+            auto inner = reserveGroup(y, contentH, humanizeFrame_);
+            const std::array<std::pair<juce::Label*, juce::Slider*>, 2> humSliders = {{
+                {&feelLabel_,  &feelSlider_},
+                {&driftLabel_, &driftSlider_},
+            }};
+            for (auto& [lbl, s] : humSliders)
+            {
+                auto r = inner.removeFromTop(row);
+                lbl->setBounds(r.removeFromLeft(labelW));
+                s  ->setBounds(r);
+                inner.removeFromTop(gap);
+            }
         }
-        bounds.removeFromTop(groupGap - gap);
 
-        // ── Routing group (Phase 5: IN CH only) ─────────────────────
-        routingLegend_.setBounds(bounds.removeFromTop(legendH));
-        bounds.removeFromTop(2);
+        // ── Routing group: IN CH only ────────────────────────────────
         {
-            auto r = placeRow(bounds);
+            const int contentH = row;
+            auto inner = reserveGroup(y, contentH, routingFrame_);
+            auto r = inner.removeFromTop(row);
             inChLabel_.setBounds(r.removeFromLeft(labelW));
             inChCombo_.setBounds(r);
-            bounds.removeFromTop(gap);
         }
-        bounds.removeFromTop(groupGap);
 
-        // ── Display group ──────────────────────────────────────────
-        displayLegend_.setBounds(bounds.removeFromTop(legendH));
-        bounds.removeFromTop(2);
+        // ── Display group: range slider + value label ────────────────
         {
-            auto r = placeRow(bounds);
+            const int contentH = row;
+            auto inner = reserveGroup(y, contentH, displayFrame_);
+            auto r = inner.removeFromTop(row);
             rangeLabel_.setBounds(r.removeFromLeft(labelW));
-            // Value label fixed-width on the right; slider fills the gap.
             constexpr int valueW = 64;
             rangeValueLabel_.setBounds(r.removeFromRight(valueW));
             if (rangeSlider_ != nullptr) rangeSlider_->setBounds(r);

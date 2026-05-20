@@ -39,7 +39,14 @@ namespace pointsman::editor::theme
     // QuantizerSheet.svelte keyFill / keyStroke branches and must match
     // 1:1 — the keyboard is the most-recognisable inboil surface and any
     // alpha drift shows up as "looks similar but off."
-    inline const juce::Colour kbdKeyStroke      = fgAlpha(0.20f);
+    // White-key stroke matches im9-site's --color-mark-stroke
+    // (rgba(20, 22, 26, 0.55)). Black keys get a softer stroke so the
+    // 0.55-alpha rim does not look brighter than the dark key body
+    // (the body's fgAlpha(0.85) fill renders ~rgb(61) on bg, and a
+    // 0.55 stroke on top reads as a lighter ring around the key,
+    // which made the black keys look washed-out in the initial port).
+    inline const juce::Colour kbdKeyStroke      = fgAlpha(0.55f);
+    inline const juce::Colour kbdBlackKeyStroke = fgAlpha(0.20f);
     inline const juce::Colour kbdWhiteOutScale  = bgAlpha(0.55f);
     inline const juce::Colour kbdWhiteInScale   = oliveAlpha(0.15f);
     inline const juce::Colour kbdBlackOutScale  = fgAlpha(0.85f);
@@ -51,6 +58,7 @@ namespace pointsman::editor::theme
     constexpr float fsSm = 9.0f;   // group legends
     constexpr float fsMd = 10.0f;  // control labels
     constexpr float fsLg = 11.0f;  // values, primary labels
+    constexpr float fsXl = 14.0f;  // editor header title
 
     // JetBrains Mono if installed, monospace fallback otherwise.
     juce::Font dataFont(float pointSize, bool bold = false);
