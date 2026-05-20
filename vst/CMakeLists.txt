@@ -68,6 +68,7 @@ add_library(pointsman_plugin_core STATIC
     Source/Plugin/PluginProcessor.h
     Source/Editor/Theme.cpp
     Source/Editor/Theme.h
+    Source/Editor/NoteFormat.h
     Source/Editor/ScaleKeyboardView.cpp
     Source/Editor/ScaleKeyboardView.h
     Source/Editor/ControlsView.cpp
@@ -122,6 +123,7 @@ target_sources(Pointsman PRIVATE
     Source/Plugin/PluginProcessor.h
     Source/Editor/Theme.cpp
     Source/Editor/Theme.h
+    Source/Editor/NoteFormat.h
     Source/Editor/ScaleKeyboardView.cpp
     Source/Editor/ScaleKeyboardView.h
     Source/Editor/ControlsView.cpp
@@ -167,6 +169,7 @@ add_executable(pointsman_tests
     tests/test_Humanize.cpp
     tests/test_Plugin.cpp
     tests/test_Editor.cpp
+    tests/test_NoteFormat.cpp
 )
 target_link_libraries(pointsman_tests PRIVATE
     pointsman_plugin_core

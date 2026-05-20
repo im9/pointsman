@@ -512,9 +512,13 @@ TEST_CASE("ControlsView: range slider round-trips with kbdRange APVTS params",
     REQUIRE(loadInt(proc.apvts, pid::kbdRangeLoNote) == 48);
     REQUIRE(loadInt(proc.apvts, pid::kbdRangeHiNote) == 96);
 
-    // The range value label mirrors the new MIDI note names. Default
-    // octave convention is MIDI 60 = C4 (Logic / Yamaha).
-    REQUIRE(ctl.getRangeValueLabelForTest().getText() == juce::String("C3 - C7"));
+    // The range value label mirrors the new MIDI note names. Octave
+    // convention is Yamaha / Ableton (MIDI 60 = C3), pinned in
+    // test_NoteFormat.cpp. Derivation: 48 / 12 - 2 = 2 → "C2";
+    // 96 / 12 - 2 = 6 → "C6". The earlier expectation "C3 - C7" baked
+    // in the scientific (C4 = 60) convention that the 2026-05-21
+    // NoteFormat fix corrected — see commit notes there.
+    REQUIRE(ctl.getRangeValueLabelForTest().getText() == juce::String("C2 - C6"));
 }
 
 TEST_CASE("ScaleKeyboardView: buildKeys honours the APVTS range",

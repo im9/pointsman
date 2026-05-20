@@ -1,5 +1,6 @@
 #include "Editor/ControlsView.h"
 
+#include "Editor/NoteFormat.h"
 #include "Editor/Theme.h"
 #include "Plugin/Parameters.h"
 #include "Plugin/PluginProcessor.h"
@@ -537,26 +538,11 @@ namespace pointsman::editor
         return static_cast<int>(processor_.apvts.getRawParameterValue(id)->load());
     }
 
-    namespace
-    {
-        // MIDI pitch → "Name<octave>" using octave-1 convention so MIDI 60
-        // reads "C4" (Yamaha / Logic / most modern hosts). Inboil and the
-        // m4l engine use the same convention.
-        juce::String midiNoteToText(int midi)
-        {
-            static constexpr std::array<const char*, 12> kNames =
-                {"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
-            const int pc  = ((midi % 12) + 12) % 12;
-            const int oct = midi / 12 - 1;
-            return juce::String(kNames[(std::size_t) pc]) + juce::String(oct);
-        }
-    }
-
     void ControlsView::syncRangeValueLabel()
     {
         const int lo = loadIntParam(pid::kbdRangeLoNote);
         const int hi = loadIntParam(pid::kbdRangeHiNote);
-        rangeValueLabel_.setText(midiNoteToText(lo) + " - " + midiNoteToText(hi),
+        rangeValueLabel_.setText(editor::noteLabel(lo) + " - " + editor::noteLabel(hi),
                                  juce::dontSendNotification);
     }
 
