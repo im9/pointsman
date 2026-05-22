@@ -223,6 +223,11 @@ skip gates. Do not reorder.**
 Before writing any code:
 1. Read `docs/ai/concept.md`
 2. Read relevant ADR in `docs/ai/adr/`
+3. For any UI / layout change (either target), also read
+   `docs/ai/design.md` — m4l device strip is height-bounded by Live
+   (176 px ceiling, currently saturated); vst editor right rail has
+   a measured content budget. ASCII mockups in ADRs that ignore
+   these constraints get rejected on review.
 
 ### Gate 1 — Tests first (TDD)
 
