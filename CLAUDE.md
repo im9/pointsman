@@ -166,14 +166,19 @@ agents do not re-debug them blindly.
   `Number.isFinite` plus a numeric range — the bridge guards are
   defense-in-depth, not a parser.
 
-**Distribution (release builds).** `make release` (from repo
-root) runs build + bake and prepares `dist/`. The baked dev
-`.amxd` references sibling JS on disk, so it only loads on the
-build machine. To ship: open `m4l/Pointsman.amxd` in Max → click
-the **snowflake (Freeze)** button in the patcher toolbar
-(inlines every referenced JS) → *File → Save As*
-`dist/Pointsman.amxd`. The frozen file is self-contained and
-works on any Live install. See ADR 002 §Phase 0.
+**Distribution (release builds).** `make release-m4l VERSION=X.Y.Z`
+(from repo root) builds + bakes the dev `m4l/Pointsman.amxd` and
+copies it to `m4l/Pointsman-vX.Y.Z.amxd` (un-frozen staging file,
+gitignored). The baked dev `.amxd` references sibling JS on disk,
+so it only loads on the build machine. To ship: open
+`m4l/Pointsman-vX.Y.Z.amxd` in Max → click the **snowflake
+(Freeze)** button in the patcher toolbar (inlines every referenced
+JS) → *File → Save As* → navigate to `dist/` (the default filename
+`Pointsman-vX.Y.Z.amxd` is already correct; just confirm the
+location). `dist/` only ever holds frozen / signed-and-notarized
+artefacts; the un-frozen staging copy stays in `m4l/`. The frozen
+file is self-contained and works on any Live install. See ADR 002
+§Phase 0.
 
 ### vst/
 

@@ -73,10 +73,11 @@ merge, `feel` + `drift`, `kStateVersion=2`) have all shipped. The
 build produces VST3 + AU + CLAP bundles for Logic / Bitwig / Reaper,
 mirroring oedipa's DAW support stance. The first vst public release
 (`v0.1.0`, paid via Polar) is in prep per ADR 003 §Release
-procedure — signed + notarized + stapled `Pointsman.dmg` and
-`Pointsman.pkg` are produced locally; no GitHub tag / release for
-vst (the in-tree `project(Pointsman VERSION …)` line is the
-authoritative version source); Polar upload is manual.
+procedure — signed + notarized + stapled
+`Pointsman-vX.Y.Z.dmg` and `Pointsman-vX.Y.Z.pkg` are produced
+locally; no GitHub tag / release for vst (the in-tree
+`project(Pointsman VERSION …)` line is the authoritative version
+source); Polar upload is manual.
 
 [adr2]: docs/ai/adr/002-pointsman-release.md
 [adr3]: docs/ai/adr/003-pointsman-vst-architecture.md
@@ -157,14 +158,29 @@ m4l rebake after source edits: `cd m4l && pnpm bake` (chains
 `pointsman.mjs` bundle → `Pointsman.amxd` rewrite from
 `Pointsman.maxpat`).
 
-m4l distribution build: `make release` (from repo root) runs
-build + bake and prepares `dist/`. The baked dev `.amxd`
-references sibling JS on disk, so it only loads on the build
-machine. To ship: open `m4l/Pointsman.amxd` in Max → click the
-**snowflake (Freeze)** button in the patcher toolbar (inlines
-every referenced JS) → *File → Save As* `dist/Pointsman.amxd`.
-The frozen file is self-contained and works on any Live install.
-See [ADR 002](docs/ai/adr/002-pointsman-release.md) §Phase 0.
+m4l distribution build: `make release-m4l VERSION=X.Y.Z` (from
+repo root) builds + bakes `m4l/Pointsman.amxd` and copies it to
+`m4l/Pointsman-vX.Y.Z.amxd` (un-frozen staging file, gitignored).
+The baked dev `.amxd` references sibling JS on disk, so it only
+loads on the build machine. To ship: open
+`m4l/Pointsman-vX.Y.Z.amxd` in Max → click the **snowflake
+(Freeze)** button in the patcher toolbar (inlines every referenced
+JS) → *File → Save As* → navigate to `dist/` (the default filename
+`Pointsman-vX.Y.Z.amxd` is already correct; just confirm the
+location). `dist/` only ever holds frozen / signed-and-notarized
+artefacts; the un-frozen staging copy stays in `m4l/`. The frozen
+file is self-contained and works on any Live install. See
+[ADR 002](docs/ai/adr/002-pointsman-release.md) §Phase 0.
+
+vst distribution build: `make release-vst` (from repo root) builds
+the bundles, signs + notarizes + staples them, and produces both
+`dist/Pointsman-vX.Y.Z.pkg` (recommended installer) and
+`dist/Pointsman-vX.Y.Z.dmg` (drag-to-install fallback). Version is
+parsed from `vst/CMakeLists.txt` (`project(Pointsman VERSION
+X.Y.Z)` — single source of truth). Requires `DEVELOPER_TEAM_ID`
+env var and the `im9-notary` keychain profile; see
+[ADR 003](docs/ai/adr/003-pointsman-vst-architecture.md) §Release
+procedure.
 
 ## Design docs
 

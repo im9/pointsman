@@ -8,6 +8,6 @@ Pointsman is a scale-quantizer MIDI effect by im9: it snaps incoming notes to a 
 
 You will be asked for your administrator password before installation.
 
-If you would rather place the bundles in a custom location, quit this installer and use the Pointsman.dmg distribution instead — it lets you drag the bundles wherever you want.
+If you would rather place the bundles in a custom location, quit this installer and use the Pointsman-__VERSION__.dmg distribution instead — it lets you drag the bundles wherever you want.
 
 In the Customize step you can deselect any plug-in format you do not need (for example, skip CLAP on a Logic-only setup). All three are selected by default.

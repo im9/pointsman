@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Build dist/Pointsman.pkg installer from already-signed-notarized-and-stapled
-# AU + VST3 + CLAP bundles. Companion to build-dmg.sh; both produced by
+# Build dist/Pointsman-v<version>.pkg installer from already-signed-
+# notarized-and-stapled AU + VST3 + CLAP bundles (version parsed from
+# vst/CMakeLists.txt). Companion to build-dmg.sh; both produced by
 # `make release-vst`. Run after codesign.sh + notarize.sh.
 #
 # The pkg itself is also signed (Developer ID Installer), notarized, and
@@ -20,9 +21,23 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VST_DIR="$SCRIPT_DIR/.."
 ARTEFACTS_DIR="$VST_DIR/build/Pointsman_artefacts/Release"
 DIST_DIR="$VST_DIR/../dist"
-PKG_PATH="$DIST_DIR/Pointsman.pkg"
 DIST_XML_TEMPLATE="$SCRIPT_DIR/distribution.xml"
 PKG_RESOURCES="$SCRIPT_DIR/pkg-resources"
+
+# Parse version from CMakeLists.txt (single source of truth, same line
+# build-dmg.sh reads and the release skill bumps). Used for the output
+# filename, the pkgbuild --version flags, and the __VERSION__ token
+# substitution in distribution.xml + pkg-resources welcome / conclusion
+# screens.
+VERSION="$(grep -E '^project\(Pointsman VERSION' "$VST_DIR/CMakeLists.txt" \
+  | sed -E 's/.*VERSION ([0-9]+\.[0-9]+\.[0-9]+).*/\1/')"
+if [[ -z "$VERSION" ]]; then
+  echo "error: could not parse version from $VST_DIR/CMakeLists.txt" >&2
+  exit 1
+fi
+echo "Version: $VERSION"
+
+PKG_PATH="$DIST_DIR/Pointsman-v$VERSION.pkg"
 
 AU_BUNDLE="$ARTEFACTS_DIR/AU/Pointsman.component"
 VST3_BUNDLE="$ARTEFACTS_DIR/VST3/Pointsman.vst3"
@@ -45,16 +60,6 @@ if [[ ! -d "$PKG_RESOURCES" ]]; then
   echo "error: pkg-resources/ not found at $PKG_RESOURCES" >&2
   exit 1
 fi
-
-# Parse version from CMakeLists.txt (single source of truth, same line
-# the release skill bumps).
-VERSION="$(grep -E '^project\(Pointsman VERSION' "$VST_DIR/CMakeLists.txt" \
-  | sed -E 's/.*VERSION ([0-9]+\.[0-9]+\.[0-9]+).*/\1/')"
-if [[ -z "$VERSION" ]]; then
-  echo "error: could not parse version from $VST_DIR/CMakeLists.txt" >&2
-  exit 1
-fi
-echo "Version: $VERSION"
 
 mkdir -p "$DIST_DIR"
 STAGING="$(mktemp -d -t pointsman-pkg)"
@@ -97,10 +102,19 @@ pkgbuild --root "$STAGING/clap" \
 DIST_XML="$STAGING/distribution.xml"
 sed "s/__VERSION__/$VERSION/g" "$DIST_XML_TEMPLATE" > "$DIST_XML"
 
+# Stage pkg-resources to a temp tree so __VERSION__ in the welcome /
+# conclusion screens (both en + ja lproj) can be substituted. Same token
+# convention as distribution.xml above. Single source of truth =
+# CMakeLists.
+STAGED_RESOURCES="$STAGING/pkg-resources"
+cp -R "$PKG_RESOURCES" "$STAGED_RESOURCES"
+find "$STAGED_RESOURCES" -type f -name '*.txt' -exec \
+  sed -i '' "s/__VERSION__/v$VERSION/g" {} +
+
 echo "Assembling distribution pkg"
 productbuild --distribution "$DIST_XML" \
              --package-path "$STAGING" \
-             --resources "$PKG_RESOURCES" \
+             --resources "$STAGED_RESOURCES" \
              "$STAGING/Pointsman-unsigned.pkg"
 
 # productsign auto-selects the "Developer ID Installer" identity that
