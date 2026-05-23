@@ -96,10 +96,10 @@ see [Build](#build) below.
 
 | Target | Status | Notes |
 |---|---|---|
-| [Max for Live](m4l/) | v0.1.0 shipped; v2 surface in distribution prep | Ableton Live MIDI effect. Current primary target. |
-| [VST3](vst/) | Built; `v0.1.0` in release prep (paid via Polar) | DAW-native plugin. |
-| [AU](vst/) | Built; `v0.1.0` in release prep (paid via Polar) | Same codebase as the VST3. |
-| [CLAP](vst/) | Built; `v0.1.0` in release prep (paid via Polar) | Same codebase, wrapped via `clap-juce-extensions` (Bitwig's native format). |
+| [Max for Live](m4l/) | Released ([`v0.1.0`](https://github.com/im9/pointsman/releases/tag/m4l-v0.1.0)) | Ableton Live MIDI effect. Current primary target. Also listed on [maxforlive.com](https://maxforlive.com/library/device.php?id=15367). |
+| [VST3](vst/) | Released ([`v0.1.0`](https://im9.fm/products/pointsman), paid via Polar) | DAW-native plugin. |
+| [AU](vst/) | Released ([`v0.1.0`](https://im9.fm/products/pointsman), paid via Polar) | Same codebase as the VST3. |
+| [CLAP](vst/) | Released ([`v0.1.0`](https://im9.fm/products/pointsman), paid via Polar) | Same codebase, wrapped via `clap-juce-extensions` (Bitwig's native format). |
 
 Musical logic is shared as a specification, not as code. m4l and vst
 are independent native implementations. Cross-target conformance is

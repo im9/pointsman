@@ -1,6 +1,6 @@
 # ADR 002: Pointsman m4l — release procedure
 
-## Status: Proposed
+## Status: Implemented
 
 **Created**: 2026-05-07
 **Revised**: 2026-05-08 — added §Phase 0 (distribution
@@ -22,6 +22,15 @@ v2 surface. §Phase 0 scaffolding remains Implemented and applies
 unchanged; §Verification is rewritten to gate the v2 public
 distribution; §Distribution carries the channel decision forward
 and resets the asset-prep / upload items per release.
+**Revised**: 2026-05-23 — m4l v0.1.0 public distribution shipped
+end-to-end. GitHub Release `m4l-v0.1.0` published 2026-05-17 with
+asset `Pointsman.amxd` and release notes body. maxforlive.com
+listing id=15367 published 2026-05-23 with description,
+screenshot, and YouTube demo
+(https://youtu.be/4B8k--NRuTA). Status flips Proposed →
+Implemented; future m4l releases re-flip to Proposed when bumping
+§Verification + §Distribution against the new version.
+**Implemented**: 2026-05-23 (m4l v0.1.0 distribution shipped end-to-end: GitHub Release `m4l-v0.1.0` with `Pointsman.amxd` asset + release notes, maxforlive.com listing id=15367 with description + screenshot + YouTube demo; §Verification complete with MPE check `[~]`-skipped per recorded rationale, §Distribution all `[x]`)
 
 This ADR defines the release gate for Pointsman m4l: distribution
 scaffolding (§Phase 0, one-time), manual verification (per
@@ -297,14 +306,19 @@ preparation and upload are per release.
       historical; the source repo's first tag `m4l-v0.1.0`
       (2026-05-18) is the v2 surface. See
       `.claude/skills/release/SKILL.md`.
-- [ ] Prepare screenshot at channel-required dimensions
-- [ ] Record audio demo (Pointsman solo) and export MP3
-- [ ] Write description copy
-- [ ] Upload Pointsman v2 (`m4l-vX.Y.Z` on `im9/pointsman`
-      Releases). Source-repo tag `m4l-v0.1.0` exists but no
-      public Release / assets / copy have been published yet —
-      that is the v2 public-distribution gate this checkbox
-      tracks.
+- [x] Prepare screenshot at channel-required dimensions —
+      maxforlive.com listing id=15367 carries the screenshot.
+- [x] Record demo — YouTube video at
+      https://youtu.be/4B8k--NRuTA, embedded in the maxforlive.com
+      listing in place of the originally-planned MP3 export
+      (same role, richer medium).
+- [x] Write description copy — published in the GitHub Release
+      body (`m4l-v0.1.0`) and the maxforlive.com listing
+      (id=15367) on 2026-05-23.
+- [x] Upload Pointsman v0.1.0 — GitHub Release `m4l-v0.1.0`
+      published 2026-05-17 with asset `Pointsman.amxd` and
+      release notes; maxforlive.com listing id=15367 published
+      2026-05-23.
 
 ### Prior release: v1.0.0 (2026-05-09, legacy repo)
 
