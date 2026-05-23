@@ -1,4 +1,4 @@
-Welcome to the Pointsman installer.
+Welcome to the Pointsman __VERSION__ installer.
 
 Pointsman is a scale-quantizer MIDI effect by im9: it snaps incoming notes to a user-selected scale, with an optional chord mode that expands each input note into a configurable diatonic voice stack, plus a per-event humanize layer. This installer places the Pointsman plug-in (VST3, AU, and CLAP formats) into the system-wide Audio Plug-Ins folders, so any DAW on this Mac can find it:
 

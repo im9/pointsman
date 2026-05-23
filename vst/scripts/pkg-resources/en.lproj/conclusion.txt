@@ -1,4 +1,4 @@
-Installation complete.
+Pointsman __VERSION__ — installation complete.
 
 Pointsman is now available system-wide. Where to find it:
 

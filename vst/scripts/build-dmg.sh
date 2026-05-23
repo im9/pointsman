@@ -24,9 +24,10 @@ INSTALL_TXT="$SCRIPT_DIR/INSTALL.txt"
 README_TXT="$SCRIPT_DIR/README.txt"
 
 # Parse version from CMakeLists.txt (single source of truth — same line
-# build-pkg.sh reads; embedded in the output filename and the dmg volume
-# name so multiple builds can coexist in dist/ and Finder shows which
-# build is mounted).
+# build-pkg.sh reads. Embedded in the output filename, the dmg volume
+# name (so Finder shows which build is mounted), and substituted into
+# the __VERSION__ token in INSTALL.txt / README.txt headers when
+# staging the dmg contents).
 VERSION="$(grep -E '^project\(Pointsman VERSION' "$VST_DIR/CMakeLists.txt" \
   | sed -E 's/.*VERSION ([0-9]+\.[0-9]+\.[0-9]+).*/\1/')"
 if [[ -z "$VERSION" ]]; then
@@ -65,8 +66,10 @@ echo "Staging dmg contents in $STAGING"
 cp -R "$AU_BUNDLE" "$STAGING/"
 cp -R "$VST3_BUNDLE" "$STAGING/"
 cp -R "$CLAP_BUNDLE" "$STAGING/"
-cp "$INSTALL_TXT" "$STAGING/"
-cp "$README_TXT" "$STAGING/"
+# Substitute __VERSION__ in the header of each doc when staging. Source
+# files keep the placeholder so the in-tree text is version-agnostic.
+sed "s/__VERSION__/v$VERSION/g" "$INSTALL_TXT" > "$STAGING/INSTALL.txt"
+sed "s/__VERSION__/v$VERSION/g" "$README_TXT"  > "$STAGING/README.txt"
 
 echo "Creating $DMG_PATH (HFS+, UDZO compressed)"
 rm -f "$DMG_PATH"

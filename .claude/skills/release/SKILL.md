@@ -142,15 +142,27 @@ proceeding**. The user can override.
 
 If Step 1 resolved to a new version (bump): edit
 `vst/CMakeLists.txt` so `project(Pointsman VERSION X.Y.Z)` matches
-the target version, commit, and push to main BEFORE the build runs
-in Step 1.6. The plist version reported to the DAW and the `v…`
-label drawn in the editor header both come from this line via
-`POINTSMAN_VERSION_STRING`.
+the target version. Also prompt the user to add a Changelog entry
+to `vst/scripts/README.txt` describing what changed in this release
+— that file ships inside the dmg and is the only user-visible
+changelog (vst has no GH release notes; the in-tree CMakeLists line
+is the authoritative version source). Wait for the user to write
+the entry; do not auto-generate from `git log`.
+
+Then commit and push to main BEFORE the build runs in Step 1.6. The
+plist version reported to the DAW and the `v…` label drawn in the
+editor header both come from the CMakeLists line via
+`POINTSMAN_VERSION_STRING`; the `__VERSION__` placeholder in
+INSTALL.txt / README.txt headers + pkg welcome / conclusion screens
+is substituted at build time by `build-dmg.sh` / `build-pkg.sh` (do
+not hard-code the version in those files).
 
 ```bash
 # In vst/CMakeLists.txt, line 2:
 # project(Pointsman VERSION <old>) → project(Pointsman VERSION <new>)
-git add vst/CMakeLists.txt
+# Then add a Changelog entry to vst/scripts/README.txt (user writes
+# the prose; pause until they confirm).
+git add vst/CMakeLists.txt vst/scripts/README.txt
 git commit -m "chore(vst): bump version to X.Y.Z"
 git push origin main
 ```
