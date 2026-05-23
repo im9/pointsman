@@ -2,6 +2,13 @@
 # live in `m4l/` (pnpm workspace) and `vst/Makefile`. This root Makefile
 # only chains release flows for distribution.
 
+# Load env vars from .env if present (gitignored). Used to keep
+# DEVELOPER_TEAM_ID and NOTARY_PROFILE out of shell rc files and out of
+# git. See .env.example for the expected keys. `.env` must be plain
+# KEY=VALUE (no quotes, no comments — parsed as Makefile syntax).
+-include .env
+export
+
 .PHONY: release release-m4l release-vst
 
 release: release-m4l release-vst

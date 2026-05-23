@@ -2,6 +2,10 @@
 *.user
 node_modules/
 
+# Local env vars loaded by Makefile (DEVELOPER_TEAM_ID, NOTARY_PROFILE).
+# See .env.example for the expected keys.
+.env
+
 # vst/ build output
 vst/build/
 
