@@ -1,5 +1,5 @@
-Pointsman — Scale quantizer MIDI effect
-im9
+Pointsman __VERSION__ — Scale quantizer MIDI effect
+im9 / Proprietary, source-available
 
 
 About
@@ -52,6 +52,13 @@ chromatic, chromatic-half.
 
 `chromatic-half` is a no-op identity for passthrough within the
 device chain.
+
+
+Changelog
+---------
+
+v0.1.0     Initial release.
+           VST3 + AU + CLAP macOS bundles, signed and notarized.
 
 
 License

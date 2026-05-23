@@ -2,6 +2,10 @@
 *.user
 node_modules/
 
+# Local env vars loaded by Makefile (DEVELOPER_TEAM_ID, NOTARY_PROFILE).
+# See .env.example for the expected keys.
+.env
+
 # vst/ build output
 vst/build/
 
@@ -13,8 +17,15 @@ m4l/host/dist/
 # Source is m4l/pointsman.entry.mjs (tracked). See ADR 002 §Phase 0.
 m4l/pointsman.mjs
 
-# Frozen distribution `.amxd` (release target). Produced by `make release`
-# + manual Freeze step in Max. See ADR 002 §Phase 0.
+# Versioned un-frozen .amxd staged by `make release-m4l VERSION=X.Y.Z`.
+# Ephemeral release helper — the user opens it in Max, Freezes, and
+# Save-As's into dist/. m4l/Pointsman.amxd (the unversioned dev bake
+# target) stays committed.
+m4l/Pointsman-v*.amxd
+
+# Frozen distribution `.amxd` (release target). Produced by
+# `make release-m4l VERSION=X.Y.Z` + manual Freeze step in Max. dist/ is
+# for frozen / signed-and-notarized artefacts only. See ADR 002 §Phase 0.
 dist/
 
 # Ableton Live project folder (auto-created on first device load, named
