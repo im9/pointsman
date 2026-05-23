@@ -11,14 +11,14 @@ only when relevant to the current task.
 
 ## File Organization
 
-- **Top-level** (`docs/ai/adr/`): Proposed and Accepted ADRs — active design decisions.
+- **Top-level** (`docs/ai/adr/`): Proposed ADRs — active design decisions.
 - **Archive** (`docs/ai/adr/archive/`): Implemented and Superseded ADRs — historical record.
 
 ## Conventions
 
 - File name: `NNN-kebab-case-title.md` (3-digit zero-padded)
 - Header: `# ADR NNN: Title`
-- Status line: `## Status: Proposed | Accepted | Implemented | Superseded`
+- Status line: `## Status: Proposed | Implemented | Superseded`
 - Created date: `**Created**: YYYY-MM-DD`
 - Sections: Context → Decision → (optional) Scope / Implementation notes
 
@@ -31,8 +31,9 @@ only when relevant to the current task.
 
 ## VST
 
-VST is post-v1. The engine spec carries over from existing Pointsman
-m4l code; the per-product vst-architecture ADR is below.
+The vst target ships alongside m4l; engine semantics are shared via
+the JSON test vectors in this directory's parent. v0.1.0 shipped
+2026-05-23.
 
 | #   | Title | Status | Notes |
 |-----|-------|--------|-------|

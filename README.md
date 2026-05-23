@@ -61,9 +61,10 @@ Full musical model: [`docs/ai/concept.md`](docs/ai/concept.md).
 `m4l/` is on the v2 parameter surface (merged `chord` / `harmony`
 modes, `feel` + `drift` humanize, removed `controlChannel` /
 `triggerMode` / `outputLevel`) per [concept.md](docs/ai/concept.md)
-§"Parameter surface". The source-repo tag `m4l-v0.1.0` exists; the
-public Release (assets, copy, audio demo) is in distribution prep,
-gated by the manual-Live verification checklist in [ADR 002][adr2].
+§"Parameter surface". v0.1.0 shipped on 2026-05-23 as
+[GitHub Release `m4l-v0.1.0`][m4l-release] (asset `Pointsman.amxd`)
+and is also listed on
+[maxforlive.com](https://maxforlive.com/library/device.php?id=15367).
 The v1 surface shipped as `pointsman-m4l/v1.0.0` on the legacy repo
 and is retained there as historical.
 
@@ -71,16 +72,17 @@ and is retained there as historical.
 editor, and the Phase 5 parameter-surface redesign (chord/harmony
 merge, `feel` + `drift`, `kStateVersion=2`) have all shipped. The
 build produces VST3 + AU + CLAP bundles for Logic / Bitwig / Reaper,
-mirroring oedipa's DAW support stance. The first vst public release
-(`v0.1.0`, paid via Polar) is in prep per ADR 003 §Release
-procedure — signed + notarized + stapled
-`Pointsman-vX.Y.Z.dmg` and `Pointsman-vX.Y.Z.pkg` are produced
-locally; no GitHub tag / release for vst (the in-tree
-`project(Pointsman VERSION …)` line is the authoritative version
-source); Polar upload is manual.
+mirroring oedipa's DAW support stance. v0.1.0 shipped on
+2026-05-23 — signed + notarized + stapled
+`Pointsman-v0.1.0.dmg` and `Pointsman-v0.1.0.pkg` produced via
+`make release-vst` and [uploaded to Polar][polar]; no GitHub tag /
+release for vst (the in-tree `project(Pointsman VERSION …)` line
+in `vst/CMakeLists.txt` is the authoritative version source).
 
-[adr2]: docs/ai/adr/002-pointsman-release.md
-[adr3]: docs/ai/adr/003-pointsman-vst-architecture.md
+[adr2]: docs/ai/adr/archive/002-pointsman-release.md
+[adr3]: docs/ai/adr/archive/003-pointsman-vst-architecture.md
+[m4l-release]: https://github.com/im9/pointsman/releases/tag/m4l-v0.1.0
+[polar]: https://im9.fm/products/pointsman
 
 ## Use (Max for Live)
 
@@ -151,7 +153,7 @@ Per-target build commands:
 | Target | First time | Build | Test |
 |---|---|---|---|
 | `m4l/` (workspace) | `cd m4l && pnpm install` | `pnpm -r build` | `pnpm -r test` |
-| `vst/` (VST3 + AU + CLAP) | `git submodule update --init --recursive` | `cd vst && make build` | _(test infra rebuilt in [ADR 003][adr3] Phase 1)_ |
+| `vst/` (VST3 + AU + CLAP) | `git submodule update --init --recursive` | `cd vst && make build` | `cd vst && make test` |
 
 m4l rebake after source edits: `cd m4l && pnpm bake` (chains
 `pnpm -r build` for engine/host TS → esbuild for the
@@ -170,7 +172,7 @@ JS) → *File → Save As* → navigate to `dist/` (the default filename
 location). `dist/` only ever holds frozen / signed-and-notarized
 artefacts; the un-frozen staging copy stays in `m4l/`. The frozen
 file is self-contained and works on any Live install. See
-[ADR 002](docs/ai/adr/002-pointsman-release.md) §Phase 0.
+[ADR 002][adr2] §Phase 0.
 
 vst distribution build: `make release-vst` (from repo root) builds
 the bundles, signs + notarizes + staples them, and produces both
@@ -179,8 +181,7 @@ the bundles, signs + notarizes + staples them, and produces both
 parsed from `vst/CMakeLists.txt` (`project(Pointsman VERSION
 X.Y.Z)` — single source of truth). Requires `DEVELOPER_TEAM_ID`
 env var and the `im9-notary` keychain profile; see
-[ADR 003](docs/ai/adr/003-pointsman-vst-architecture.md) §Release
-procedure.
+[ADR 003][adr3] §Release procedure.
 
 ## Design docs
 

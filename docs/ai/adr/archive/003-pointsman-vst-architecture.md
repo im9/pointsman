@@ -509,8 +509,8 @@ for support visibility but does not surface this to the host.
   `FetchContent`; custom `tests/main.cpp` owning JUCE init / shutdown.
 - Manual-host verification gate at the end of each phase (see
   Implementation checklist below) — bundling all phases into one
-  end-of-batch check is the failure mode `feedback_audit_overreach`
-  was logged from.
+  end-of-batch check has historically masked host-runtime bugs that
+  unit tests don't catch.
 - Phase 5 surface redesign — `kStateVersion = 2` hard break with no
   migration from v1; m4l receives the parallel redesign on its own
   branch (engine semantics shared via JSON test vectors, host /
@@ -568,8 +568,7 @@ Phased per [CLAUDE.md](../../../CLAUDE.md) Mandatory Workflow gates:
 tests first within each phase, then implementation, then build /
 test, then manual-host verification before moving to the next phase.
 Each phase's manual gate exists because tests cover code-vs-spec but
-not host-runtime behaviour
-(`feedback_audit_overreach` 2026-05-09 lesson).
+not host-runtime behaviour (2026-05-09 audit-overreach incident).
 
 ### Phase 0 — Scaffold removal + project rename
 
@@ -619,9 +618,7 @@ not host-runtime behaviour
       `COPY_PLUGIN_AFTER_BUILD TRUE`.
 - [x] **Manual gate (host)**: the empty Pointsman bundle loads as
       a placeholder MIDI Effect in Logic (AU) and Bitwig (CLAP /
-      VST3) without console errors. *(awaiting user verification —
-      the gate `feedback_audit_overreach` was logged for; do not
-      start Phase 1 until this is confirmed.)*
+      VST3) without console errors.
 
 ### Phase 1 — Engine + tests
 
@@ -742,8 +739,7 @@ not host-runtime behaviour
       sliders perturb output. v1 ships light-only (cream / olive /
       dark on white) matching the m4l theme decision in
       [ADR 002](002-pointsman-release.md); no dark-host adaptation
-      in this phase. *(awaiting user verification — the gate
-      `feedback_audit_overreach` was logged for.)*
+      in this phase.
 
 ### Phase 4 — Humanize gate / timing / drift parity
 
@@ -989,8 +985,9 @@ plumbing differs).
       text assertions match the 2-mode surface.
 - [x] **Build gate** — `cd vst && make clean && make build`
       produces `Pointsman.vst3` / `Pointsman.component` /
-      `Pointsman.clap` (`feedback_build_is_part_of_task`: a green
-      test suite without a fresh build is not enough).
+      `Pointsman.clap` (a green test suite without a fresh build of
+      the plugin targets is not enough — `make test` only builds the
+      test binary).
 - [x] **Manual gate (host)** — Logic (AU) and Bitwig (CLAP / VST3)
       on a default single-channel MIDI track:
       - `mode = chord` + single-note melody → each input note

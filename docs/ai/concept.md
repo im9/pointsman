@@ -1,5 +1,13 @@
 # Concept
 
+> **Status (2026-05-23):** This document anchors the v0.2 / v3 design
+> (`chordShape` intervallic chord primitive + `arp` mode), specified
+> in [ADR 004](adr/004-pointsman-arpeggiator.md) — currently
+> **Proposed**. Shipped code (m4l v0.1.0, vst v0.1.0) is on the v2
+> surface: `mode = scale | chord` and diatonic `harmonyVoices`
+> (0..3 entries, interval ∈ {3, 4, 5, 6}). Sections below describing
+> `arp` mode and `chordShape` are the target spec, not yet implemented.
+
 Pointsman is a DAW-native **scale quantizer** for MIDI: it snaps incoming
 notes to a user-selected scale, with optional `chord` mode (single-note-
 becomes-chord expansion via a configurable intervallic chord shape) and
@@ -352,10 +360,11 @@ deletion):
 
 Pointsman has two ancestors:
 
-- **inboil's `generative.ts`** (see the `reference_inboil` memory and
-  CLAUDE.md) provided the algorithm — scale presets, snap-to-nearest,
-  and diatonic harmony as the v1 chord primitive. inboil's scene
-  graph does not carry over: Pointsman is a flat MIDI effect, not a
+- **inboil's `generative.ts`** (see CLAUDE.md for the inboil
+  reference paths) provided the algorithm — scale presets,
+  snap-to-nearest, and diatonic harmony as the v1 chord primitive.
+  inboil's scene graph does not carry over: Pointsman is a flat
+  MIDI effect, not a
   generative graph node. The diatonic `harmonyVoices` primitive
   inherited from inboil was replaced by intervallic `chordShape` in
   v3 (see ADR 004) to admit chromatic / jazz chord vocabulary that
