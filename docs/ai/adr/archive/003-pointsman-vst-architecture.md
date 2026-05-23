@@ -1,11 +1,19 @@
 # ADR 003: Pointsman vst — architecture
 
-## Status: Proposed
+## Status: Implemented
 
 **Created**: 2026-05-10
 **Phases 0–5 shipped**: 2026-05-17 — pure-C++17 engine + APVTS plugin core + inboil-derived editor across AU / VST3 / CLAP, v2 parameter surface from Phase 5 chord/harmony merge, signing + notarization pipeline producing `dist/Pointsman.dmg` verified end-to-end.
 
 **Revised**: 2026-05-18 — added §Release procedure at the foot of this ADR (pkg port from oedipa + `release-vst` Makefile target + paid-via-Polar distribution, no tag / no GH release for vst + first `v0.1.0` ship). Phases 0–5 architecture work remains shipped; status flipped Implemented → Proposed and the file moved out of `archive/` to track the new checklist. Flips back to Implemented and re-archives when §Release procedure is `[x]` end-to-end.
+
+**Revised**: 2026-05-23 — §Release procedure shipped end-to-end.
+`make release-vst` produced `dist/Pointsman-v0.1.0.dmg` and
+`dist/Pointsman-v0.1.0.pkg` (both `xcrun stapler validate`-clean);
+both uploaded to Polar; README §Targets flipped to "Released
+(`v0.1.0`)" with Polar product link. Status flips Proposed →
+Implemented; ready to re-archive.
+**Implemented**: 2026-05-23 (vst v0.1.0 shipped: Phases 0–5 architecture complete; §Release procedure `dist/Pointsman-v0.1.0.dmg` + `dist/Pointsman-v0.1.0.pkg` both stapler-validate-clean, uploaded to Polar, README §Targets flipped to "Released"; Phase 4 manual-gate item `[~]`-skipped per inline rationale — superseded by Phase 5's gate against the v2 surface)
 
 **Revised**: 2026-05-16 — parameter surface redesign (Phase 5). The
 2026-05-10 ↔ 2026-05-15 phases (0–4) shipped a working vst against
@@ -501,8 +509,8 @@ for support visibility but does not surface this to the host.
   `FetchContent`; custom `tests/main.cpp` owning JUCE init / shutdown.
 - Manual-host verification gate at the end of each phase (see
   Implementation checklist below) — bundling all phases into one
-  end-of-batch check is the failure mode `feedback_audit_overreach`
-  was logged from.
+  end-of-batch check has historically masked host-runtime bugs that
+  unit tests don't catch.
 - Phase 5 surface redesign — `kStateVersion = 2` hard break with no
   migration from v1; m4l receives the parallel redesign on its own
   branch (engine semantics shared via JSON test vectors, host /
@@ -560,8 +568,7 @@ Phased per [CLAUDE.md](../../../CLAUDE.md) Mandatory Workflow gates:
 tests first within each phase, then implementation, then build /
 test, then manual-host verification before moving to the next phase.
 Each phase's manual gate exists because tests cover code-vs-spec but
-not host-runtime behaviour
-(`feedback_audit_overreach` 2026-05-09 lesson).
+not host-runtime behaviour (2026-05-09 audit-overreach incident).
 
 ### Phase 0 — Scaffold removal + project rename
 
@@ -611,9 +618,7 @@ not host-runtime behaviour
       `COPY_PLUGIN_AFTER_BUILD TRUE`.
 - [x] **Manual gate (host)**: the empty Pointsman bundle loads as
       a placeholder MIDI Effect in Logic (AU) and Bitwig (CLAP /
-      VST3) without console errors. *(awaiting user verification —
-      the gate `feedback_audit_overreach` was logged for; do not
-      start Phase 1 until this is confirmed.)*
+      VST3) without console errors.
 
 ### Phase 1 — Engine + tests
 
@@ -734,8 +739,7 @@ not host-runtime behaviour
       sliders perturb output. v1 ships light-only (cream / olive /
       dark on white) matching the m4l theme decision in
       [ADR 002](002-pointsman-release.md); no dark-host adaptation
-      in this phase. *(awaiting user verification — the gate
-      `feedback_audit_overreach` was logged for.)*
+      in this phase.
 
 ### Phase 4 — Humanize gate / timing / drift parity
 
@@ -769,7 +773,7 @@ silently violating the contract in concept.md §"Per-event humanize".
 - [x] `Source/Plugin/PluginProcessor`: re-seed RNG and reset
       drift on transport-start edge so each play loop reproduces
       bit-for-bit (concept.md §"Transport"; mirrors m4l host.ts:237).
-- [ ] ~~Manual gate: in Logic / Bitwig, set `humanizeGate = 0.5`
+- [~] ~~Manual gate: in Logic / Bitwig, set `humanizeGate = 0.5`
       and confirm output gate length varies per event…~~
       **Superseded by Phase 5 manual gate.** The
       `humanizeVelocity` / `humanizeGate` / `humanizeTiming` /
@@ -981,8 +985,9 @@ plumbing differs).
       text assertions match the 2-mode surface.
 - [x] **Build gate** — `cd vst && make clean && make build`
       produces `Pointsman.vst3` / `Pointsman.component` /
-      `Pointsman.clap` (`feedback_build_is_part_of_task`: a green
-      test suite without a fresh build is not enough).
+      `Pointsman.clap` (a green test suite without a fresh build of
+      the plugin targets is not enough — `make test` only builds the
+      test binary).
 - [x] **Manual gate (host)** — Logic (AU) and Bitwig (CLAP / VST3)
       on a default single-channel MIDI track:
       - `mode = chord` + single-note melody → each input note
@@ -1089,14 +1094,15 @@ ADR 002.)
       inside the skill and verifies both stapler-validate, vst
       flow stops there. No tag, no GH release — downstream handling
       of the local artifacts is out of skill scope.
-- [ ] Verification: `make release-vst` on a clean tree produces
-      both `dist/Pointsman.dmg` and `dist/Pointsman.pkg`, both
-      `xcrun stapler validate`-clean; pkg installs on the author
-      machine with at least one format opt-out exercised on the
-      choices screen; bundles load in Logic Pro (AU MIDI FX)
-      and Bitwig Studio (CLAP + VST3) without Gatekeeper
-      friction.
-- [ ] Upload `dist/Pointsman.dmg` and `dist/Pointsman.pkg` to
-      Polar manually (no GitHub tag / release for vst); flip the
-      vst rows in [`README.md`](../../../README.md) §Targets to
-      "Released (`v0.1.0`)" and add the Polar product link.
+- [x] Verification (2026-05-23): `make release-vst` on a clean
+      tree produced `dist/Pointsman-v0.1.0.dmg` and
+      `dist/Pointsman-v0.1.0.pkg`; both `xcrun stapler validate`-
+      clean ("The validate action worked!"); pkg installed on the
+      author machine with format opt-out exercised on the choices
+      screen; bundles loaded in Logic Pro (AU MIDI FX) and Bitwig
+      Studio (CLAP + VST3) without Gatekeeper friction.
+- [x] Upload `dist/Pointsman-v0.1.0.dmg` and `dist/Pointsman-v0.1.0.pkg`
+      to Polar manually (2026-05-23, no GitHub tag / release for
+      vst); [`README.md`](../../../README.md) §Targets vst rows
+      flipped to "Released (`v0.1.0`)" with the Polar product
+      link.

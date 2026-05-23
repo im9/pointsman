@@ -34,15 +34,13 @@ artefacts.
   skill bakes + stages an un-frozen versioned copy at
   `m4l/Pointsman-vX.Y.Z.amxd` (gitignored) in Step 1.6; the user
   opens that file in Max, Freezes, and Save-As's into `dist/`
-  (default filename is already correct). See
-  [ADR 002](../../../docs/ai/adr/002-pointsman-release.md).
+  (default filename is already correct).
 - **vst** → `dist/Pointsman-vX.Y.Z.pkg` (recommended installer)
   **and** `dist/Pointsman-vX.Y.Z.dmg` (drag-to-install fallback) —
   both signed / notarized / stapled, built in lockstep by
   `make release-vst`. The build scripts read the version from
   `vst/CMakeLists.txt`. Local artifacts only; GitHub Releases is
-  not used for vst. See
-  [ADR 003 §Release procedure](../../../docs/ai/adr/003-pointsman-vst-architecture.md#release-procedure).
+  not used for vst.
 
 > **⚠️ vst is local-only.** No tag is created, no GH release is
 > created, no asset is uploaded by this skill. `/release vst` ends
