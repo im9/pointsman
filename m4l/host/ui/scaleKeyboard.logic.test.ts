@@ -38,6 +38,7 @@ const ALL_SCALES: ScaleName[] = [
   "whole",
   "chromatic",
   "chromatic-half",
+  "phrygian-dominant",
 ];
 
 // ---- recomputeInScale -----------------------------------------------------

@@ -160,9 +160,10 @@ colours / borrowed-chord material, which is musically valid and
 deliberate. Scale-snap applies only to incoming MIDI (chord roots),
 not to chord voices.
 
-This is a v2-era design departure. `harmonyVoices` is removed
-entirely; the migration is a hard break per the v1 → v2 precedent
-(no migrator).
+This is a v0.2 design departure. `harmonyVoices` is removed
+entirely; the migration is a hard break per the schema v1 → v2
+precedent (i.e. the Phase 5 chord/harmony merge in v0.1.0, which
+bumped `kStateVersion` from 1 to 2 with no migrator).
 
 ### Scale-snap is input-only
 
@@ -233,7 +234,7 @@ and maintained when `mode == arp`:
    held notes with the new shape (panic + rebuild).
 
 In `mode ∈ {scale, chord}` the pool is not built; notes emit
-immediately per v0.1 / v2 behaviour. Switching `mode` mid-session
+immediately per v0.1 behaviour. Switching `mode` mid-session
 triggers `panic` (flush sounding notes, discard pool; drift state
 untouched per concept.md §"Per-event humanize").
 
@@ -455,10 +456,19 @@ where accent / slide patterns are bar-relative, not melody-relative.
 
 ## Persistence
 
+> **Note on version numbers.** In this section, bare `v1 / v2 / v3`
+> refer to `kStateVersion` — the APVTS state-tree schema version
+> defined in [vst/Source/Plugin/PluginProcessor.h](../../../vst/Source/Plugin/PluginProcessor.h),
+> not Pointsman product semver. The schema version increments only
+> when state shape changes incompatibly. v0.1.0 ships at
+> `kStateVersion = 2` (Phase 5 chord/harmony merge); this ADR bumps
+> it to `3` in v0.2.0. Where the distinction matters, the prose
+> writes "schema v2" / "schema v3" explicitly.
+
 **vst (APVTS)**:
 
-- `harmonyVoices` removed entirely (no migration, hard v2 → v3
-  break per the v1 → v2 precedent).
+- `harmonyVoices` removed entirely (no migration, hard schema
+  v2 → v3 break per the schema v1 → v2 precedent).
 - `chordShape` added as an int / Choice pid, indexed 0..19 over
   the preset table above (default `maj` = 0). On-disk index order
   is append-only — future presets append, never insert.
@@ -483,13 +493,13 @@ where accent / slide patterns are bar-relative, not melody-relative.
   hardware-style step sequencers conventionally store their
   patterns (one block of state, not one automation lane per
   cell).
-- `kStateVersion` bumps to **3**. A v2 state tree is recognised and
-  discarded (no migrator); the new default state takes over. The
-  `kRemovedV1Pids` array grows by one entry (`harmonyVoices`,
-  alongside the existing v1 entries) so v2 state detection
-  remains unambiguous. v3 state missing `arpGroovePattern` (e.g.
-  a partial-v3 preset) loads the default all-`100` accent / all-
-  `off` slide pattern.
+- `kStateVersion` bumps to **3**. A schema-v2 state tree is
+  recognised and discarded (no migrator); the new default state
+  takes over. The `kRemovedV1Pids` array grows by one entry
+  (`harmonyVoices`, alongside the existing schema-v1 entries) so
+  schema-v2 state detection remains unambiguous. A schema-v3 state
+  missing `arpGroovePattern` (e.g. a partial-schema-v3 preset)
+  loads the default all-`100` accent / all-`off` slide pattern.
 
 **m4l (live.\*)**: parallel changes — `harmonyVoices` `live.*`
 objects removed; new `chordShape` `live.menu` added with the same
@@ -813,8 +823,9 @@ load.
 - m4l Pattern Editor floating window (`[thispatcher]`-opened) for
   accent / slide per-step editing, per design.md §"When to escalate
   to a floating window".
-- Persistence: v2 → v3 hard break (`harmonyVoices` removed, all
-  new params added). v2 state recognised and discarded. 16-step
+- Persistence: schema v2 → v3 hard break (`harmonyVoices` removed,
+  all new params added; `kStateVersion` bumps to 3). Schema-v2
+  state recognised and discarded. 16-step
   accent / slide patterns stored as ValueTree child node (vst) /
   hidden persistence array block (m4l), not as automatable params.
 - Composition with existing humanize (`feel` / `drift`) and shared
@@ -872,41 +883,52 @@ Phased per CLAUDE.md TDD gates. Each phase: tests first →
 implementation → build + test. Manual verification ride-alongs are
 flagged where DAW / UI behaviour cannot be unit-tested.
 
-- [ ] **Phase 1 — Engine logic (cross-target, pure functions)**
-  - Add `applyChordShape(rootMidi, shape) → number[]` to both
-    `m4l/engine/quantizer.ts` and
-    `vst/Source/Engine/Quantizer.{h,cpp}`. Internal preset table
-    (20 entries).
-  - Add `nextArpIndex`, `resolveArpStep`, `parseArpRate`,
+- [x] **Phase 1 — Engine logic (cross-target, pure functions)**
+  - [x] `applyChordShape(rootMidi, shape) → number[]` added to both
+    `m4l/engine/quantizer.ts` and `vst/Source/Engine/Quantizer.{h,cpp}`
+    with the 20-entry intervallic preset table.
+  - [x] `parseArpRate`, `nextArpIndex`, `resolveArpStep`,
     `applyArpVariation`, `applyArpGroove`, `scheduleArpNoteOff`
-    per §Logic layer.
-  - Extend `SCALE_INTERVALS` / equivalent vst table with
-    `phrygian-dominant` (`[0, 1, 4, 5, 7, 8, 10]`), appended
-    after `chromatic-half`.
-  - Extend `docs/ai/quantizer-test-vectors.json`: chord-shape
-    cases (20 presets × multiple root pitches, including MIDI-127
-    overflow); arp cases (pattern × pool size × octaves × repeats
-    × variation seeded RNG); groove cases (flat accent / per-step
-    accent / slide-on / swing per 16th-grid position); scale cases
-    for `phrygian-dominant` at several roots.
-  - Existing scale-snap / `buildScalePitches` tests continue to
-    pass. `diatonicShift` and harmony-voice helpers are removed
-    (no callers in the v3 design).
+    added to both target engines per §Logic layer.
+  - [x] `SCALE_INTERVALS` (m4l) and the equivalent vst table extended
+    with `phrygian-dominant` (`[0, 1, 4, 5, 7, 8, 10]`), appended
+    after `chromatic-half`. `ScaleName::PhrygianDominant` added to
+    the vst enum; `kScaleCount` bumped from 15 to 16; the
+    `kScaleChoiceLabels` array gains "Phrygian Dominant".
+  - [x] `docs/ai/quantizer-test-vectors.json` extended with the new
+    sections: `apply_chord_shape` (44 cases — 20 shapes × 2 roots
+    plus MIDI-127 overflow edges), `parse_arp_rate` (10),
+    `next_arp_index` (11 trace + sentinel cases),
+    `resolve_arp_step` (10), `apply_arp_variation` (18),
+    `apply_arp_groove` (11), `schedule_arp_note_off` (5).
+    `phrygian-dominant` cases added to `build_scale_pitches` (+1),
+    `snap_to_chord_tones` (+3), `diatonic_shift` (+8). Spec
+    generator modularised under `scripts/gen-test-vectors/`.
+  - [x] Engine tests iterate every new JSON section bit-for-bit:
+    m4l 16/16 tests pass (8 new), vst 93/93 (1320 assertions, 7 new
+    `[adr004]` test cases). VST3 / AU / CLAP all build green.
+  - **Deferred** to the end of Phase 3: `diatonicShift` and the
+    harmony-voice helpers are still in the engines because the
+    v0.1 chord-mode call sites in `vst/Source/Plugin/` and
+    `m4l/host/` still rely on them. Once Phase 2 (vst processor
+    port) and Phase 3 (m4l host port) replace those call sites
+    with `applyChordShape`, the engine helpers are deleted as the
+    final step of Phase 3.
 
-- [ ] **Phase 2 — vst APVTS + processor wiring (v2 → v3 break)**
+- [ ] **Phase 2 — vst APVTS + processor wiring (schema v2 → v3 break)**
   - In `vst/Source/Plugin/Parameters.{h,cpp}`: remove
     `harmonyVoices` ValueTree child; add `chordShape` Choice pid
     (20 presets); extend `mode` choices to add `"Arp"`; extend
     `scale` choices to add `"Phrygian Dominant"`; append eight
     arp pids with §Arpeggiator parameters defaults (including
     `arpSwing`). Add `"harmonyVoices"` to `kRemovedV1Pids`
-    (renamed in spirit to `kRemovedLegacyPids`) so v2 state
+    (renamed in spirit to `kRemovedLegacyPids`) so schema-v2 state
     detection remains unambiguous.
   - Add `arpGroovePattern` ValueTree child node on the APVTS root
     holding `accent` (16 ints) and `slide` (16 bools).
     `getStateInformation` / `setStateInformation` cover both.
-  - Bump `kStateVersion` to 3 in `Engine/State.h`. v2 tree is
-    recognised and discarded; new defaults take over.
+  - Bump `kStateVersion` to 3 in `Engine/State.h`. Schema-v2 tree
+    is recognised and discarded; new defaults take over.
   - Extend `PluginProcessor::processBlock`: in `mode == chord`,
     apply `chordShape` to snapped root for vertical expansion; in
     `mode == arp`, build/maintain pool via `applyChordShape`,
@@ -915,10 +937,11 @@ flagged where DAW / UI behaviour cannot be unit-tested.
     (`applyArpGroove` + `scheduleArpNoteOff`). Mode-switch
     triggers `panic` + pool flush. Chord-shape change mid-hold
     rebuilds pool.
-  - APVTS round-trip test: v3 round-trips chord-shape, arp state,
-    and `arpGroovePattern` (accent + slide arrays). Loading a v2
-    tree resets to v3 defaults (verifiable by checking
-    `chordShape == maj` and groove pattern at defaults).
+  - APVTS round-trip test: a schema-v3 state round-trips
+    chord-shape, arp state, and `arpGroovePattern` (accent + slide
+    arrays). Loading a schema-v2 tree resets to schema-v3 defaults
+    (verifiable by checking `chordShape == maj` and groove pattern
+    at defaults).
   - Build all targets (VST3 / AU / CLAP) — `make build` succeeds.
 
 - [ ] **Phase 3 — m4l host wiring**

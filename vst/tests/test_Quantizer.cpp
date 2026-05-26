@@ -44,6 +44,7 @@ namespace
         if (s == "whole")              return ScaleName::Whole;
         if (s == "chromatic")          return ScaleName::Chromatic;
         if (s == "chromatic-half")     return ScaleName::ChromaticHalf;
+        if (s == "phrygian-dominant")  return ScaleName::PhrygianDominant;
         FAIL("unknown scale: " << s);
         return ScaleName::Major;
     }
@@ -54,6 +55,139 @@ namespace
         if (s == "below") return HarmonyDirection::Below;
         FAIL("unknown harmony direction: " << s);
         return HarmonyDirection::Above;
+    }
+
+    // ----- ADR 004 enum/struct parsers ---------------------------------------
+
+    ChordShape parseChordShape(const std::string& s)
+    {
+        if (s == "maj")    return ChordShape::Maj;
+        if (s == "m")      return ChordShape::Min;
+        if (s == "dim")    return ChordShape::Dim;
+        if (s == "aug")    return ChordShape::Aug;
+        if (s == "sus2")   return ChordShape::Sus2;
+        if (s == "sus4")   return ChordShape::Sus4;
+        if (s == "power")  return ChordShape::Power;
+        if (s == "maj7")   return ChordShape::Maj7;
+        if (s == "m7")     return ChordShape::Min7;
+        if (s == "7")      return ChordShape::Dom7;
+        if (s == "m7b5")   return ChordShape::Min7b5;
+        if (s == "dim7")   return ChordShape::Dim7;
+        if (s == "6")      return ChordShape::Maj6;
+        if (s == "m6")     return ChordShape::Min6;
+        if (s == "add9")   return ChordShape::Add9;
+        if (s == "maj9")   return ChordShape::Maj9;
+        if (s == "m9")     return ChordShape::Min9;
+        if (s == "9")      return ChordShape::Dom9;
+        if (s == "13")     return ChordShape::Dom13;
+        if (s == "octave") return ChordShape::Octave;
+        FAIL("unknown chord shape: " << s);
+        return ChordShape::Maj;
+    }
+
+    ArpRate parseArpRateName(const std::string& s)
+    {
+        if (s == "1/4")   return ArpRate::Q4;
+        if (s == "1/4D")  return ArpRate::Q4D;
+        if (s == "1/4T")  return ArpRate::Q4T;
+        if (s == "1/8")   return ArpRate::Q8;
+        if (s == "1/8D")  return ArpRate::Q8D;
+        if (s == "1/8T")  return ArpRate::Q8T;
+        if (s == "1/16")  return ArpRate::Q16;
+        if (s == "1/16D") return ArpRate::Q16D;
+        if (s == "1/16T") return ArpRate::Q16T;
+        if (s == "1/32")  return ArpRate::Q32;
+        FAIL("unknown arp rate: " << s);
+        return ArpRate::Q16;
+    }
+
+    ArpPattern parseArpPattern(const std::string& s)
+    {
+        if (s == "up")        return ArpPattern::Up;
+        if (s == "down")      return ArpPattern::Down;
+        if (s == "up-down")   return ArpPattern::UpDown;
+        if (s == "random")    return ArpPattern::Random;
+        if (s == "as-played") return ArpPattern::AsPlayed;
+        if (s == "strike")    return ArpPattern::Strike;
+        FAIL("unknown arp pattern: " << s);
+        return ArpPattern::Up;
+    }
+
+    ArpState parseArpState(const json& j)
+    {
+        return {
+            j.at("index").get<int>(),
+            j.at("round").get<int>(),
+            j.at("repeatTick").get<int>(),
+            j.at("direction").get<int>(),
+        };
+    }
+
+    ArpEmission parseArpEmission(const json& j)
+    {
+        ArpEmission e;
+        const auto kind = j.at("kind").get<std::string>();
+        if (kind == "rest")
+        {
+            e.kind = ArpEmissionKind::Rest;
+            return e;
+        }
+        e.kind = ArpEmissionKind::Emit;
+        e.pitches = j.at("pitches").get<std::vector<int>>();
+        return e;
+    }
+
+    ArpVariationResult parseVariationResult(const json& j)
+    {
+        ArpVariationResult r;
+        const auto effect = j.at("effect").get<std::string>();
+        if (effect == "rest")           r.effect = ArpVariationEffect::Rest;
+        else if (effect == "normal")    r.effect = ArpVariationEffect::Normal;
+        else if (effect == "octave_shift") r.effect = ArpVariationEffect::OctaveShift;
+        else if (effect == "flam")      r.effect = ArpVariationEffect::Flam;
+        else FAIL("unknown variation effect: " << effect);
+        if (j.contains("pitches"))
+            r.pitches = j.at("pitches").get<std::vector<int>>();
+        if (j.contains("semitones"))
+            r.semitones = j.at("semitones").get<int>();
+        if (j.contains("second_offset_fraction"))
+            r.secondOffsetFraction = j.at("second_offset_fraction").get<double>();
+        return r;
+    }
+
+    // Variation result used as INPUT to applyArpGroove. The JSON cases
+    // express its emission as { "effect": "...", "pitches": [...] } sans
+    // the auxiliary fields, so this is a thin convenience wrapper.
+    ArpVariationResult parseGrooveEmission(const json& j)
+    {
+        ArpVariationResult r;
+        const auto effect = j.at("effect").get<std::string>();
+        if (effect == "rest")              r.effect = ArpVariationEffect::Rest;
+        else if (effect == "normal")       r.effect = ArpVariationEffect::Normal;
+        else if (effect == "octave_shift") r.effect = ArpVariationEffect::OctaveShift;
+        else if (effect == "flam")         r.effect = ArpVariationEffect::Flam;
+        else FAIL("unknown groove input effect: " << effect);
+        if (j.contains("pitches"))
+            r.pitches = j.at("pitches").get<std::vector<int>>();
+        return r;
+    }
+
+    ArpAccentTable parseAccentTable(const json& j)
+    {
+        const auto v = j.get<std::vector<int>>();
+        REQUIRE(v.size() == 16);
+        ArpAccentTable t{};
+        for (size_t i = 0; i < 16; ++i) t[i] = v[i];
+        return t;
+    }
+
+    ArpSlideTable parseSlideTable(const json& j)
+    {
+        const auto v = j.get<std::vector<bool>>();
+        REQUIRE(v.size() == 16);
+        ArpSlideTable t{};
+        for (size_t i = 0; i < 16; ++i) t[i] = v[i];
+        return t;
     }
 }
 
@@ -199,4 +333,206 @@ TEST_CASE("snapToChordTones: empty chord PCs falls back to scale snap",
     const auto pitches = buildScalePitches(ScaleName::Major, 0);
     const std::vector<int> none{};
     REQUIRE(snapToChordTones(63, none, pitches, 2) == snapToScale(63, pitches));
+}
+
+// ============================================================================
+// ADR 004 — chord shape primitive
+// ============================================================================
+
+TEST_CASE("applyChordShape matches vectors", "[quantizer][adr004]")
+{
+    const auto V = loadVectors();
+    for (const auto& tc : V.at("apply_chord_shape"))
+    {
+        const auto shape = parseChordShape(tc.at("shape_name").get<std::string>());
+        const auto root  = tc.at("root").get<int>();
+        const auto expected = tc.at("expected").get<std::vector<int>>();
+
+        INFO("label=" << tc.at("label").get<std::string>());
+        REQUIRE(applyChordShape(root, shape) == expected);
+    }
+}
+
+// ============================================================================
+// ADR 004 — arpeggiator rate
+// ============================================================================
+
+TEST_CASE("parseArpRate matches vectors", "[quantizer][adr004]")
+{
+    const auto V = loadVectors();
+    for (const auto& tc : V.at("parse_arp_rate"))
+    {
+        const auto rate = parseArpRateName(tc.at("rate_name").get<std::string>());
+        const auto& exp = tc.at("expected_quarters");
+        const auto expectedNum = exp.at("num").get<int>();
+        const auto expectedDen = exp.at("den").get<int>();
+        const auto got = parseArpRate(rate);
+
+        INFO("label=" << tc.at("label").get<std::string>());
+        REQUIRE(got.num == expectedNum);
+        REQUIRE(got.den == expectedDen);
+    }
+}
+
+// ============================================================================
+// ADR 004 — arpeggiator pattern cursor + step resolution
+// ============================================================================
+
+TEST_CASE("nextArpIndex matches vectors", "[quantizer][adr004]")
+{
+    const auto V = loadVectors();
+    for (const auto& tc : V.at("next_arp_index"))
+    {
+        const auto pattern = parseArpPattern(tc.at("pattern").get<std::string>());
+        const auto poolSize = tc.at("poolSize").get<int>();
+        const auto octaves = tc.at("octaves").get<int>();
+        const auto stepRepeats = tc.at("stepRepeats").get<int>();
+        const auto label = tc.at("label").get<std::string>();
+
+        if (tc.contains("trace"))
+        {
+            // Walk from `initial`, advance once per step in `trace[1..]`.
+            ArpState st = parseArpState(tc.at("initial"));
+            const auto& trace = tc.at("trace");
+            const auto initialFromTrace = parseArpState(trace.at(0));
+            INFO(label << " — initial");
+            REQUIRE(st.index == initialFromTrace.index);
+            REQUIRE(st.round == initialFromTrace.round);
+            REQUIRE(st.repeatTick == initialFromTrace.repeatTick);
+            REQUIRE(st.direction == initialFromTrace.direction);
+
+            for (size_t t = 1; t < trace.size(); ++t)
+            {
+                st = nextArpIndex(pattern, st, poolSize, octaves, stepRepeats, 0.0);
+                const auto expected = parseArpState(trace.at(t));
+                INFO(label << " — tick " << t);
+                REQUIRE(st.index == expected.index);
+                REQUIRE(st.round == expected.round);
+                REQUIRE(st.repeatTick == expected.repeatTick);
+                REQUIRE(st.direction == expected.direction);
+            }
+        }
+        else
+        {
+            // Single-step case (random + empty-pool sentinels).
+            const auto initial = parseArpState(tc.at("initial"));
+            const double rngDraw01 = tc.contains("rngDraw01")
+                ? tc.at("rngDraw01").get<double>() : 0.0;
+            const auto got = nextArpIndex(pattern, initial, poolSize, octaves,
+                                          stepRepeats, rngDraw01);
+            const auto expected = parseArpState(tc.at("expected"));
+            INFO(label);
+            REQUIRE(got.index == expected.index);
+            REQUIRE(got.round == expected.round);
+            REQUIRE(got.repeatTick == expected.repeatTick);
+            REQUIRE(got.direction == expected.direction);
+        }
+    }
+}
+
+TEST_CASE("resolveArpStep matches vectors", "[quantizer][adr004]")
+{
+    const auto V = loadVectors();
+    for (const auto& tc : V.at("resolve_arp_step"))
+    {
+        const auto pool = tc.at("pool").get<std::vector<int>>();
+        const auto index = tc.at("index").get<int>();
+        const auto octaveRound = tc.at("octaveRound").get<int>();
+        const auto pattern = parseArpPattern(tc.at("pattern").get<std::string>());
+        const auto expected = parseArpEmission(tc.at("expected"));
+        const auto got = resolveArpStep(pool, index, octaveRound, pattern);
+
+        INFO("label=" << tc.at("label").get<std::string>());
+        REQUIRE(static_cast<int>(got.kind) == static_cast<int>(expected.kind));
+        REQUIRE(got.pitches == expected.pitches);
+    }
+}
+
+TEST_CASE("kInitialArpState matches the vectors' canonical first-tick state",
+          "[quantizer][adr004]")
+{
+    // Anchor: every trace case's `initial` field equals this. A future
+    // refactor that changes the default state should fail loudly here.
+    REQUIRE(kInitialArpState.index == 0);
+    REQUIRE(kInitialArpState.round == 0);
+    REQUIRE(kInitialArpState.repeatTick == 0);
+    REQUIRE(kInitialArpState.direction == 1);
+}
+
+// ============================================================================
+// ADR 004 — variation cascade
+// ============================================================================
+
+TEST_CASE("applyArpVariation matches vectors", "[quantizer][adr004]")
+{
+    const auto V = loadVectors();
+    for (const auto& tc : V.at("apply_arp_variation"))
+    {
+        const auto emission = parseArpEmission(tc.at("emission"));
+        const auto variation = tc.at("variation").get<double>();
+        const auto rngDraw01 = tc.at("rngDraw01").get<double>();
+        const auto rngDraw02 = tc.at("rngDraw02").get<double>();
+        const auto expected = parseVariationResult(tc.at("expected"));
+        const auto got = applyArpVariation(emission, variation, rngDraw01, rngDraw02);
+
+        INFO("label=" << tc.at("label").get<std::string>());
+        REQUIRE(static_cast<int>(got.effect) == static_cast<int>(expected.effect));
+        REQUIRE(got.pitches == expected.pitches);
+        REQUIRE(got.semitones == expected.semitones);
+        REQUIRE(got.secondOffsetFraction == expected.secondOffsetFraction);
+    }
+}
+
+// ============================================================================
+// ADR 004 — groove cascade
+// ============================================================================
+
+TEST_CASE("applyArpGroove matches vectors", "[quantizer][adr004]")
+{
+    const auto V = loadVectors();
+    for (const auto& tc : V.at("apply_arp_groove"))
+    {
+        const auto emission = parseGrooveEmission(tc.at("emission"));
+        const auto tickIndex = tc.at("tickIndex").get<int>();
+        const auto accent = parseAccentTable(tc.at("accentTable"));
+        const auto slide = parseSlideTable(tc.at("slideTable"));
+        const auto swing = tc.at("swing").get<double>();
+        const auto sixteenthDur = tc.at("sixteenthDurationSamples").get<double>();
+        const auto& expected = tc.at("expected");
+        const auto got = applyArpGroove(emission, tickIndex, accent, slide,
+                                         swing, sixteenthDur);
+
+        INFO("label=" << tc.at("label").get<std::string>());
+        REQUIRE(got.applied == expected.at("applied").get<bool>());
+        if (got.applied)
+        {
+            REQUIRE(got.velocity == expected.at("velocity").get<int>());
+            REQUIRE(got.tieToNext == expected.at("tieToNext").get<bool>());
+            REQUIRE(got.swingOffsetSamples
+                    == expected.at("swingOffsetSamples").get<double>());
+        }
+    }
+}
+
+// ============================================================================
+// ADR 004 — slide-aware noteOff scheduling
+// ============================================================================
+
+TEST_CASE("scheduleArpNoteOff matches vectors", "[quantizer][adr004]")
+{
+    const auto V = loadVectors();
+    for (const auto& tc : V.at("schedule_arp_note_off"))
+    {
+        const auto slideOnCurrent = tc.at("slideOnCurrent").get<bool>();
+        const auto gateSamples = tc.at("gateSamples").get<double>();
+        const auto nextTickSampleOffset =
+            tc.at("nextTickSampleOffset").get<double>();
+        const auto expected =
+            tc.at("expected").at("noteOffSampleOffset").get<double>();
+        const auto got = scheduleArpNoteOff(slideOnCurrent, gateSamples,
+                                             nextTickSampleOffset);
+
+        INFO("label=" << tc.at("label").get<std::string>());
+        REQUIRE(got == expected);
+    }
 }

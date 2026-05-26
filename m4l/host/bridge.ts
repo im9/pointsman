@@ -64,6 +64,7 @@ const SCALE_NAMES: readonly ScaleName[] = [
   "whole",
   "chromatic",
   "chromatic-half",
+  "phrygian-dominant",
 ];
 
 const POINTSMAN_MODES: readonly PointsmanMode[] = ["scale", "chord"];

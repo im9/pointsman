@@ -15,7 +15,7 @@
 //                snapToChordTones, diatonicShift + cases
 //   chord.mjs  — CHORD_SHAPES, applyChordShape + cases (ADR 004)
 //   arp.mjs    — ARP_RATES, ARP_PATTERNS, parseArpRate, nextArpIndex,
-//                resolveArpStep, (TODO) applyArpVariation, applyArpGroove,
+//                resolveArpStep, applyArpVariation, applyArpGroove,
 //                scheduleArpNoteOff + cases (ADR 004)
 //
 // Run:  node scripts/gen-test-vectors.mjs
@@ -49,6 +49,9 @@ import {
   genParseArpRateCases,
   genNextArpIndexCases,
   genResolveArpStepCases,
+  genApplyArpVariationCases,
+  genApplyArpGrooveCases,
+  genScheduleArpNoteOffCases,
 } from "./gen-test-vectors/arp.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -167,6 +170,38 @@ const qtJson = {
         "are dropped; if all drop or pool empty, returns kind:rest. " +
         "ADR 004 §Decision §Pattern semantics + §Edge cases.",
     },
+    arp_variation_rule: {
+      definition:
+        "applyArpVariation(emission, variation, rngDraw01, rngDraw02) → " +
+        "{ effect, pitches?, semitones?, second_offset_fraction? }. " +
+        "Probability cascade at v = clamp(variation, 0, 1): " +
+        "[0, 0.30·v) Rest, [0.30·v, 0.50·v) Octave shift (±12; sign from " +
+        "rngDraw02 < 0.5 → -12 else +12), [0.50·v, 0.65·v) Flam (emit " +
+        "twice; second at +0.5 step), [0.65·v, 1.0) Normal. Octave shift " +
+        "falls through to Normal if any pitch would exit [0, 127] " +
+        "(preserves chord-shape integrity for strike). Rest emissions " +
+        "pass through unchanged. ADR 004 §Decision §Variation modulation.",
+    },
+    arp_groove_rule: {
+      definition:
+        "applyArpGroove(emission, tickIndex, accentTable, slideTable, " +
+        "swing, sixteenthDurationSamples) → { applied, velocity?, " +
+        "tieToNext?, swingOffsetSamples? }. Indexing: tickIndex mod 16 " +
+        "(rhythm cycle, decoupled from pattern). velocity = " +
+        "accentTable[i]; tieToNext = slideTable[i]; swingOffsetSamples = " +
+        "swing × (sixteenthDurationSamples / 2) when tickIndex is odd " +
+        "else 0. Rest emissions short-circuit (applied:false). " +
+        "ADR 004 §Decision §Groove layer.",
+    },
+    arp_note_off_rule: {
+      definition:
+        "scheduleArpNoteOff(slideOnCurrent, gateSamples, " +
+        "nextTickSampleOffset) → { noteOffSampleOffset }. Non-slide: " +
+        "noteOff at gateSamples. Slide: noteOff at nextTickSampleOffset " +
+        "(arpGate overridden — slide implies full overlap for receiver " +
+        "synth glide). No re-quantisation across rate changes. " +
+        "ADR 004 §Decision §Groove layer §arpSlide.",
+    },
   },
   build_scale_pitches: genBuildScalePitchesCases(),
   snap_to_scale: genSnapToScaleCases(),
@@ -176,6 +211,9 @@ const qtJson = {
   parse_arp_rate: genParseArpRateCases(),
   next_arp_index: genNextArpIndexCases(),
   resolve_arp_step: genResolveArpStepCases(),
+  apply_arp_variation: genApplyArpVariationCases(),
+  apply_arp_groove: genApplyArpGrooveCases(),
+  schedule_arp_note_off: genScheduleArpNoteOffCases(),
 };
 
 writeFileSync(OUT_RNG, JSON.stringify(rngJson, null, 2) + "\n");
@@ -191,4 +229,7 @@ console.log(`qt  sections: bsp=${qtJson.build_scale_pitches.length}, ` +
             `acs=${qtJson.apply_chord_shape.length}, ` +
             `par=${qtJson.parse_arp_rate.length}, ` +
             `nai=${qtJson.next_arp_index.length}, ` +
-            `ras=${qtJson.resolve_arp_step.length}`);
+            `ras=${qtJson.resolve_arp_step.length}, ` +
+            `aav=${qtJson.apply_arp_variation.length}, ` +
+            `aag=${qtJson.apply_arp_groove.length}, ` +
+            `sano=${qtJson.schedule_arp_note_off.length}`);

@@ -399,6 +399,15 @@
     },
     "arp_step_resolution_rule": {
       "definition": "resolveArpStep(pool, index, octaveRound, pattern) → { kind, pitches? }. Traversal patterns return a single voice (pool[index] + 12*octaveRound). Strike returns the whole pool uniformly octave-shifted. Out-of-range pitches (>127 or <0) are dropped; if all drop or pool empty, returns kind:rest. ADR 004 §Decision §Pattern semantics + §Edge cases."
+    },
+    "arp_variation_rule": {
+      "definition": "applyArpVariation(emission, variation, rngDraw01, rngDraw02) → { effect, pitches?, semitones?, second_offset_fraction? }. Probability cascade at v = clamp(variation, 0, 1): [0, 0.30·v) Rest, [0.30·v, 0.50·v) Octave shift (±12; sign from rngDraw02 < 0.5 → -12 else +12), [0.50·v, 0.65·v) Flam (emit twice; second at +0.5 step), [0.65·v, 1.0) Normal. Octave shift falls through to Normal if any pitch would exit [0, 127] (preserves chord-shape integrity for strike). Rest emissions pass through unchanged. ADR 004 §Decision §Variation modulation."
+    },
+    "arp_groove_rule": {
+      "definition": "applyArpGroove(emission, tickIndex, accentTable, slideTable, swing, sixteenthDurationSamples) → { applied, velocity?, tieToNext?, swingOffsetSamples? }. Indexing: tickIndex mod 16 (rhythm cycle, decoupled from pattern). velocity = accentTable[i]; tieToNext = slideTable[i]; swingOffsetSamples = swing × (sixteenthDurationSamples / 2) when tickIndex is odd else 0. Rest emissions short-circuit (applied:false). ADR 004 §Decision §Groove layer."
+    },
+    "arp_note_off_rule": {
+      "definition": "scheduleArpNoteOff(slideOnCurrent, gateSamples, nextTickSampleOffset) → { noteOffSampleOffset }. Non-slide: noteOff at gateSamples. Slide: noteOff at nextTickSampleOffset (arpGate overridden — slide implies full overlap for receiver synth glide). No re-quantisation across rate changes. ADR 004 §Decision §Groove layer §arpSlide."
     }
   },
   "build_scale_pitches": [
@@ -5860,6 +5869,1020 @@
         "pitches": [
           67
         ]
+      }
+    }
+  ],
+  "apply_arp_variation": [
+    {
+      "label": "variation=0, draw=0.0 → normal",
+      "emission": {
+        "kind": "emit",
+        "pitches": [
+          60,
+          64,
+          67
+        ]
+      },
+      "variation": 0,
+      "rngDraw01": 0,
+      "rngDraw02": 0,
+      "expected": {
+        "effect": "normal",
+        "pitches": [
+          60,
+          64,
+          67
+        ]
+      }
+    },
+    {
+      "label": "variation=0, draw=0.99 → normal (draws ignored at v=0)",
+      "emission": {
+        "kind": "emit",
+        "pitches": [
+          60,
+          64,
+          67
+        ]
+      },
+      "variation": 0,
+      "rngDraw01": 0.99,
+      "rngDraw02": 0.5,
+      "expected": {
+        "effect": "normal",
+        "pitches": [
+          60,
+          64,
+          67
+        ]
+      }
+    },
+    {
+      "label": "variation=1, draw=0.10 (in [0, 0.30)) → rest",
+      "emission": {
+        "kind": "emit",
+        "pitches": [
+          60,
+          64,
+          67
+        ]
+      },
+      "variation": 1,
+      "rngDraw01": 0.1,
+      "rngDraw02": 0,
+      "expected": {
+        "effect": "rest"
+      }
+    },
+    {
+      "label": "variation=1, draw=0.30 (boundary) → octave shift",
+      "emission": {
+        "kind": "emit",
+        "pitches": [
+          60,
+          64,
+          67
+        ]
+      },
+      "variation": 1,
+      "rngDraw01": 0.3,
+      "rngDraw02": 0,
+      "expected": {
+        "effect": "octave_shift",
+        "pitches": [
+          48,
+          52,
+          55
+        ],
+        "semitones": -12
+      }
+    },
+    {
+      "label": "variation=1, draw=0.40, draw02=0.0 → octave shift -12",
+      "emission": {
+        "kind": "emit",
+        "pitches": [
+          60,
+          64,
+          67
+        ]
+      },
+      "variation": 1,
+      "rngDraw01": 0.4,
+      "rngDraw02": 0,
+      "expected": {
+        "effect": "octave_shift",
+        "pitches": [
+          48,
+          52,
+          55
+        ],
+        "semitones": -12
+      }
+    },
+    {
+      "label": "variation=1, draw=0.40, draw02=0.7 → octave shift +12",
+      "emission": {
+        "kind": "emit",
+        "pitches": [
+          60,
+          64,
+          67
+        ]
+      },
+      "variation": 1,
+      "rngDraw01": 0.4,
+      "rngDraw02": 0.7,
+      "expected": {
+        "effect": "octave_shift",
+        "pitches": [
+          72,
+          76,
+          79
+        ],
+        "semitones": 12
+      }
+    },
+    {
+      "label": "variation=1, draw=0.50 (boundary) → flam",
+      "emission": {
+        "kind": "emit",
+        "pitches": [
+          60,
+          64,
+          67
+        ]
+      },
+      "variation": 1,
+      "rngDraw01": 0.5,
+      "rngDraw02": 0,
+      "expected": {
+        "effect": "flam",
+        "pitches": [
+          60,
+          64,
+          67
+        ],
+        "second_offset_fraction": 0.5
+      }
+    },
+    {
+      "label": "variation=1, draw=0.60 → flam",
+      "emission": {
+        "kind": "emit",
+        "pitches": [
+          60,
+          64,
+          67
+        ]
+      },
+      "variation": 1,
+      "rngDraw01": 0.6,
+      "rngDraw02": 0,
+      "expected": {
+        "effect": "flam",
+        "pitches": [
+          60,
+          64,
+          67
+        ],
+        "second_offset_fraction": 0.5
+      }
+    },
+    {
+      "label": "variation=1, draw=0.65 (boundary) → normal",
+      "emission": {
+        "kind": "emit",
+        "pitches": [
+          60,
+          64,
+          67
+        ]
+      },
+      "variation": 1,
+      "rngDraw01": 0.65,
+      "rngDraw02": 0,
+      "expected": {
+        "effect": "normal",
+        "pitches": [
+          60,
+          64,
+          67
+        ]
+      }
+    },
+    {
+      "label": "variation=1, draw=0.99 → normal",
+      "emission": {
+        "kind": "emit",
+        "pitches": [
+          60,
+          64,
+          67
+        ]
+      },
+      "variation": 1,
+      "rngDraw01": 0.99,
+      "rngDraw02": 0,
+      "expected": {
+        "effect": "normal",
+        "pitches": [
+          60,
+          64,
+          67
+        ]
+      }
+    },
+    {
+      "label": "variation=0.5, draw=0.10 → rest",
+      "emission": {
+        "kind": "emit",
+        "pitches": [
+          60,
+          64,
+          67
+        ]
+      },
+      "variation": 0.5,
+      "rngDraw01": 0.1,
+      "rngDraw02": 0,
+      "expected": {
+        "effect": "rest"
+      }
+    },
+    {
+      "label": "variation=0.5, draw=0.20 → octave shift +12",
+      "emission": {
+        "kind": "emit",
+        "pitches": [
+          60,
+          64,
+          67
+        ]
+      },
+      "variation": 0.5,
+      "rngDraw01": 0.2,
+      "rngDraw02": 0.7,
+      "expected": {
+        "effect": "octave_shift",
+        "pitches": [
+          72,
+          76,
+          79
+        ],
+        "semitones": 12
+      }
+    },
+    {
+      "label": "variation=0.5, draw=0.30 → flam",
+      "emission": {
+        "kind": "emit",
+        "pitches": [
+          60,
+          64,
+          67
+        ]
+      },
+      "variation": 0.5,
+      "rngDraw01": 0.3,
+      "rngDraw02": 0,
+      "expected": {
+        "effect": "flam",
+        "pitches": [
+          60,
+          64,
+          67
+        ],
+        "second_offset_fraction": 0.5
+      }
+    },
+    {
+      "label": "variation=0.5, draw=0.50 → normal",
+      "emission": {
+        "kind": "emit",
+        "pitches": [
+          60,
+          64,
+          67
+        ]
+      },
+      "variation": 0.5,
+      "rngDraw01": 0.5,
+      "rngDraw02": 0,
+      "expected": {
+        "effect": "normal",
+        "pitches": [
+          60,
+          64,
+          67
+        ]
+      }
+    },
+    {
+      "label": "variation=1, draw=0.40, draw02=0.7, emit=[124] → +12 overflow → normal",
+      "emission": {
+        "kind": "emit",
+        "pitches": [
+          124
+        ]
+      },
+      "variation": 1,
+      "rngDraw01": 0.4,
+      "rngDraw02": 0.7,
+      "expected": {
+        "effect": "normal",
+        "pitches": [
+          124
+        ]
+      }
+    },
+    {
+      "label": "variation=1, draw=0.40, draw02=0.2, emit=[3] → -12 underflow → normal",
+      "emission": {
+        "kind": "emit",
+        "pitches": [
+          3
+        ]
+      },
+      "variation": 1,
+      "rngDraw01": 0.4,
+      "rngDraw02": 0.2,
+      "expected": {
+        "effect": "normal",
+        "pitches": [
+          3
+        ]
+      }
+    },
+    {
+      "label": "strike chord variation=1, +12 overflows one voice → normal (chord integrity)",
+      "emission": {
+        "kind": "emit",
+        "pitches": [
+          60,
+          124,
+          67
+        ]
+      },
+      "variation": 1,
+      "rngDraw01": 0.4,
+      "rngDraw02": 0.7,
+      "expected": {
+        "effect": "normal",
+        "pitches": [
+          60,
+          124,
+          67
+        ]
+      }
+    },
+    {
+      "label": "rest emission, variation=1 → rest",
+      "emission": {
+        "kind": "rest"
+      },
+      "variation": 1,
+      "rngDraw01": 0.4,
+      "rngDraw02": 0,
+      "expected": {
+        "effect": "rest"
+      }
+    }
+  ],
+  "apply_arp_groove": [
+    {
+      "label": "flat tables, swing=0, tick=0 → vel 100, no tie, no swing",
+      "emission": {
+        "effect": "normal",
+        "pitches": [
+          60
+        ]
+      },
+      "tickIndex": 0,
+      "accentTable": [
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "slideTable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "swing": 0,
+      "sixteenthDurationSamples": 1000,
+      "expected": {
+        "applied": true,
+        "velocity": 100,
+        "tieToNext": false,
+        "swingOffsetSamples": 0
+      }
+    },
+    {
+      "label": "flat tables, swing=0, tick=7 → vel 100, no tie, no swing",
+      "emission": {
+        "effect": "normal",
+        "pitches": [
+          60
+        ]
+      },
+      "tickIndex": 7,
+      "accentTable": [
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "slideTable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "swing": 0,
+      "sixteenthDurationSamples": 1000,
+      "expected": {
+        "applied": true,
+        "velocity": 100,
+        "tieToNext": false,
+        "swingOffsetSamples": 0
+      }
+    },
+    {
+      "label": "acid accent (step 0=127), tick=0 → vel 127",
+      "emission": {
+        "effect": "normal",
+        "pitches": [
+          60
+        ]
+      },
+      "tickIndex": 0,
+      "accentTable": [
+        127,
+        60,
+        60,
+        60,
+        60,
+        60,
+        60,
+        60,
+        60,
+        60,
+        60,
+        60,
+        60,
+        60,
+        60,
+        60
+      ],
+      "slideTable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "swing": 0,
+      "sixteenthDurationSamples": 1000,
+      "expected": {
+        "applied": true,
+        "velocity": 127,
+        "tieToNext": false,
+        "swingOffsetSamples": 0
+      }
+    },
+    {
+      "label": "acid accent (step 0=127), tick=1 → vel 60",
+      "emission": {
+        "effect": "normal",
+        "pitches": [
+          60
+        ]
+      },
+      "tickIndex": 1,
+      "accentTable": [
+        127,
+        60,
+        60,
+        60,
+        60,
+        60,
+        60,
+        60,
+        60,
+        60,
+        60,
+        60,
+        60,
+        60,
+        60,
+        60
+      ],
+      "slideTable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "swing": 0,
+      "sixteenthDurationSamples": 1000,
+      "expected": {
+        "applied": true,
+        "velocity": 60,
+        "tieToNext": false,
+        "swingOffsetSamples": 0
+      }
+    },
+    {
+      "label": "acid accent (step 0=127), tick=16 → wraps to vel 127",
+      "emission": {
+        "effect": "normal",
+        "pitches": [
+          60
+        ]
+      },
+      "tickIndex": 16,
+      "accentTable": [
+        127,
+        60,
+        60,
+        60,
+        60,
+        60,
+        60,
+        60,
+        60,
+        60,
+        60,
+        60,
+        60,
+        60,
+        60,
+        60
+      ],
+      "slideTable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "swing": 0,
+      "sixteenthDurationSamples": 1000,
+      "expected": {
+        "applied": true,
+        "velocity": 127,
+        "tieToNext": false,
+        "swingOffsetSamples": 0
+      }
+    },
+    {
+      "label": "slide on at step 3, tick=3 → tieToNext true",
+      "emission": {
+        "effect": "normal",
+        "pitches": [
+          60
+        ]
+      },
+      "tickIndex": 3,
+      "accentTable": [
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "slideTable": [
+        false,
+        false,
+        false,
+        true,
+        false,
+        false,
+        false,
+        true,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "swing": 0,
+      "sixteenthDurationSamples": 1000,
+      "expected": {
+        "applied": true,
+        "velocity": 100,
+        "tieToNext": true,
+        "swingOffsetSamples": 0
+      }
+    },
+    {
+      "label": "slide on at step 3, tick=4 → tieToNext false",
+      "emission": {
+        "effect": "normal",
+        "pitches": [
+          60
+        ]
+      },
+      "tickIndex": 4,
+      "accentTable": [
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "slideTable": [
+        false,
+        false,
+        false,
+        true,
+        false,
+        false,
+        false,
+        true,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "swing": 0,
+      "sixteenthDurationSamples": 1000,
+      "expected": {
+        "applied": true,
+        "velocity": 100,
+        "tieToNext": false,
+        "swingOffsetSamples": 0
+      }
+    },
+    {
+      "label": "swing=0.5, 16thDur=1000, tick=0 → offset 0 (even tick)",
+      "emission": {
+        "effect": "normal",
+        "pitches": [
+          60
+        ]
+      },
+      "tickIndex": 0,
+      "accentTable": [
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "slideTable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "swing": 0.5,
+      "sixteenthDurationSamples": 1000,
+      "expected": {
+        "applied": true,
+        "velocity": 100,
+        "tieToNext": false,
+        "swingOffsetSamples": 0
+      }
+    },
+    {
+      "label": "swing=0.5, 16thDur=1000, tick=1 → offset 250 (odd tick, half × half-16th)",
+      "emission": {
+        "effect": "normal",
+        "pitches": [
+          60
+        ]
+      },
+      "tickIndex": 1,
+      "accentTable": [
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "slideTable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "swing": 0.5,
+      "sixteenthDurationSamples": 1000,
+      "expected": {
+        "applied": true,
+        "velocity": 100,
+        "tieToNext": false,
+        "swingOffsetSamples": 250
+      }
+    },
+    {
+      "label": "swing=0.75, 16thDur=1000, tick=3 → offset 375 (cap)",
+      "emission": {
+        "effect": "normal",
+        "pitches": [
+          60
+        ]
+      },
+      "tickIndex": 3,
+      "accentTable": [
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100
+      ],
+      "slideTable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "swing": 0.75,
+      "sixteenthDurationSamples": 1000,
+      "expected": {
+        "applied": true,
+        "velocity": 100,
+        "tieToNext": false,
+        "swingOffsetSamples": 375
+      }
+    },
+    {
+      "label": "rest emission → applied=false (groove short-circuits)",
+      "emission": {
+        "effect": "rest"
+      },
+      "tickIndex": 5,
+      "accentTable": [
+        127,
+        60,
+        60,
+        60,
+        60,
+        60,
+        60,
+        60,
+        60,
+        60,
+        60,
+        60,
+        60,
+        60,
+        60,
+        60
+      ],
+      "slideTable": [
+        false,
+        false,
+        false,
+        true,
+        false,
+        false,
+        false,
+        true,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "swing": 0.5,
+      "sixteenthDurationSamples": 1000,
+      "expected": {
+        "applied": false
+      }
+    }
+  ],
+  "schedule_arp_note_off": [
+    {
+      "label": "non-slide, gate=500, nextTick=1000 → noteOff at 500",
+      "slideOnCurrent": false,
+      "gateSamples": 500,
+      "nextTickSampleOffset": 1000,
+      "expected": {
+        "noteOffSampleOffset": 500
+      }
+    },
+    {
+      "label": "non-slide, gate=1000 (full step), nextTick=1000 → noteOff at 1000",
+      "slideOnCurrent": false,
+      "gateSamples": 1000,
+      "nextTickSampleOffset": 1000,
+      "expected": {
+        "noteOffSampleOffset": 1000
+      }
+    },
+    {
+      "label": "slide, gate=500 (ignored), nextTick=1000 → noteOff at 1000",
+      "slideOnCurrent": true,
+      "gateSamples": 500,
+      "nextTickSampleOffset": 1000,
+      "expected": {
+        "noteOffSampleOffset": 1000
+      }
+    },
+    {
+      "label": "slide, gate=999 (ignored), nextTick=1000 → noteOff at 1000",
+      "slideOnCurrent": true,
+      "gateSamples": 999,
+      "nextTickSampleOffset": 1000,
+      "expected": {
+        "noteOffSampleOffset": 1000
+      }
+    },
+    {
+      "label": "slide across rate change, nextTick=2000 → noteOff at 2000",
+      "slideOnCurrent": true,
+      "gateSamples": 500,
+      "nextTickSampleOffset": 2000,
+      "expected": {
+        "noteOffSampleOffset": 2000
       }
     }
   ]

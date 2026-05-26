@@ -76,7 +76,7 @@ namespace pointsman
     inline constexpr std::array<const char*, kScaleCount> kScaleChoiceLabels = {
         "Major", "Minor", "Dorian", "Phrygian", "Lydian", "Mixolydian",
         "Locrian", "Pentatonic", "Minor Pentatonic", "Blues", "Harmonic",
-        "Melodic", "Whole", "Chromatic", "Chromatic Half"
+        "Melodic", "Whole", "Chromatic", "Chromatic Half", "Phrygian Dominant"
     };
 
     // Phase 5 post-merge: 2 modes only. Chord absorbs the former Harmony

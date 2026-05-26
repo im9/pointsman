@@ -1,8 +1,9 @@
 // scripts/gen-test-vectors/arp.mjs
 //
 // ADR 004 arpeggiator: rate parsing, pattern cursor advancement, step
-// resolution, plus (TODO) the variation cascade, the groove cascade,
-// and the slide-aware noteOff scheduler.
+// resolution, variation cascade (rest / octave shift / flam), groove
+// cascade (per-step accent / slide / swing), and the slide-aware
+// noteOff scheduler.
 //
 // All functions are pure — no globals, no RNG state, no allocation
 // beyond return objects. The arpeggiator clock and pool maintenance
@@ -416,5 +417,388 @@ export function genResolveArpStepCases() {
     pool, index: 5, octaveRound: 0, pattern: "up",
     expected: resolveArpStep(pool, 5, 0, "up"),
   });
+  return cases;
+}
+
+// ============================================================
+// Arpeggiator variation cascade
+// ============================================================
+
+// Pure: applies the variation cascade to one tick's would-be emission.
+//
+// Inputs:
+//   emission    — { kind: "emit", pitches } | { kind: "rest" } from resolveArpStep
+//   variation   — arpVariation 0..1 (clamped)
+//   rngDraw01   — bucket selector, [0, 1)
+//   rngDraw02   — octave-shift sign selector, [0, 1) (consumed only when bucket = octave shift)
+//
+// Probability cascade at v = clamp(variation, 0, 1):
+//   [0,       0.30·v):  Rest          — tick emits nothing
+//   [0.30·v,  0.50·v):  Octave shift  — ±12 semitones (sign from rngDraw02)
+//   [0.50·v,  0.65·v):  Flam          — emit twice; second at +0.5 step
+//   [0.65·v,  1.0):     Normal        — emission unchanged
+//
+// At v = 1.0: 30% rest, 20% oct, 15% flam, 35% normal.
+//
+// Octave shift fall-through: if the ±12 shift would put any pitch outside
+// [0, 127], the variation falls through to "normal" (preserves chord-shape
+// integrity for `strike` — all voices shift together or none).
+//
+// Output kinds:
+//   { effect: "rest" }
+//   { effect: "normal",       pitches }
+//   { effect: "octave_shift", pitches, semitones }
+//   { effect: "flam",         pitches, second_offset_fraction }
+//
+// Rest emissions pass through unchanged (no variation on a tick that
+// resolveArpStep already determined produces no audio).
+export function applyArpVariation(emission, variation, rngDraw01, rngDraw02) {
+  if (emission.kind === "rest") return { effect: "rest" };
+  const v = Math.max(0, Math.min(1, variation));
+  if (v === 0 || rngDraw01 >= 0.65 * v) {
+    return { effect: "normal", pitches: [...emission.pitches] };
+  }
+  if (rngDraw01 < 0.30 * v) {
+    return { effect: "rest" };
+  }
+  if (rngDraw01 < 0.50 * v) {
+    const semitones = rngDraw02 < 0.5 ? -12 : 12;
+    const shifted = emission.pitches.map((p) => p + semitones);
+    if (shifted.some((p) => p < 0 || p > 127)) {
+      return { effect: "normal", pitches: [...emission.pitches] };
+    }
+    return { effect: "octave_shift", pitches: shifted, semitones };
+  }
+  return { effect: "flam", pitches: [...emission.pitches], second_offset_fraction: 0.5 };
+}
+
+// ============================================================
+// Arpeggiator groove cascade
+// ============================================================
+
+// Pure: applies the deterministic groove layer to a post-variation emission.
+//
+// Inputs:
+//   emission                  — post-variation result of applyArpVariation
+//   tickIndex                 — global tick counter (0 at transport start, +1 per arp tick)
+//   accentTable               — 16-int (0..127) velocity per 16th-grid position
+//   slideTable                — 16-bool tie per 16th-grid position
+//   swing                     — 0..0.75 (clamped on use; spec caps at 0.75)
+//   sixteenthDurationSamples  — samples per 16th note at current host BPM
+//
+// Output:
+//   { applied: false }                                          — rest emissions
+//   { applied: true, velocity, tieToNext, swingOffsetSamples }  — emit-bearing
+//
+// Rules (ADR 004 §Groove layer):
+//   - Indexing: tickIndex mod 16 (NOT base-pattern step) — the 16-step grid is
+//     the rhythm cycle, decoupled from the harmonic pattern's cycle.
+//   - velocity            = accentTable[tickIndex mod 16]
+//   - tieToNext           = slideTable[tickIndex mod 16]
+//   - swingOffsetSamples  = swing × (sixteenthDurationSamples / 2) when the
+//                           arp tick lands on an off-beat position (tickIndex
+//                           is odd); 0 otherwise. Magnitude is in 16th-grid
+//                           units (rate-independent per "Independent of arpRate").
+//   - Rest emissions short-circuit: groove is not applied to rests.
+//
+// Flam interaction (caller-handled, not encoded here): when variation produced
+// a flam emission and the current step is slide-on, only the SECOND flam
+// emission inherits tieToNext. The first flam emission gets its normal
+// noteOff. applyArpGroove returns the tick's tieToNext flag; the host
+// scheduler applies it to the appropriate emission.
+export function applyArpGroove(emission, tickIndex, accentTable, slideTable, swing, sixteenthDurationSamples) {
+  if (emission.effect === "rest") return { applied: false };
+  const i = ((tickIndex % 16) + 16) % 16;
+  const velocity = accentTable[i];
+  const tieToNext = !!slideTable[i];
+  const swingOffsetSamples = (tickIndex % 2 === 1)
+    ? swing * (sixteenthDurationSamples / 2)
+    : 0;
+  return { applied: true, velocity, tieToNext, swingOffsetSamples };
+}
+
+// ============================================================
+// Slide-aware noteOff scheduling
+// ============================================================
+
+// Pure: computes the sample offset at which the current emission's noteOff
+// should fire, relative to the tick's base noteOn.
+//
+// Inputs:
+//   slideOnCurrent        — tieToNext for THIS emission. Caller applies the
+//                           flam convention (first flam emission gets
+//                           slideOnCurrent=false; the second inherits the
+//                           tick's tieToNext from applyArpGroove).
+//   gateSamples           — arpGate × stepDurationSamples (staccato gate)
+//   nextTickSampleOffset  — distance from this tick's noteOn to the next
+//                           tick's boundary (positive samples). If the next
+//                           tick is a rest, the caller still passes the
+//                           boundary offset — slide does not extend past it.
+//
+// Output:
+//   { noteOffSampleOffset }
+//
+// Rules:
+//   - Non-slide: noteOff at gateSamples.
+//   - Slide:     noteOff at nextTickSampleOffset (arpGate overridden; slide
+//                implies full overlap into the next tick's noteOn — the
+//                receiver synth glides between pitches).
+//   - Slide across rate change: nextTickSampleOffset is already computed
+//     under the new rate by the caller; this function does no
+//     re-quantisation.
+export function scheduleArpNoteOff(slideOnCurrent, gateSamples, nextTickSampleOffset) {
+  return {
+    noteOffSampleOffset: slideOnCurrent ? nextTickSampleOffset : gateSamples,
+  };
+}
+
+// ============================================================
+// Variation / groove / noteOff case generators
+// ============================================================
+
+export function genApplyArpVariationCases() {
+  const cases = [];
+  const emit = { kind: "emit", pitches: [60, 64, 67] };
+  const rest = { kind: "rest" };
+
+  // (a) variation=0 → always normal, RNG draws ignored.
+  cases.push({
+    label: "variation=0, draw=0.0 → normal",
+    emission: emit, variation: 0, rngDraw01: 0, rngDraw02: 0,
+    expected: applyArpVariation(emit, 0, 0, 0),
+  });
+  cases.push({
+    label: "variation=0, draw=0.99 → normal (draws ignored at v=0)",
+    emission: emit, variation: 0, rngDraw01: 0.99, rngDraw02: 0.5,
+    expected: applyArpVariation(emit, 0, 0.99, 0.5),
+  });
+
+  // (b) variation=1 — full-range buckets.
+  cases.push({
+    label: "variation=1, draw=0.10 (in [0, 0.30)) → rest",
+    emission: emit, variation: 1, rngDraw01: 0.10, rngDraw02: 0,
+    expected: applyArpVariation(emit, 1, 0.10, 0),
+  });
+  cases.push({
+    label: "variation=1, draw=0.30 (boundary) → octave shift",
+    emission: emit, variation: 1, rngDraw01: 0.30, rngDraw02: 0.0,
+    expected: applyArpVariation(emit, 1, 0.30, 0.0),
+  });
+  cases.push({
+    label: "variation=1, draw=0.40, draw02=0.0 → octave shift -12",
+    emission: emit, variation: 1, rngDraw01: 0.40, rngDraw02: 0.0,
+    expected: applyArpVariation(emit, 1, 0.40, 0.0),
+  });
+  cases.push({
+    label: "variation=1, draw=0.40, draw02=0.7 → octave shift +12",
+    emission: emit, variation: 1, rngDraw01: 0.40, rngDraw02: 0.7,
+    expected: applyArpVariation(emit, 1, 0.40, 0.7),
+  });
+  cases.push({
+    label: "variation=1, draw=0.50 (boundary) → flam",
+    emission: emit, variation: 1, rngDraw01: 0.50, rngDraw02: 0,
+    expected: applyArpVariation(emit, 1, 0.50, 0),
+  });
+  cases.push({
+    label: "variation=1, draw=0.60 → flam",
+    emission: emit, variation: 1, rngDraw01: 0.60, rngDraw02: 0,
+    expected: applyArpVariation(emit, 1, 0.60, 0),
+  });
+  cases.push({
+    label: "variation=1, draw=0.65 (boundary) → normal",
+    emission: emit, variation: 1, rngDraw01: 0.65, rngDraw02: 0,
+    expected: applyArpVariation(emit, 1, 0.65, 0),
+  });
+  cases.push({
+    label: "variation=1, draw=0.99 → normal",
+    emission: emit, variation: 1, rngDraw01: 0.99, rngDraw02: 0,
+    expected: applyArpVariation(emit, 1, 0.99, 0),
+  });
+
+  // (c) variation=0.5 — scaled boundaries: rest [0, 0.15), oct [0.15, 0.25),
+  // flam [0.25, 0.325), normal [0.325, 1.0). 67.5% normal at half variation.
+  cases.push({
+    label: "variation=0.5, draw=0.10 → rest",
+    emission: emit, variation: 0.5, rngDraw01: 0.10, rngDraw02: 0,
+    expected: applyArpVariation(emit, 0.5, 0.10, 0),
+  });
+  cases.push({
+    label: "variation=0.5, draw=0.20 → octave shift +12",
+    emission: emit, variation: 0.5, rngDraw01: 0.20, rngDraw02: 0.7,
+    expected: applyArpVariation(emit, 0.5, 0.20, 0.7),
+  });
+  cases.push({
+    label: "variation=0.5, draw=0.30 → flam",
+    emission: emit, variation: 0.5, rngDraw01: 0.30, rngDraw02: 0,
+    expected: applyArpVariation(emit, 0.5, 0.30, 0),
+  });
+  cases.push({
+    label: "variation=0.5, draw=0.50 → normal",
+    emission: emit, variation: 0.5, rngDraw01: 0.50, rngDraw02: 0,
+    expected: applyArpVariation(emit, 0.5, 0.50, 0),
+  });
+
+  // (d) Octave shift overflow → fall-through to normal.
+  const high = { kind: "emit", pitches: [124] };
+  cases.push({
+    label: "variation=1, draw=0.40, draw02=0.7, emit=[124] → +12 overflow → normal",
+    emission: high, variation: 1, rngDraw01: 0.40, rngDraw02: 0.7,
+    expected: applyArpVariation(high, 1, 0.40, 0.7),
+  });
+  const low = { kind: "emit", pitches: [3] };
+  cases.push({
+    label: "variation=1, draw=0.40, draw02=0.2, emit=[3] → -12 underflow → normal",
+    emission: low, variation: 1, rngDraw01: 0.40, rngDraw02: 0.2,
+    expected: applyArpVariation(low, 1, 0.40, 0.2),
+  });
+  const mixed = { kind: "emit", pitches: [60, 124, 67] };
+  cases.push({
+    label: "strike chord variation=1, +12 overflows one voice → normal (chord integrity)",
+    emission: mixed, variation: 1, rngDraw01: 0.40, rngDraw02: 0.7,
+    expected: applyArpVariation(mixed, 1, 0.40, 0.7),
+  });
+
+  // (e) Rest emission passes through.
+  cases.push({
+    label: "rest emission, variation=1 → rest",
+    emission: rest, variation: 1, rngDraw01: 0.40, rngDraw02: 0,
+    expected: applyArpVariation(rest, 1, 0.40, 0),
+  });
+
+  return cases;
+}
+
+export function genApplyArpGrooveCases() {
+  const cases = [];
+  const flatAccent = Array(16).fill(100);
+  const flatSlide = Array(16).fill(false);
+  const normal = { effect: "normal", pitches: [60] };
+  const rest = { effect: "rest" };
+
+  // (a) Flat tables, no swing — defaults reproduce v0.1 behaviour.
+  cases.push({
+    label: "flat tables, swing=0, tick=0 → vel 100, no tie, no swing",
+    emission: normal, tickIndex: 0,
+    accentTable: flatAccent, slideTable: flatSlide,
+    swing: 0, sixteenthDurationSamples: 1000,
+    expected: applyArpGroove(normal, 0, flatAccent, flatSlide, 0, 1000),
+  });
+  cases.push({
+    label: "flat tables, swing=0, tick=7 → vel 100, no tie, no swing",
+    emission: normal, tickIndex: 7,
+    accentTable: flatAccent, slideTable: flatSlide,
+    swing: 0, sixteenthDurationSamples: 1000,
+    expected: applyArpGroove(normal, 7, flatAccent, flatSlide, 0, 1000),
+  });
+
+  // (b) Accent step 0=127, others 60 — classic acid downbeat.
+  const acidAccent = Array(16).fill(60); acidAccent[0] = 127;
+  cases.push({
+    label: "acid accent (step 0=127), tick=0 → vel 127",
+    emission: normal, tickIndex: 0,
+    accentTable: acidAccent, slideTable: flatSlide,
+    swing: 0, sixteenthDurationSamples: 1000,
+    expected: applyArpGroove(normal, 0, acidAccent, flatSlide, 0, 1000),
+  });
+  cases.push({
+    label: "acid accent (step 0=127), tick=1 → vel 60",
+    emission: normal, tickIndex: 1,
+    accentTable: acidAccent, slideTable: flatSlide,
+    swing: 0, sixteenthDurationSamples: 1000,
+    expected: applyArpGroove(normal, 1, acidAccent, flatSlide, 0, 1000),
+  });
+  cases.push({
+    label: "acid accent (step 0=127), tick=16 → wraps to vel 127",
+    emission: normal, tickIndex: 16,
+    accentTable: acidAccent, slideTable: flatSlide,
+    swing: 0, sixteenthDurationSamples: 1000,
+    expected: applyArpGroove(normal, 16, acidAccent, flatSlide, 0, 1000),
+  });
+
+  // (c) Slide on at steps {3, 7} — tieToNext follows pattern.
+  const slidePat = Array(16).fill(false); slidePat[3] = true; slidePat[7] = true;
+  cases.push({
+    label: "slide on at step 3, tick=3 → tieToNext true",
+    emission: normal, tickIndex: 3,
+    accentTable: flatAccent, slideTable: slidePat,
+    swing: 0, sixteenthDurationSamples: 1000,
+    expected: applyArpGroove(normal, 3, flatAccent, slidePat, 0, 1000),
+  });
+  cases.push({
+    label: "slide on at step 3, tick=4 → tieToNext false",
+    emission: normal, tickIndex: 4,
+    accentTable: flatAccent, slideTable: slidePat,
+    swing: 0, sixteenthDurationSamples: 1000,
+    expected: applyArpGroove(normal, 4, flatAccent, slidePat, 0, 1000),
+  });
+
+  // (d) Swing — odd ticks delayed by swing × (16thDur / 2).
+  cases.push({
+    label: "swing=0.5, 16thDur=1000, tick=0 → offset 0 (even tick)",
+    emission: normal, tickIndex: 0,
+    accentTable: flatAccent, slideTable: flatSlide,
+    swing: 0.5, sixteenthDurationSamples: 1000,
+    expected: applyArpGroove(normal, 0, flatAccent, flatSlide, 0.5, 1000),
+  });
+  cases.push({
+    label: "swing=0.5, 16thDur=1000, tick=1 → offset 250 (odd tick, half × half-16th)",
+    emission: normal, tickIndex: 1,
+    accentTable: flatAccent, slideTable: flatSlide,
+    swing: 0.5, sixteenthDurationSamples: 1000,
+    expected: applyArpGroove(normal, 1, flatAccent, flatSlide, 0.5, 1000),
+  });
+  cases.push({
+    label: "swing=0.75, 16thDur=1000, tick=3 → offset 375 (cap)",
+    emission: normal, tickIndex: 3,
+    accentTable: flatAccent, slideTable: flatSlide,
+    swing: 0.75, sixteenthDurationSamples: 1000,
+    expected: applyArpGroove(normal, 3, flatAccent, flatSlide, 0.75, 1000),
+  });
+
+  // (e) Rest emission — groove not applied (short-circuit).
+  cases.push({
+    label: "rest emission → applied=false (groove short-circuits)",
+    emission: rest, tickIndex: 5,
+    accentTable: acidAccent, slideTable: slidePat,
+    swing: 0.5, sixteenthDurationSamples: 1000,
+    expected: applyArpGroove(rest, 5, acidAccent, slidePat, 0.5, 1000),
+  });
+
+  return cases;
+}
+
+export function genScheduleArpNoteOffCases() {
+  const cases = [];
+
+  // (a) Non-slide: gate-driven.
+  cases.push({
+    label: "non-slide, gate=500, nextTick=1000 → noteOff at 500",
+    slideOnCurrent: false, gateSamples: 500, nextTickSampleOffset: 1000,
+    expected: scheduleArpNoteOff(false, 500, 1000),
+  });
+  cases.push({
+    label: "non-slide, gate=1000 (full step), nextTick=1000 → noteOff at 1000",
+    slideOnCurrent: false, gateSamples: 1000, nextTickSampleOffset: 1000,
+    expected: scheduleArpNoteOff(false, 1000, 1000),
+  });
+
+  // (b) Slide: gate overridden, noteOff deferred to next tick.
+  cases.push({
+    label: "slide, gate=500 (ignored), nextTick=1000 → noteOff at 1000",
+    slideOnCurrent: true, gateSamples: 500, nextTickSampleOffset: 1000,
+    expected: scheduleArpNoteOff(true, 500, 1000),
+  });
+  cases.push({
+    label: "slide, gate=999 (ignored), nextTick=1000 → noteOff at 1000",
+    slideOnCurrent: true, gateSamples: 999, nextTickSampleOffset: 1000,
+    expected: scheduleArpNoteOff(true, 999, 1000),
+  });
+  // Slide across a rate change: nextTickSampleOffset reflects the new rate.
+  cases.push({
+    label: "slide across rate change, nextTick=2000 → noteOff at 2000",
+    slideOnCurrent: true, gateSamples: 500, nextTickSampleOffset: 2000,
+    expected: scheduleArpNoteOff(true, 500, 2000),
+  });
+
   return cases;
 }
