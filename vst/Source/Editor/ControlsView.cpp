@@ -24,7 +24,12 @@ namespace pointsman::editor
             switch (m)
             {
                 case ModeChoice::Scale: return "snap to nearest scale degree";
-                case ModeChoice::Chord: return "expand to a diatonic chord (1 in, N out)";
+                case ModeChoice::Chord: return "expand to a chord (1 in, N out)";
+                // Phase 4 owns the proper Arp editor; Phase 2 placeholder
+                // text matches the chord behaviour the engine emits during
+                // the interim (mode == Arp falls through to chord-shape
+                // expansion in PluginProcessor::processBlock).
+                case ModeChoice::Arp:   return "arp (chord-shape preview; clock arrives Phase 2-B)";
             }
             return "";
         }

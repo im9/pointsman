@@ -225,16 +225,22 @@ namespace pointsman
         }
     }
 
-    std::vector<int> applyChordShape(int rootMidi, ChordShape shape)
+    void applyChordShapeInto(int rootMidi, ChordShape shape, std::vector<int>& out)
     {
+        out.clear();
         const auto [intervals, n] = chordIntervalsFor(shape);
-        std::vector<int> out;
-        out.reserve(n);
         for (std::size_t i = 0; i < n; ++i)
         {
             const int v = rootMidi + intervals[i];
             if (v >= 0 && v <= 127) out.push_back(v);
         }
+    }
+
+    std::vector<int> applyChordShape(int rootMidi, ChordShape shape)
+    {
+        std::vector<int> out;
+        out.reserve(8); // covers the worst case (Dom13 = 6 voices) + headroom
+        applyChordShapeInto(rootMidi, shape, out);
         return out;
     }
 

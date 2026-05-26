@@ -72,6 +72,13 @@ namespace pointsman
     // §"Chord shape primitive". Mirrors m4l applyChordShape.
     std::vector<int> applyChordShape(int rootMidi, ChordShape shape);
 
+    // In-place form for the audio-thread path. Clears `out` (keeping
+    // capacity) and refills with the same content as the value-returning
+    // overload. Callers reserve once (max 6 entries — Dom13) and reuse
+    // the buffer per noteOn so chord-mode expansion stays allocation-free
+    // on the audio thread.
+    void applyChordShapeInto(int rootMidi, ChordShape shape, std::vector<int>& out);
+
     // Returns the rational quarter-notes-per-step for the given rate.
     // Targets reconstruct sample-count from the fraction. Mirrors m4l
     // parseArpRate.

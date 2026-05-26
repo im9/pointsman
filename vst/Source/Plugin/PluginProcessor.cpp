@@ -20,13 +20,60 @@ namespace
         return s.getRawParameterValue(pid)->load();
     }
 
-    const juce::Identifier kPointsmanStateTag { "PointsmanState" };
-    const juce::Identifier kHarmonyVoiceTag   { "HarmonyVoice" };
-    const juce::Identifier kVersionAttr       { "version" };
-    const juce::Identifier kIntervalAttr      { "interval" };
-    const juce::Identifier kDirectionAttr     { "direction" };
-    const juce::Identifier kParamTag          { "PARAM" };
-    const juce::Identifier kIdAttr            { "id" };
+    const juce::Identifier kPointsmanStateTag    { "PointsmanState" };
+    const juce::Identifier kHarmonyVoiceTag      { "HarmonyVoice" };
+    const juce::Identifier kVersionAttr          { "version" };
+    const juce::Identifier kIntervalAttr         { "interval" };
+    const juce::Identifier kDirectionAttr        { "direction" };
+    const juce::Identifier kParamTag             { "PARAM" };
+    const juce::Identifier kIdAttr               { "id" };
+    // ADR 004 §"Persistence": 16-step accent / slide patterns stored
+    // as a sibling ValueTree child on the APVTS root. Two packed-string
+    // properties so the on-disk shape is compact and round-trip-stable.
+    const juce::Identifier kArpGrooveTag         { "arpGroovePattern" };
+    const juce::Identifier kArpGrooveAccentAttr  { "accent" };
+    const juce::Identifier kArpGrooveSlideAttr   { "slide"  };
+
+    juce::String packAccent(const pointsman::ArpAccentTable& a)
+    {
+        juce::String s;
+        s.preallocateBytes(16 * 4);
+        for (int i = 0; i < 16; ++i)
+        {
+            if (i > 0) s << ' ';
+            s << a[(std::size_t) i];
+        }
+        return s;
+    }
+
+    void unpackAccent(const juce::String& packed, pointsman::ArpAccentTable& out)
+    {
+        // Default to flat-100 so a partial or missing payload yields
+        // the documented "missing → defaults" behaviour without trapping
+        // garbage values into the table.
+        for (int i = 0; i < 16; ++i) out[(std::size_t) i] = 100;
+        if (packed.isEmpty()) return;
+        auto tokens = juce::StringArray::fromTokens(packed, " ", "");
+        const int n = juce::jmin(16, tokens.size());
+        for (int i = 0; i < n; ++i)
+            out[(std::size_t) i] = juce::jlimit(0, 127, tokens[i].getIntValue());
+    }
+
+    juce::String packSlide(const pointsman::ArpSlideTable& s)
+    {
+        // Each cell is a single char '0' / '1'; final string is 16 chars.
+        char buf[17] = {};
+        for (int i = 0; i < 16; ++i) buf[i] = s[(std::size_t) i] ? '1' : '0';
+        return juce::String(buf, 16);
+    }
+
+    void unpackSlide(const juce::String& packed, pointsman::ArpSlideTable& out)
+    {
+        for (int i = 0; i < 16; ++i) out[(std::size_t) i] = false;
+        const int n = juce::jmin(16, packed.length());
+        for (int i = 0; i < n; ++i)
+            out[(std::size_t) i] = packed[i] == '1';
+    }
 }
 
 PointsmanProcessor::PointsmanProcessor()
@@ -41,16 +88,25 @@ PointsmanProcessor::PointsmanProcessor()
             makeParameterLayout(makeRandomSeedForNewInstance()))
 {
     // Ensure the PointsmanState child exists from construction so the host's
-    // first save sees a stable tree shape even if no harmony voices are set.
+    // first save sees a stable tree shape carrying the version marker.
     auto& root = apvts.state;
     auto child = root.getOrCreateChildWithName(kPointsmanStateTag, nullptr);
     child.setProperty(kVersionAttr, kStateVersion, nullptr);
 
-    // Pre-populate harmonyVoices with a default diatonic triad
-    // (3rd-above + 5th-above) so chord mode is "single note becomes a
-    // chord" out of the box. The user can clear or edit voices in the
-    // editor's HARMONY group; an empty harmonyVoices in chord mode
-    // collapses to 1-in-1-out (identical to scale mode).
+    // ADR 004 default groove pattern: all-100 accent (matches v0.1's
+    // typical output velocity) and all-off slide (no ties). Mirror into
+    // the ValueTree immediately so the host's first save captures it.
+    for (int i = 0; i < 16; ++i)
+    {
+        arpAccent_[(std::size_t) i] = 100;
+        arpSlide_ [(std::size_t) i] = false;
+    }
+    syncArpGroovePatternToTree();
+
+    // Vestige harmonyVoices pre-population. Phase 4 deletes the HARMONY
+    // editor group + this seed; until then we still hand the editor a
+    // canonical triad so its widgets render in a familiar state. No
+    // audible effect (chord expansion is intervallic via chordShape).
     setHarmonyVoices({
         {3, HarmonyDirection::Above},
         {5, HarmonyDirection::Above},
@@ -80,6 +136,9 @@ void PointsmanProcessor::prepareToPlay(double sampleRate, int)
     // re-allocating the underlying buffer on the audio thread. 128 is the
     // worst case (ChromaticHalf = identity).
     cachedScalePitches_.reserve(128);
+    // Chord-shape expansion buffer (ADR 004). Worst case = Dom13 (6
+    // voices); 8 gives headroom for any append-only future preset.
+    cachedChordPitches_.reserve(8);
 }
 
 void PointsmanProcessor::releaseResources() {}
@@ -258,23 +317,13 @@ void PointsmanProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::Mid
     }
     const auto& scalePitches = cachedScalePitches_;
 
-    // Refresh the audio-side harmony-voices snapshot if the UI bumped
-    // the version since last block. Try-lock so the audio thread never
-    // blocks on a UI-thread writer that owns the canonical container;
-    // on contention we keep the previous block's snapshot (RT-safe).
-    const uint64_t hvVer = harmonyVoicesVersion_.load(std::memory_order_acquire);
-    if (hvVer != harmonyVoicesAudioVersion_)
-    {
-        const juce::SpinLock::ScopedTryLockType tryLock(harmonyVoicesLock_);
-        if (tryLock.isLocked())
-        {
-            harmonyVoicesAudioCount_ =
-                std::min(harmonyVoices.size(), kHarmonyVoicesMax);
-            for (std::size_t i = 0; i < harmonyVoicesAudioCount_; ++i)
-                harmonyVoicesAudio_[i] = harmonyVoices[i];
-            harmonyVoicesAudioVersion_ = hvVer;
-        }
-    }
+    // ADR 004 Phase 2: chordShape is read per-block (Choice param) and
+    // applied per noteOn via applyChordShapeInto into the reserved
+    // cachedChordPitches_ buffer. No audio-thread snapshot dance is
+    // needed for the chord primitive (it is a single Choice, atomic on
+    // load). The 16-step accent / slide tables and the arp pool /
+    // clock arrive in sub-step B.
+    const auto chordShape = static_cast<ChordShape>(loadInt(apvts, pid::chordShape));
 
     // ---- Iterate input MIDI ----
     for (const auto meta : midi)
@@ -369,36 +418,35 @@ void PointsmanProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::Mid
             const uint64_t noteOffTargetAbs =
                 noteOnTargetAbs + static_cast<uint64_t>(gateLenSamples);
 
-            // Quantize input to nearest scale degree; chord-mode voices
-            // are then computed off that anchor so an out-of-scale
-            // input still resolves to a valid (scale, root) chord.
+            // Quantize input to nearest scale degree; chord/arp modes
+            // expand the snapped pitch via chordShape (intervallic).
+            // Out-of-scale input snaps first, so e.g. C# in C major → C
+            // → chord rooted on C using the active chordShape.
             const int quantized = snapToScale(pitch, scalePitches);
 
             // Build output pitches:
             //   scale mode: [quantized]                       → 1 note
-            //   chord mode: [quantized, ...harmonyVoices]     → 1 + N notes
-            // Chord mode is the "single-note-becomes-chord" expansion:
-            // each input attack emits the scale-snapped input plus N
-            // diatonic voices (user-configurable in the editor's
-            // HARMONY group; new instances default to 3rd-above + 5th-
-            // above = a diatonic triad). Out-of-scale input is snapped
-            // first, so e.g. C# in C major → C → triad rooted on C.
-            int outPitches[1 + kHarmonyVoicesMax];
-            int numOut = 0;
-            outPitches[numOut++] = quantized;
-            if (modeChoice == ModeChoice::Chord)
+            //   chord mode: applyChordShape(quantized, shape) → 1..6 notes
+            //   arp mode (sub-step A placeholder): same as chord mode.
+            //   Sub-step B replaces this branch with pool maintenance +
+            //   tick-deferred emission; selecting Arp during the interim
+            //   still produces audible chord-shape voices so users can
+            //   verify the chordShape primitive end-to-end.
+            const int*  outPitches = nullptr;
+            int         numOut     = 0;
+            int         singleVoice = 0;
+            if (modeChoice == ModeChoice::Scale)
             {
-                // Iterate the audio-side snapshot (refreshed at the top
-                // of processBlock under try-lock) so there is no race
-                // against UI-thread setHarmonyVoices. Voices that clamp
-                // to the base are still emitted (parity with m4l /
-                // inboil; see Batch 2 fix).
-                for (std::size_t i = 0; i < harmonyVoicesAudioCount_; ++i)
-                    outPitches[numOut++] = diatonicShift(
-                        quantized,
-                        harmonyVoicesAudio_[i].interval,
-                        harmonyVoicesAudio_[i].direction,
-                        scalePitches);
+                singleVoice = quantized;
+                outPitches  = &singleVoice;
+                numOut      = 1;
+            }
+            else
+            {
+                applyChordShapeInto(quantized, chordShape, cachedChordPitches_);
+                outPitches = cachedChordPitches_.data();
+                numOut     = static_cast<int>(cachedChordPitches_.size());
+                if (numOut == 0) continue; // every voice exceeded [0, 127]
             }
 
             // Push the noteOn/noteOff pair per voice. The atomic-by-
@@ -457,15 +505,16 @@ juce::AudioProcessorEditor* PointsmanProcessor::createEditor()
 
 void PointsmanProcessor::setHarmonyVoices(std::vector<HarmonyVoice> v)
 {
-    if (v.size() > kHarmonyVoicesMax)
-        v.resize(kHarmonyVoicesMax);
+    // ADR 004 Phase 2 vestige path. The editor's HARMONY group still
+    // reads/writes the vector and re-renders its badges via a ValueTree
+    // listener — the tree mirror below keeps that wiring functional.
+    // processBlock does NOT consult the vector (chord expansion is
+    // intervallic via chordShape). Phase 4 deletes the editor group,
+    // this method, and the sync helpers in one cut.
+    if (v.size() > kHarmonyVoicesMax) v.resize(kHarmonyVoicesMax);
     {
         const juce::SpinLock::ScopedLockType lock(harmonyVoicesLock_);
         harmonyVoices = std::move(v);
-        // Bump under the lock so a try-locking audio reader either sees
-        // the old (vector, version) pair or the new pair, never a torn
-        // mix. fetch_add returns the old value; we don't need it.
-        harmonyVoicesVersion_.fetch_add(1, std::memory_order_release);
     }
     syncHarmonyVoicesToTree();
 }
@@ -476,11 +525,6 @@ void PointsmanProcessor::syncHarmonyVoicesToTree()
     auto child = root.getOrCreateChildWithName(kPointsmanStateTag, nullptr);
     child.setProperty(kVersionAttr, kStateVersion, nullptr);
     child.removeAllChildren(nullptr);
-    // Defense in depth: most hosts call getStateInformation on the message
-    // thread (single-writer with setHarmonyVoices), but some preset-preview /
-    // batch-save paths call it from a background thread. Take the lock so
-    // the read is well-defined regardless. Caller (setHarmonyVoices) has
-    // already released its lock by this point, so no re-entrancy.
     const juce::SpinLock::ScopedLockType lock(harmonyVoicesLock_);
     for (const auto& v : harmonyVoices)
     {
@@ -497,44 +541,68 @@ void PointsmanProcessor::syncHarmonyVoicesToTree()
 
 void PointsmanProcessor::syncHarmonyVoicesFromTree()
 {
-    // Called from the message thread (setStateInformation). Hold the lock
-    // around the rebuild so an audio-thread try-lock either sees the old
-    // pre-load contents or the fully-rebuilt new ones, never a torn
-    // intermediate state during the clear→push_back loop.
     const juce::SpinLock::ScopedLockType lock(harmonyVoicesLock_);
     harmonyVoices.clear();
     auto child = apvts.state.getChildWithName(kPointsmanStateTag);
-    if (child.isValid())
+    if (!child.isValid()) return;
+    for (int i = 0; i < child.getNumChildren(); ++i)
     {
-        for (int i = 0; i < child.getNumChildren(); ++i)
-        {
-            // Cap at kHarmonyVoicesMax: processBlock writes voices into a
-            // fixed outPitches[1+kHarmonyVoicesMax] stack buffer.
-            // setHarmonyVoices() already clamps; this branch is the
-            // second ingress (preset load, hand-edited XML) and must
-            // clamp too.
-            if (harmonyVoices.size() >= kHarmonyVoicesMax) break;
-            auto node = child.getChild(i);
-            if (!node.hasType(kHarmonyVoiceTag)) continue;
-            HarmonyVoice v{};
-            // concept.md §"Chord and harmony modes" pins interval to
-            // {3, 4, 5, 6}. Silently clamp out-of-range values from a
-            // hand-edited or forward-incompatible preset rather than
-            // refusing the load (forward-compat for v1↔future migration).
-            const int rawInterval = static_cast<int>(
-                node.getProperty(kIntervalAttr, 3));
-            v.interval = juce::jlimit(3, 6, rawInterval);
-            const auto dir = node.getProperty(kDirectionAttr, "above").toString();
-            v.direction = (dir == "below") ? HarmonyDirection::Below : HarmonyDirection::Above;
-            harmonyVoices.push_back(v);
-        }
+        if (harmonyVoices.size() >= kHarmonyVoicesMax) break;
+        auto node = child.getChild(i);
+        if (!node.hasType(kHarmonyVoiceTag)) continue;
+        HarmonyVoice v{};
+        const int rawInterval =
+            static_cast<int>(node.getProperty(kIntervalAttr, 3));
+        v.interval = juce::jlimit(3, 6, rawInterval);
+        const auto dir = node.getProperty(kDirectionAttr, "above").toString();
+        v.direction = (dir == "below") ? HarmonyDirection::Below
+                                       : HarmonyDirection::Above;
+        harmonyVoices.push_back(v);
     }
-    harmonyVoicesVersion_.fetch_add(1, std::memory_order_release);
+}
+
+void PointsmanProcessor::setArpAccent(const pointsman::ArpAccentTable& accent)
+{
+    for (int i = 0; i < 16; ++i)
+        arpAccent_[(std::size_t) i] = juce::jlimit(0, 127, accent[(std::size_t) i]);
+    syncArpGroovePatternToTree();
+}
+
+void PointsmanProcessor::setArpSlide(const pointsman::ArpSlideTable& slide)
+{
+    arpSlide_ = slide;
+    syncArpGroovePatternToTree();
+}
+
+void PointsmanProcessor::syncArpGroovePatternToTree()
+{
+    auto& root = apvts.state;
+    auto child = root.getOrCreateChildWithName(kArpGrooveTag, nullptr);
+    child.setProperty(kArpGrooveAccentAttr, packAccent(arpAccent_), nullptr);
+    child.setProperty(kArpGrooveSlideAttr,  packSlide (arpSlide_),  nullptr);
+}
+
+void PointsmanProcessor::syncArpGroovePatternFromTree()
+{
+    auto child = apvts.state.getChildWithName(kArpGrooveTag);
+    if (!child.isValid())
+    {
+        // Missing payload → ADR 004 §"Persistence" documents this as
+        // "loads the default all-100 accent / all-off slide pattern".
+        for (int i = 0; i < 16; ++i)
+        {
+            arpAccent_[(std::size_t) i] = 100;
+            arpSlide_ [(std::size_t) i] = false;
+        }
+        return;
+    }
+    unpackAccent(child.getProperty(kArpGrooveAccentAttr).toString(), arpAccent_);
+    unpackSlide (child.getProperty(kArpGrooveSlideAttr ).toString(), arpSlide_);
 }
 
 void PointsmanProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
-    syncHarmonyVoicesToTree();
+    syncArpGroovePatternToTree();
     auto state = apvts.copyState();
     if (auto xml = state.createXml())
         copyXmlToBinary(*xml, destData);
@@ -548,11 +616,18 @@ void PointsmanProcessor::setStateInformation(const void* data, int sizeInBytes)
 
     auto loaded = juce::ValueTree::fromXml(*xml);
 
-    // ADR 003 Phase 5: detect a v1 state tree by either (a) the presence
-    // of any removed pid in a PARAM child or (b) a PointsmanState child
-    // whose `version` property is not "2". A v1 tree is silently
-    // discarded; live defaults are preserved.
-    const auto looksLikeV1 = [&]
+    // ADR 003 Phase 5 + ADR 004 Phase 2: detect a legacy (v1 or v2) state
+    // tree and discard. Markers, either of which independently suffices:
+    //   (a) any PARAM child whose id is in pid::kRemovedLegacyPids
+    //       (catches v1: humanizeVelocity / outputLevel / controlChannel
+    //        etc. were PARAM pids in v1 and disappeared in v2)
+    //   (b) PointsmanState.version is set and != kStateVersion
+    //       (catches v2 — its constructor wrote version=2 — and also
+    //        future-proofs against forward-incompatible loads).
+    // v3 trees may still carry HarmonyVoice child nodes alongside
+    // version=3 (the vestige editor mirror; see syncHarmonyVoicesToTree),
+    // so the HarmonyVoice presence alone is not a legacy marker.
+    const auto looksLegacy = [&]
     {
         for (int i = 0; i < loaded.getNumChildren(); ++i)
         {
@@ -560,7 +635,7 @@ void PointsmanProcessor::setStateInformation(const void* data, int sizeInBytes)
             if (child.hasType(kParamTag))
             {
                 const auto id = child.getProperty(kIdAttr).toString();
-                for (const char* removed : pid::kRemovedV1Pids)
+                for (const char* removed : pid::kRemovedLegacyPids)
                     if (id == juce::String(removed)) return true;
             }
         }
@@ -575,14 +650,15 @@ void PointsmanProcessor::setStateInformation(const void* data, int sizeInBytes)
         return false;
     }();
 
-    if (looksLikeV1)
+    if (looksLegacy)
     {
-        juce::Logger::writeToLog("Pointsman: discarding pre-v2 state");
-        return; // keep the default-constructed v2 state intact
+        juce::Logger::writeToLog("Pointsman: discarding pre-v3 state");
+        return; // keep the default-constructed v3 state intact
     }
 
     apvts.replaceState(loaded);
     syncHarmonyVoicesFromTree();
+    syncArpGroovePatternFromTree();
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

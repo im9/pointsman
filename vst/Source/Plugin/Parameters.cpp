@@ -25,12 +25,13 @@ namespace pointsman
     {
         using APF = juce::AudioParameterFloat;
         using API = juce::AudioParameterInt;
+        using APB = juce::AudioParameterBool;
         using APC = juce::AudioParameterChoice;
         using PID = juce::ParameterID;
 
-        // ParameterID version-hint = kStateVersion (2 after Phase 5). Hosts
-        // use this to track mismatch between persisted and current build.
-        constexpr int versionHint = 2;
+        // ParameterID version-hint = kStateVersion (3 after ADR 004 Phase 2).
+        // Hosts use this to track mismatch between persisted and current build.
+        constexpr int versionHint = 3;
 
         juce::AudioProcessorValueTreeState::ParameterLayout layout;
 
@@ -47,6 +48,15 @@ namespace pointsman
             PID{pid::mode, versionHint}, "Mode",
             toStringArray(kModeChoiceLabels.data(), kModeChoiceLabels.size()),
             defaults::mode));
+
+        // ADR 004 §"Chord shape primitive". 20-preset Choice (intervallic,
+        // not diatonic). Default = Maj triad. The chordShape applies only
+        // when mode ∈ {chord, arp}; in scale mode it is ignored.
+        layout.add(std::make_unique<APC>(
+            PID{pid::chordShape, versionHint}, "Chord Shape",
+            toStringArray(kChordShapeChoiceLabels.data(),
+                          kChordShapeChoiceLabels.size()),
+            defaults::chordShape));
 
         // feel: single 0..1 amount driving signed-uniform noise on
         // velocity / gate / timing axes (concept.md §"Per-event humanize").
@@ -94,6 +104,42 @@ namespace pointsman
         layout.add(std::make_unique<API>(
             PID{pid::kbdRangeHiNote, versionHint}, "Keyboard Range Hi",
             36, 108, defaults::kbdRangeHiNote));
+
+        // ADR 004 §"Arpeggiator parameters". Eight pids effective only
+        // when mode == arp; they round-trip regardless of mode. The
+        // 16-step accent / slide patterns are NOT here — they live on a
+        // sibling ValueTree child (arpGroovePattern) to avoid polluting
+        // the host's automation list with 32 per-cell pids.
+        layout.add(std::make_unique<APC>(
+            PID{pid::arpPattern, versionHint}, "Arp Pattern",
+            toStringArray(kArpPatternChoiceLabels.data(),
+                          kArpPatternChoiceLabels.size()),
+            defaults::arpPattern));
+        layout.add(std::make_unique<APC>(
+            PID{pid::arpRate, versionHint}, "Arp Rate",
+            toStringArray(kArpRateChoiceLabels.data(),
+                          kArpRateChoiceLabels.size()),
+            defaults::arpRate));
+        layout.add(std::make_unique<API>(
+            PID{pid::arpOctaves, versionHint}, "Arp Octaves",
+            1, 4, defaults::arpOctaves));
+        layout.add(std::make_unique<API>(
+            PID{pid::arpStepRepeats, versionHint}, "Arp Step Repeats",
+            1, 8, defaults::arpStepRepeats));
+        layout.add(std::make_unique<APF>(
+            PID{pid::arpGate, versionHint}, "Arp Gate",
+            juce::NormalisableRange<float>(0.0f, 1.0f), defaults::arpGate));
+        layout.add(std::make_unique<APF>(
+            PID{pid::arpVariation, versionHint}, "Arp Variation",
+            juce::NormalisableRange<float>(0.0f, 1.0f), defaults::arpVariation));
+        layout.add(std::make_unique<APB>(
+            PID{pid::arpLatch, versionHint}, "Arp Latch",
+            defaults::arpLatch != 0));
+        // arpSwing caps at 0.75 per ADR 004 §"Arpeggiator parameters" —
+        // beyond that the swung tick collides with the next 16th.
+        layout.add(std::make_unique<APF>(
+            PID{pid::arpSwing, versionHint}, "Arp Swing",
+            juce::NormalisableRange<float>(0.0f, 0.75f), defaults::arpSwing));
 
         return layout;
     }

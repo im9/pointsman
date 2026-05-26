@@ -16,12 +16,16 @@
 
 namespace pointsman
 {
-    // APVTS state version. ADR 003 §"Persistence". v1 was the first persisted
-    // shape; v2 is the Phase 5 surface redesign (chord-from-input + feel/drift
-    // collapse). Phase 5 is a hard break: a v1 state tree is recognised by
-    // the presence of any removed pid (or PointsmanState.version != "2")
-    // and silently discarded — no migrator.
-    constexpr int kStateVersion = 2;
+    // APVTS state version. ADR 003 §"Persistence" + ADR 004 Phase 2
+    // §"Persistence". v1 was the first persisted shape; v2 was Phase 5's
+    // surface redesign (chord-from-input + feel/drift collapse); v3 is
+    // ADR 004's chord-shape primitive + arp surface (harmonyVoices
+    // ValueTree child removed, chordShape Choice added, mode extended
+    // to Arp, 8 arp pids added, arpGroovePattern sibling child added).
+    // Each bump is a hard break: a legacy state tree is recognised by
+    // PointsmanState.version != kStateVersion OR any removed pid present
+    // OR any HarmonyVoice child node and silently discarded — no migrator.
+    constexpr int kStateVersion = 3;
 }
 
 class PointsmanProcessor : public juce::AudioProcessor
@@ -54,16 +58,35 @@ public:
 
     juce::AudioProcessorValueTreeState apvts;
 
-    // ---- harmonyVoices (variable-length child of apvts.state) ----
-    // The vector is the runtime source-of-truth for processBlock; it is
-    // mirrored into apvts.state's "PointsmanState" child on getState and
-    // re-read from there on setState. The setter also pushes the change
-    // back into the tree so a host save right after a UI edit captures it.
+    // ---- harmonyVoices (vestige API, ADR 004 Phase 2) ----
+    // Chord expansion now goes through chordShape (intervallic, ADR 004).
+    // setHarmonyVoices / getHarmonyVoices remain as an in-memory-only
+    // shim so the v0.1 editor's HARMONY group still compiles and runs
+    // (its widget edits store into this vector but have no audible
+    // effect — processBlock does not read it). Phase 4 deletes the
+    // HARMONY group entirely, at which point these methods go too.
+    // Not persisted: schema v3 carries no HarmonyVoice ValueTree
+    // child, and the v2 → v3 detector treats any HarmonyVoice node as
+    // a legacy marker.
     void setHarmonyVoices(std::vector<pointsman::HarmonyVoice> v);
     const std::vector<pointsman::HarmonyVoice>& getHarmonyVoices() const noexcept
     {
         return harmonyVoices;
     }
+
+    // ---- arpGroovePattern (16-step accent + slide) ----
+    // ADR 004 §"Groove layer" + §"Persistence". Stored as a sibling
+    // ValueTree child on apvts.state (not as 32 APVTS pids) so the
+    // host's automation list is not polluted with per-cell entries.
+    // Round-tripped through getStateInformation / setStateInformation
+    // alongside the standard APVTS state. The setter clamps each cell
+    // (velocity to [0, 127]); the getter returns the canonical table.
+    // Phase 2 sub-step A wires the persistence + API; sub-step B
+    // consumes the tables in the arp clock.
+    void setArpAccent(const pointsman::ArpAccentTable& accent);
+    void setArpSlide (const pointsman::ArpSlideTable&  slide);
+    const pointsman::ArpAccentTable& getArpAccent() const noexcept { return arpAccent_; }
+    const pointsman::ArpSlideTable&  getArpSlide()  const noexcept { return arpSlide_;  }
 
     // ---- Pulse-on-emit signal (audio → UI thread) ----
     // Lock-free ring carrying each emitted output noteOn for the editor's
@@ -155,26 +178,34 @@ private:
 
     void syncHarmonyVoicesToTree();
     void syncHarmonyVoicesFromTree();
+    void syncArpGroovePatternToTree();
+    void syncArpGroovePatternFromTree();
 
     bool isHostPlaying() noexcept;
     bool channelMatches(int messageChannel, int paramChannel) const noexcept;
 
-    // Harmony voices: written by the message thread (UI edits, preset
-    // load), read by the audio thread on every input noteOn in
-    // mode=harmony. The canonical container `harmonyVoices` is the
-    // UI-side mutable state and is only accessed under
-    // `harmonyVoicesLock_`. The audio side keeps a private fixed-size
-    // snapshot (`harmonyVoicesAudio_` / count) refreshed via try-lock
-    // when the version atomic shows a new edit; if the try-lock fails
-    // the audio thread keeps the last-known-good cache for the block,
-    // which preserves RT-safety without dropping voices on contention.
+    // Vestige container (ADR 004 Phase 2). The v0.1 editor's HARMONY
+    // group still pokes at this vector and listens to the matching
+    // ValueTree children (`HarmonyVoice` nodes under `PointsmanState`)
+    // to rebuild its badges. processBlock does NOT read it — chord
+    // expansion is intervallic via `chordShape`. Tree mirroring stays
+    // so the editor's listener fires on +/− edits; Phase 4 deletes the
+    // group + this vector + the sync helpers in one cut. The spinlock
+    // protects message-thread mutators (UI edits, setStateInformation)
+    // against background-thread getStateInformation calls some preset-
+    // preview hosts make.
     std::vector<pointsman::HarmonyVoice> harmonyVoices;
     juce::SpinLock                       harmonyVoicesLock_;
-    std::atomic<uint64_t>                harmonyVoicesVersion_{0};
-    std::array<pointsman::HarmonyVoice,
-               pointsman::kHarmonyVoicesMax> harmonyVoicesAudio_{};
-    std::size_t harmonyVoicesAudioCount_   = 0;
-    uint64_t    harmonyVoicesAudioVersion_ = 0;
+
+    // 16-step accent / slide patterns. Message-thread mutated (UI edits,
+    // setStateInformation), audio-thread read in sub-step B's arp clock.
+    // Stored as full POD tables (not pointers) so the audio-side read in
+    // sub-step B is a pure value lookup; the setters clamp inputs in
+    // place. No lock needed in sub-step A because nothing reads them on
+    // the audio thread yet; sub-step B adds a try-lock + audio-side
+    // snapshot following the pattern the harmonyVoices machinery used.
+    pointsman::ArpAccentTable arpAccent_{};
+    pointsman::ArpSlideTable  arpSlide_{};
 
     // ── Humanize-driven output scheduler (ADR 003 Phase 4) ──
     // Pointsman's output gate is humanize-driven, NOT input-noteOff-driven
@@ -245,6 +276,12 @@ private:
     std::vector<int> cachedScalePitches_;
     int cachedScaleIdx_ = -1;       // sentinel; first compare forces rebuild
     int cachedRootPc_   = -1;
+
+    // Per-noteOn chord-shape expansion buffer (ADR 004 Phase 2). Reserved
+    // once in prepareToPlay; applyChordShapeInto refills it in place so
+    // chord-mode expansion stays allocation-free on the audio thread.
+    // Worst case is Dom13 = 6 voices; size 8 gives headroom.
+    std::vector<int> cachedChordPitches_;
 
     bool wasPlaying = false;
     uint32_t lastSeed = 0;          // re-seed RNG when seed param changes

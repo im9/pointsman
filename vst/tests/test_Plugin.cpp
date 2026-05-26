@@ -1,8 +1,10 @@
 // Tests for the Pointsman APVTS / processor surface per ADR 003 Phase 5
-// (parameter surface v2 + chord/harmony merge): APVTS round-trip,
-// harmonyVoices ValueTree round-trip, chord-mode triad expansion
-// (concept.md §"Chord and harmony modes"), panic on transport stop,
-// random-seed init, v1 state discard.
+// (parameter surface v2) + ADR 004 Phase 2 (chord shape primitive +
+// schema v3 break + arp parameter surface). Covers APVTS round-trip,
+// chord-mode intervallic expansion (concept.md §"Chord and harmony
+// modes"; ADR 004 §"Chord shape primitive"), arp params + groove
+// pattern (accent / slide) ValueTree round-trip, panic on transport
+// stop, random-seed init, legacy (v1, v2) state discard.
 //
 // Uses pointsman_plugin_core (no juce_audio_plugin_client wrapper) so the
 // processor can be exercised directly without an AU/VST3 host.
@@ -58,7 +60,7 @@ namespace
 }
 
 TEST_CASE("APVTS: every canonical pid round-trips via getState/setState",
-          "[plugin][apvts]")
+          "[plugin][apvts][adr004]")
 {
     PointsmanProcessor src;
     src.prepareToPlay(44100.0, 256);
@@ -68,7 +70,7 @@ TEST_CASE("APVTS: every canonical pid round-trips via getState/setState",
     // mid-range values that cannot collide with the constructor defaults.
     setParamRaw(src.apvts, pid::scale,        7.0f);  // Pentatonic
     setParamRaw(src.apvts, pid::root,         5.0f);
-    setParamRaw(src.apvts, pid::mode,         1.0f);  // Chord (post-merge)
+    setParamRaw(src.apvts, pid::mode,         2.0f);  // Arp (ADR 004)
     setParamRaw(src.apvts, pid::feel,         0.42f);
     setParamRaw(src.apvts, pid::drift,        0.95f);
     setParamRaw(src.apvts, pid::inputChannel, 3.0f);
@@ -78,6 +80,17 @@ TEST_CASE("APVTS: every canonical pid round-trips via getState/setState",
     // (Parameter range itself is also clamped to [0, 0xffffff] for the same
     // reason — see Parameters.cpp.)
     setParamRaw(src.apvts, pid::seed,         12345678.0f);
+    // ADR 004 pids (schema v3).
+    setParamRaw(src.apvts, pid::chordShape,    8.0f);   // Min7
+    setParamRaw(src.apvts, pid::arpPattern,    2.0f);   // UpDown
+    setParamRaw(src.apvts, pid::arpRate,       6.0f);   // 1/16 (default; pick non-default below)
+    setParamRaw(src.apvts, pid::arpRate,       9.0f);   // 1/32
+    setParamRaw(src.apvts, pid::arpOctaves,    3.0f);
+    setParamRaw(src.apvts, pid::arpStepRepeats, 4.0f);
+    setParamRaw(src.apvts, pid::arpGate,       0.75f);
+    setParamRaw(src.apvts, pid::arpVariation,  0.40f);
+    setParamRaw(src.apvts, pid::arpLatch,      1.0f);
+    setParamRaw(src.apvts, pid::arpSwing,      0.55f);
 
     juce::MemoryBlock blob;
     src.getStateInformation(blob);
@@ -85,13 +98,22 @@ TEST_CASE("APVTS: every canonical pid round-trips via getState/setState",
     PointsmanProcessor dst;
     dst.setStateInformation(blob.getData(), static_cast<int>(blob.getSize()));
 
-    REQUIRE(getParamRawInt(dst.apvts,   pid::scale)        == 7);
-    REQUIRE(getParamRawInt(dst.apvts,   pid::root)         == 5);
-    REQUIRE(getParamRawInt(dst.apvts,   pid::mode)         == 1);
-    REQUIRE(getParamRawFloat(dst.apvts, pid::feel)         == 0.42f);
-    REQUIRE(getParamRawFloat(dst.apvts, pid::drift)        == 0.95f);
-    REQUIRE(getParamRawInt(dst.apvts,   pid::inputChannel) == 3);
-    REQUIRE(getParamRawInt(dst.apvts,   pid::seed)         == 12345678);
+    REQUIRE(getParamRawInt(dst.apvts,   pid::scale)         == 7);
+    REQUIRE(getParamRawInt(dst.apvts,   pid::root)          == 5);
+    REQUIRE(getParamRawInt(dst.apvts,   pid::mode)          == 2);
+    REQUIRE(getParamRawFloat(dst.apvts, pid::feel)          == 0.42f);
+    REQUIRE(getParamRawFloat(dst.apvts, pid::drift)         == 0.95f);
+    REQUIRE(getParamRawInt(dst.apvts,   pid::inputChannel)  == 3);
+    REQUIRE(getParamRawInt(dst.apvts,   pid::seed)          == 12345678);
+    REQUIRE(getParamRawInt(dst.apvts,   pid::chordShape)    == 8);
+    REQUIRE(getParamRawInt(dst.apvts,   pid::arpPattern)    == 2);
+    REQUIRE(getParamRawInt(dst.apvts,   pid::arpRate)       == 9);
+    REQUIRE(getParamRawInt(dst.apvts,   pid::arpOctaves)    == 3);
+    REQUIRE(getParamRawInt(dst.apvts,   pid::arpStepRepeats) == 4);
+    REQUIRE(getParamRawFloat(dst.apvts, pid::arpGate)       == 0.75f);
+    REQUIRE(getParamRawFloat(dst.apvts, pid::arpVariation)  == 0.40f);
+    REQUIRE(getParamRawInt(dst.apvts,   pid::arpLatch)      == 1);
+    REQUIRE(getParamRawFloat(dst.apvts, pid::arpSwing)      == 0.55f);
 }
 
 TEST_CASE("harmonyVoices: new processor instance defaults to a diatonic "
@@ -114,31 +136,11 @@ TEST_CASE("harmonyVoices: new processor instance defaults to a diatonic "
     REQUIRE(v[1].direction == HarmonyDirection::Above);
 }
 
-TEST_CASE("harmonyVoices: ValueTree round-trip preserves order + fields",
-          "[plugin][harmony]")
-{
-    PointsmanProcessor src;
-    src.setHarmonyVoices({
-        {3, HarmonyDirection::Above},  // 3rd above
-        {5, HarmonyDirection::Above},  // 5th above
-        {3, HarmonyDirection::Below},  // 3rd below
-    });
-
-    juce::MemoryBlock blob;
-    src.getStateInformation(blob);
-
-    PointsmanProcessor dst;
-    dst.setStateInformation(blob.getData(), static_cast<int>(blob.getSize()));
-
-    const auto& voices = dst.getHarmonyVoices();
-    REQUIRE(voices.size() == 3);
-    REQUIRE(voices[0].interval == 3);
-    REQUIRE(voices[0].direction == HarmonyDirection::Above);
-    REQUIRE(voices[1].interval == 5);
-    REQUIRE(voices[1].direction == HarmonyDirection::Above);
-    REQUIRE(voices[2].interval == 3);
-    REQUIRE(voices[2].direction == HarmonyDirection::Below);
-}
+// ADR 004 Phase 2: harmonyVoices ValueTree round-trip removed — chord
+// expansion now goes through `chordShape` (intervallic). The in-memory
+// setHarmonyVoices / getHarmonyVoices stub remains as a vestige API the
+// editor's HARMONY group still pokes at (Phase 4 deletes both); see the
+// "schema v2 → v3 discard" test below for the persistence side.
 
 TEST_CASE("harmonyVoices: setHarmonyVoices truncates to kHarmonyVoicesMax",
           "[plugin][harmony]")
@@ -161,115 +163,11 @@ TEST_CASE("harmonyVoices: setHarmonyVoices truncates to kHarmonyVoicesMax",
     REQUIRE(p.getHarmonyVoices()[2].interval == 5);
 }
 
-TEST_CASE("harmonyVoices: preset with >kHarmonyVoicesMax HarmonyVoice nodes "
-          "is clamped on load",
-          "[plugin][harmony]")
-{
-    // Defense-in-depth at the preset boundary. setHarmonyVoices() truncates
-    // at kHarmonyVoicesMax, but setStateInformation → syncHarmonyVoicesFromTree
-    // previously read every <HarmonyVoice> child unbounded. processBlock
-    // writes harmony voices into a fixed-size outPitches[1+kHarmonyVoicesMax]
-    // buffer; a corrupt or hand-edited preset with 4+ HarmonyVoice nodes
-    // would overflow it. Mirror the setter's clamp at the load boundary.
-    //
-    // Threshold (3): from concept.md §"Parameter surface" ("HarmonyVoice[]
-    // length 0..3") and Engine/State.h kHarmonyVoicesMax.
-    struct CopyXmlExposer : public PointsmanProcessor
-    {
-        using AudioProcessor::copyXmlToBinary;
-    };
-    CopyXmlExposer src;
-    auto state = src.apvts.copyState();
-    auto child = state.getOrCreateChildWithName(
-        juce::Identifier("PointsmanState"), nullptr);
-    child.removeAllChildren(nullptr);
-    for (int i = 0; i < 5; ++i)   // 5 voices, exceeds the cap of 3
-    {
-        juce::ValueTree node(juce::Identifier("HarmonyVoice"));
-        node.setProperty(juce::Identifier("interval"), 3 + (i % 4), nullptr);
-        node.setProperty(juce::Identifier("direction"),
-                         juce::String("above"), nullptr);
-        child.appendChild(node, nullptr);
-    }
-
-    juce::MemoryBlock blob;
-    auto xml = state.createXml();
-    REQUIRE(xml != nullptr);
-    CopyXmlExposer::copyXmlToBinary(*xml, blob);
-
-    PointsmanProcessor dst;
-    dst.setStateInformation(blob.getData(), static_cast<int>(blob.getSize()));
-
-    REQUIRE(dst.getHarmonyVoices().size() == kHarmonyVoicesMax);
-}
-
-TEST_CASE("harmonyVoices: preset with out-of-range interval is silently clamped",
-          "[plugin][harmony]")
-{
-    // concept.md §"Chord and harmony modes": HarmonyVoice.interval ∈
-    // {3, 4, 5, 6}. setStateInformation → syncHarmonyVoicesFromTree
-    // previously read the integer with no range check, letting a
-    // hand-edited or forward-incompatible preset inject e.g. 2 or 99
-    // (defined-but-not-spec behaviour in diatonicShift's clamping).
-    // ADR 003 §"Post-Phase 4 audit follow-ups" #13 option (A): silent
-    // clamp at the load boundary. Mirrors the interval enum bounds.
-    struct CopyXmlExposer : public PointsmanProcessor
-    {
-        using AudioProcessor::copyXmlToBinary;
-    };
-    CopyXmlExposer src;
-    auto state = src.apvts.copyState();
-    auto child = state.getOrCreateChildWithName(
-        juce::Identifier("PointsmanState"), nullptr);
-    child.removeAllChildren(nullptr);
-    // Three voices: under-low / above-high / valid, in that order so
-    // the assertion catches both out-of-range branches.
-    auto add = [&](int interval) {
-        juce::ValueTree node(juce::Identifier("HarmonyVoice"));
-        node.setProperty(juce::Identifier("interval"), interval, nullptr);
-        node.setProperty(juce::Identifier("direction"),
-                         juce::String("above"), nullptr);
-        child.appendChild(node, nullptr);
-    };
-    add(2);   // below the 3..6 range → clamp to 3
-    add(99);  // above → clamp to 6
-    add(5);   // valid → unchanged
-
-    juce::MemoryBlock blob;
-    auto xml = state.createXml();
-    REQUIRE(xml != nullptr);
-    CopyXmlExposer::copyXmlToBinary(*xml, blob);
-
-    PointsmanProcessor dst;
-    dst.setStateInformation(blob.getData(), static_cast<int>(blob.getSize()));
-
-    const auto& voices = dst.getHarmonyVoices();
-    REQUIRE(voices.size() == 3);
-    REQUIRE(voices[0].interval == 3);
-    REQUIRE(voices[1].interval == 6);
-    REQUIRE(voices[2].interval == 5);
-}
-
-TEST_CASE("harmonyVoices: empty round-trip preserves emptiness across "
-          "save/reopen",
-          "[plugin][harmony]")
-{
-    // Even though new instances start with a default triad, the user may
-    // explicitly clear all voices. The empty state must round-trip
-    // through getState/setState so reopening the host project does not
-    // resurrect the default triad. PointsmanState child must be present
-    // from construction so the host's first save sees a stable shape.
-    PointsmanProcessor src;
-    src.setHarmonyVoices({});  // user clears all voices
-    REQUIRE(src.getHarmonyVoices().empty());
-
-    juce::MemoryBlock blob;
-    src.getStateInformation(blob);
-
-    PointsmanProcessor dst;
-    dst.setStateInformation(blob.getData(), static_cast<int>(blob.getSize()));
-    REQUIRE(dst.getHarmonyVoices().empty());
-}
+// ADR 004 Phase 2: harmonyVoices preset-clamp-on-load and out-of-range
+// clamp and empty-round-trip tests removed — schema v3 no longer carries
+// HarmonyVoice children, so the load path no longer ingests them. v2
+// state with HarmonyVoice children is detected and discarded by the
+// "schema v2 → v3 discard" test further down.
 
 TEST_CASE("panic: transport stop emits noteOff for every active output",
           "[plugin][panic]")
@@ -321,17 +219,15 @@ TEST_CASE("panic: transport stop emits noteOff for every active output",
     }
 }
 
-TEST_CASE("chord mode: single noteOn expands to diatonic triad "
+TEST_CASE("chord mode: default chordShape=Maj expands C4 to major triad "
           "(1 in, 3 out)",
-          "[plugin][chord]")
+          "[plugin][chord][adr004]")
 {
-    // Per the Phase 5 redesign and user-stated intent ("単音をコードに
-    // するモード"): chord mode is 1-in-N-out chord expansion. Each input
-    // attack emits the diatonic triad rooted on the input pitch using
-    // the current (scale, root) — 1-3-5 along the scale.
-    //
-    // Default state: scale=major, root=0 (C). Input C4 (MIDI 60) →
-    // output {C4, E4, G4} = {60, 64, 67} (1-3-5 of C in C major).
+    // ADR 004: chord mode is 1-in-N-out chord expansion driven by the
+    // `chordShape` enum. Default chordShape = Maj = [0, 4, 7].
+    // Input C4 (MIDI 60) in mode=chord → {60, 64, 67} (C major triad).
+    // No scale dependency on the chord voices — see "intervallic, not
+    // diatonic" test below.
     PointsmanProcessor p;
     p.prepareToPlay(44100.0, 256);
     p.setHostIsPlayingForTest(true);
@@ -351,16 +247,23 @@ TEST_CASE("chord mode: single noteOn expands to diatonic triad "
     REQUIRE(emittedPitches == std::vector<int>{60, 64, 67});
 }
 
-TEST_CASE("chord mode: input on a non-tonic degree emits the diatonic "
-          "triad of that degree (not always tonic)",
-          "[plugin][chord]")
+TEST_CASE("chord mode: intervallic semantics — chordShape is applied "
+          "from the input root regardless of scale degree",
+          "[plugin][chord][adr004]")
 {
-    // Each input pitch is the root of its own diatonic triad. In C
-    // major: D4 (62) → {D, F, A} = {62, 65, 69} (ii triad).
+    // ADR 004 §"Chord shape primitive": intervals are absolute semitones
+    // from the snapped root, NOT scale degrees. D4 (62) in C major with
+    // chordShape=Maj → {62, 66, 69} (D major triad: D-F#-A), NOT
+    // {62, 65, 69} (ii diatonic D-F-A). The F# is out of C major; the
+    // chord emits it deliberately — borrowed-chord material is the
+    // chord-voicing freedom this design buys.
     PointsmanProcessor p;
     p.prepareToPlay(44100.0, 256);
     p.setHostIsPlayingForTest(true);
-    setParamRaw(p.apvts, pid::mode, 1.0f);  // chord
+    setParamRaw(p.apvts, pid::scale,      0.0f); // Major
+    setParamRaw(p.apvts, pid::root,       0.0f); // C
+    setParamRaw(p.apvts, pid::mode,       1.0f); // chord
+    setParamRaw(p.apvts, pid::chordShape, 0.0f); // Maj
 
     juce::MidiBuffer midi;
     midi.addEvent(juce::MidiMessage::noteOn(1, 62, juce::uint8{100}), 0);
@@ -373,15 +276,16 @@ TEST_CASE("chord mode: input on a non-tonic degree emits the diatonic "
         if (m.isNoteOn()) emittedPitches.push_back(m.getNoteNumber());
     }
     std::sort(emittedPitches.begin(), emittedPitches.end());
-    REQUIRE(emittedPitches == std::vector<int>{62, 65, 69});
+    REQUIRE(emittedPitches == std::vector<int>{62, 66, 69});
 }
 
 TEST_CASE("chord mode: out-of-scale input is snapped to scale before "
-          "the triad is built",
-          "[plugin][chord]")
+          "the chord shape is applied",
+          "[plugin][chord][adr004]")
 {
     // C# (61) in C major snaps to nearest scale degree first (60 = C,
-    // tie-to-lower from {60, 62}), then expansion → {60, 64, 67}.
+    // tie-to-lower from {60, 62}), then chordShape=Maj expansion →
+    // {60, 64, 67}.
     PointsmanProcessor p;
     p.prepareToPlay(44100.0, 256);
     p.setHostIsPlayingForTest(true);
@@ -547,18 +451,18 @@ TEST_CASE("seed: round-trips through getState/setState (random init survives sav
     REQUIRE(getParamRawInt(dst.apvts, pid::seed) == seedBefore);
 }
 
-TEST_CASE("setStateInformation: v1 state (with removed pid) is discarded; "
+TEST_CASE("setStateInformation: legacy state (v1 removed pid) is discarded; "
           "defaults are restored",
-          "[plugin][state][v1]")
+          "[plugin][state][legacy]")
 {
-    // ADR 003 Phase 5: hard break — no v1 → v2 migration. A v1 state
-    // tree (recognised by the presence of any removed pid or by
-    // PointsmanState.version != "2") is silently discarded and the
-    // processor falls back to default-constructed v2 params.
+    // ADR 003 Phase 5: hard v1→v2 break (no migrator). ADR 004 Phase 2:
+    // additional hard v2→v3 break (no migrator). A legacy state tree —
+    // either v1 (any removed pid present, e.g. controlChannel) or v2
+    // (PointsmanState.version="2" or HarmonyVoice children present) —
+    // is silently discarded and the processor falls back to default-
+    // constructed v3 params.
     //
-    // Build a v1-shaped state by hand: an APVTS tree carrying a removed
-    // pid (e.g. controlChannel). setStateInformation must detect the
-    // pre-v2 marker and refuse to overwrite the live v2 defaults.
+    // This case covers v1; the next case covers v2.
 
     PointsmanProcessor dst;
     const int defaultSeed   = getParamRawInt(dst.apvts, pid::seed);
@@ -588,43 +492,90 @@ TEST_CASE("setStateInformation: v1 state (with removed pid) is discarded; "
     REQUIRE(getParamRawInt(dst.apvts, pid::seed)         == defaultSeed);
 }
 
-TEST_CASE("chord (voice-stack): voice that clamps to the base pitch is "
-          "still emitted (no unison dedup)",
-          "[plugin][chord]")
+TEST_CASE("setStateInformation: schema v2 state (PointsmanState.version=\"2\" "
+          "+ HarmonyVoice children) is discarded; live v3 defaults survive",
+          "[plugin][state][legacy][adr004]")
 {
-    // inboil / m4l engine semantics: when diatonicShift clamps a voice
-    // to the same pitch as the base (input near the top/bottom of the
-    // scale, interval pushes past the extreme), the voice is still
-    // emitted at that pitch. m4l/host/host.ts:184-192 pushes every voice
-    // into the pitches array unconditionally. vst must match — a prior
-    // `voicePitch == quantized` skip in PluginProcessor.cpp diverged from
-    // the cross-target engine contract and was removed.
+    // ADR 004 Phase 2: schema v2 → v3 hard break, no migrator. v2 is
+    // detected by the PointsmanState.version property; HarmonyVoice
+    // children alone do NOT trigger discard because v3 also mirrors
+    // them (vestige editor wiring, see syncHarmonyVoicesToTree). On
+    // discard, the live state is preserved untouched — the v2 file's
+    // values are silently dropped, leaving whatever the host had loaded
+    // at construction time.
+    PointsmanProcessor dst;
+    const int defaultChordShape = getParamRawInt(dst.apvts, pid::chordShape);
+    const int defaultInputC     = getParamRawInt(dst.apvts, pid::inputChannel);
+
+    struct Exposer : public PointsmanProcessor
+    { using AudioProcessor::copyXmlToBinary; };
+
+    juce::ValueTree v2State { dst.apvts.state.getType() };
+    {
+        // v2 tree carries a non-default chordShape would-be value via
+        // a PARAM child, plus the legacy PointsmanState.version=2
+        // marker that triggers the discard.
+        juce::ValueTree param { juce::Identifier("PARAM") };
+        param.setProperty(juce::Identifier("id"),    "chordShape", nullptr);
+        param.setProperty(juce::Identifier("value"), 5.0f, nullptr); // Sus4
+        v2State.appendChild(param, nullptr);
+
+        juce::ValueTree paramInCh { juce::Identifier("PARAM") };
+        paramInCh.setProperty(juce::Identifier("id"),    "inputChannel", nullptr);
+        paramInCh.setProperty(juce::Identifier("value"), 4.0f, nullptr);
+        v2State.appendChild(paramInCh, nullptr);
+
+        juce::ValueTree ps { juce::Identifier("PointsmanState") };
+        ps.setProperty(juce::Identifier("version"), 2, nullptr);
+        juce::ValueTree hv { juce::Identifier("HarmonyVoice") };
+        hv.setProperty(juce::Identifier("interval"),  3,                nullptr);
+        hv.setProperty(juce::Identifier("direction"), juce::String("above"), nullptr);
+        ps.appendChild(hv, nullptr);
+        v2State.appendChild(ps, nullptr);
+    }
+    auto xml = v2State.createXml();
+    REQUIRE(xml != nullptr);
+    juce::MemoryBlock blob;
+    Exposer::copyXmlToBinary(*xml, blob);
+
+    dst.setStateInformation(blob.getData(), static_cast<int>(blob.getSize()));
+
+    // Discard kicked in (version=2 marker), so the v2 file's values
+    // for chordShape (5) and inputChannel (4) did NOT overwrite the
+    // live state. The processor retains its construction-time defaults.
+    REQUIRE(getParamRawInt(dst.apvts, pid::inputChannel) == defaultInputC);
+    REQUIRE(getParamRawInt(dst.apvts, pid::chordShape)   == defaultChordShape);
+}
+
+TEST_CASE("chord mode: voices that exceed MIDI 127 are dropped, not clamped",
+          "[plugin][chord][adr004]")
+{
+    // ADR 004 §"Chord shape primitive": voices that would exceed [0, 127]
+    // are dropped (not clamped, not wrapped). MIDI 127 with chordShape=Maj
+    // would produce [127, 131, 134]; the 131 and 134 are dropped, leaving
+    // only [127]. This differs from the v0.1 diatonicShift behaviour which
+    // clamped to scalePitches.back() and produced duplicate-at-127 voices.
     PointsmanProcessor p;
     p.prepareToPlay(44100.0, 256);
     p.setHostIsPlayingForTest(true);
+    setParamRaw(p.apvts, pid::scale,      0.0f); // Major
+    setParamRaw(p.apvts, pid::root,       0.0f); // C
+    setParamRaw(p.apvts, pid::mode,       1.0f); // chord
+    setParamRaw(p.apvts, pid::chordShape, 0.0f); // Maj
 
-    setParamRaw(p.apvts, pid::scale, 0.0f); // Major
-    setParamRaw(p.apvts, pid::root,  0.0f); // C
-    setParamRaw(p.apvts, pid::mode,  1.0f); // Chord (post-merge, voice-stack-driven)
-    p.setHarmonyVoices({
-        {3, HarmonyDirection::Above}, // 3rd above; clamps at top of MIDI range
-    });
-
-    // MIDI 127 is the last in-scale C-major pitch (G8); diatonicShift
-    // 3rd-above (idx + 2) exceeds scalePitches.size() and returns
-    // scalePitches.back() = 127. Without the dedup, the processor emits
-    // TWO noteOns at 127 (base + clamped voice).
     juce::MidiBuffer midi;
     midi.addEvent(juce::MidiMessage::noteOn(1, 127, static_cast<juce::uint8>(100)), 0);
     processOnce(p, midi);
 
-    int noteOnsAt127 = 0;
+    std::vector<int> emittedPitches;
     for (const auto meta : midi)
     {
         const auto m = meta.getMessage();
-        if (m.isNoteOn() && m.getNoteNumber() == 127) ++noteOnsAt127;
+        if (m.isNoteOn()) emittedPitches.push_back(m.getNoteNumber());
     }
-    REQUIRE(noteOnsAt127 == 2);
+    // Only the root (127) survives; the +4 and +7 voices are out of range
+    // and silently dropped.
+    REQUIRE(emittedPitches == std::vector<int>{127});
 }
 
 TEST_CASE("humanize default: noteOff fires at noteOn + first-event sourceStep",
@@ -949,4 +900,180 @@ TEST_CASE("input quantize: mode=scale snaps non-scale notes to nearest in-scale"
         if (m.isNoteOn()) { sawPitch = m.getNoteNumber(); break; }
     }
     REQUIRE(sawPitch == 60);
+}
+
+// =====================================================================
+// ADR 004 Phase 2 — chord shape per-preset coverage, arp param surface,
+// arpGroovePattern ValueTree round-trip, mode=Arp placeholder.
+// =====================================================================
+
+namespace
+{
+    // Run a single noteOn through chord mode with the given chordShape
+    // and return the sorted set of emitted pitches.
+    std::vector<int> chordModeEmit(int rootMidi, int chordShapeIdx)
+    {
+        PointsmanProcessor p;
+        p.prepareToPlay(44100.0, 256);
+        p.setHostIsPlayingForTest(true);
+        setParamRaw(p.apvts, pid::scale,      0.0f);
+        setParamRaw(p.apvts, pid::root,       0.0f);
+        setParamRaw(p.apvts, pid::mode,       1.0f);                // chord
+        setParamRaw(p.apvts, pid::chordShape, (float) chordShapeIdx);
+
+        juce::MidiBuffer midi;
+        midi.addEvent(juce::MidiMessage::noteOn(1, rootMidi,
+                                                static_cast<juce::uint8>(100)),
+                      0);
+        juce::AudioBuffer<float> audio(0, 256);
+        p.processBlock(audio, midi);
+
+        std::vector<int> pitches;
+        for (const auto meta : midi)
+        {
+            const auto m = meta.getMessage();
+            if (m.isNoteOn()) pitches.push_back(m.getNoteNumber());
+        }
+        std::sort(pitches.begin(), pitches.end());
+        return pitches;
+    }
+}
+
+TEST_CASE("chord mode: chordShape presets emit the documented intervallic "
+          "voices from a C4 root",
+          "[plugin][chord][adr004]")
+{
+    // Coverage of the canonical preset table (ADR 004 §"Chord shape
+    // primitive"). C4 = MIDI 60. Each row asserts the full voice set
+    // produced by chord mode with the given chordShape index.
+    REQUIRE(chordModeEmit(60,  0) == std::vector<int>{60, 64, 67});       // Maj
+    REQUIRE(chordModeEmit(60,  1) == std::vector<int>{60, 63, 67});       // Min
+    REQUIRE(chordModeEmit(60,  6) == std::vector<int>{60, 67});           // Power
+    REQUIRE(chordModeEmit(60,  7) == std::vector<int>{60, 64, 67, 71});   // Maj7
+    REQUIRE(chordModeEmit(60,  8) == std::vector<int>{60, 63, 67, 70});   // Min7
+    REQUIRE(chordModeEmit(60,  9) == std::vector<int>{60, 64, 67, 70});   // Dom7
+    REQUIRE(chordModeEmit(60, 11) == std::vector<int>{60, 63, 66, 69});   // Dim7
+    REQUIRE(chordModeEmit(60, 18) == std::vector<int>{60, 64, 67, 70, 74, 81}); // Dom13
+    REQUIRE(chordModeEmit(60, 19) == std::vector<int>{60, 72});           // Octave
+}
+
+TEST_CASE("chord mode: 4-voice chordShape (Maj7) produces 4 noteOns per input",
+          "[plugin][chord][adr004]")
+{
+    // Counter-test: chord-shape voice count is preset-dependent, not
+    // fixed at 3 like the v0.1 default triad. Maj7 has 4 voices.
+    PointsmanProcessor p;
+    p.prepareToPlay(44100.0, 256);
+    p.setHostIsPlayingForTest(true);
+    setParamRaw(p.apvts, pid::mode,       1.0f); // chord
+    setParamRaw(p.apvts, pid::chordShape, 7.0f); // Maj7
+
+    juce::MidiBuffer midi;
+    midi.addEvent(juce::MidiMessage::noteOn(1, 60, juce::uint8{100}), 0);
+    processOnce(p, midi);
+
+    int noteOns = 0;
+    for (const auto meta : midi)
+        if (meta.getMessage().isNoteOn()) ++noteOns;
+    REQUIRE(noteOns == 4);
+}
+
+TEST_CASE("mode=Arp placeholder: behaves identically to chord mode in sub-step A",
+          "[plugin][arp][adr004][sub-step-a]")
+{
+    // ADR 004 Phase 2 sub-step A: mode=Arp is registered as the 3rd Choice
+    // value and round-trips through APVTS, but the arp clock + pool is
+    // sub-step B's deliverable. Sub-step A makes mode=Arp behave as
+    // chord-equivalent so users selecting it during the interim get
+    // audible output that matches the chord-shape primitive.
+    PointsmanProcessor p;
+    p.prepareToPlay(44100.0, 256);
+    p.setHostIsPlayingForTest(true);
+    setParamRaw(p.apvts, pid::mode,       2.0f); // Arp
+    setParamRaw(p.apvts, pid::chordShape, 0.0f); // Maj
+
+    juce::MidiBuffer midi;
+    midi.addEvent(juce::MidiMessage::noteOn(1, 60, juce::uint8{100}), 0);
+    processOnce(p, midi);
+
+    std::vector<int> pitches;
+    for (const auto meta : midi)
+    {
+        const auto m = meta.getMessage();
+        if (m.isNoteOn()) pitches.push_back(m.getNoteNumber());
+    }
+    std::sort(pitches.begin(), pitches.end());
+    REQUIRE(pitches == std::vector<int>{60, 64, 67});
+}
+
+TEST_CASE("arpGroovePattern: default state has all-100 accent and all-off slide",
+          "[plugin][arp][adr004]")
+{
+    // ADR 004 §"Persistence": "A schema-v3 state missing arpGroovePattern
+    // (e.g. a partial-schema-v3 preset) loads the default all-100 accent /
+    // all-off slide pattern." New-instance defaults match this so the
+    // out-of-the-box arp produces a flat groove (v0.1-equivalent
+    // velocity profile, no ties).
+    PointsmanProcessor p;
+    const auto accent = p.getArpAccent();
+    const auto slide  = p.getArpSlide();
+    REQUIRE(accent.size() == 16);
+    REQUIRE(slide.size()  == 16);
+    for (int i = 0; i < 16; ++i)
+    {
+        REQUIRE(accent[(std::size_t) i] == 100);
+        REQUIRE(slide[(std::size_t) i] == false);
+    }
+}
+
+TEST_CASE("arpGroovePattern: ValueTree round-trip preserves all 32 cells",
+          "[plugin][arp][adr004][persistence]")
+{
+    // 16-step accent and slide patterns round-trip through getState /
+    // setState bit-exact. ADR 004 §"Persistence" pins these as a
+    // sibling ValueTree child (arpGroovePattern) rather than 32
+    // automatable APVTS pids.
+    PointsmanProcessor src;
+    pointsman::ArpAccentTable accent{};
+    pointsman::ArpSlideTable  slide{};
+    for (int i = 0; i < 16; ++i)
+    {
+        accent[(std::size_t) i] = (i * 8 + 7) & 0x7f; // 7, 15, 23, ..., 127
+        slide[(std::size_t) i]  = (i % 3) == 0;       // every third step
+    }
+    src.setArpAccent(accent);
+    src.setArpSlide(slide);
+
+    juce::MemoryBlock blob;
+    src.getStateInformation(blob);
+
+    PointsmanProcessor dst;
+    dst.setStateInformation(blob.getData(), static_cast<int>(blob.getSize()));
+
+    const auto loadedAccent = dst.getArpAccent();
+    const auto loadedSlide  = dst.getArpSlide();
+    REQUIRE(loadedAccent == accent);
+    REQUIRE(loadedSlide  == slide);
+}
+
+TEST_CASE("arpGroovePattern: setArpAccent clamps each cell to [0, 127]",
+          "[plugin][arp][adr004]")
+{
+    // Defensive bound at the in-memory setter. The accent values
+    // ultimately become MIDI velocity bytes; out-of-range input from
+    // a corrupt preset or hand-edited XML must clamp to 0..127 rather
+    // than wrap or trigger UB downstream.
+    PointsmanProcessor p;
+    pointsman::ArpAccentTable raw{};
+    for (int i = 0; i < 16; ++i) raw[(std::size_t) i] = -10 + i * 30;
+    p.setArpAccent(raw);
+    const auto clamped = p.getArpAccent();
+    for (int i = 0; i < 16; ++i)
+    {
+        REQUIRE(clamped[(std::size_t) i] >= 0);
+        REQUIRE(clamped[(std::size_t) i] <= 127);
+    }
+    // First two raw entries underflow (-10, 20) — should clamp to 0 and 20.
+    REQUIRE(clamped[0] == 0);
+    REQUIRE(clamped[1] == 20);
 }

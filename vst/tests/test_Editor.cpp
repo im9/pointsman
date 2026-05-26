@@ -323,7 +323,12 @@ TEST_CASE("ControlsView: mode pill description text reflects the active mode",
 
     clickSync(*pills[1]); // chord
     REQUIRE(ctl.getModeDescLabelForTest().getText()
-            == juce::String("expand to a diatonic chord (1 in, N out)"));
+            == juce::String("expand to a chord (1 in, N out)"));
+    // mode = Arp is registered in APVTS (ADR 004 Phase 2) but Phase 4
+    // owns adding the third editor pill, so the existing 2-pill UI is
+    // unchanged in sub-step A. Selecting Arp via DAW automation or a
+    // preset still works at the processor level; covered by the
+    // [arp][adr004] tests in test_Plugin.cpp.
 }
 
 TEST_CASE("ControlsView: FEEL slider writes through to apvts::feel",
