@@ -128,8 +128,254 @@
         9,
         10,
         11
+      ],
+      "phrygian-dominant": [
+        0,
+        1,
+        4,
+        5,
+        7,
+        8,
+        10
       ]
     },
+    "chord_shapes": [
+      {
+        "name": "maj",
+        "intervals": [
+          0,
+          4,
+          7
+        ]
+      },
+      {
+        "name": "m",
+        "intervals": [
+          0,
+          3,
+          7
+        ]
+      },
+      {
+        "name": "dim",
+        "intervals": [
+          0,
+          3,
+          6
+        ]
+      },
+      {
+        "name": "aug",
+        "intervals": [
+          0,
+          4,
+          8
+        ]
+      },
+      {
+        "name": "sus2",
+        "intervals": [
+          0,
+          2,
+          7
+        ]
+      },
+      {
+        "name": "sus4",
+        "intervals": [
+          0,
+          5,
+          7
+        ]
+      },
+      {
+        "name": "power",
+        "intervals": [
+          0,
+          7
+        ]
+      },
+      {
+        "name": "maj7",
+        "intervals": [
+          0,
+          4,
+          7,
+          11
+        ]
+      },
+      {
+        "name": "m7",
+        "intervals": [
+          0,
+          3,
+          7,
+          10
+        ]
+      },
+      {
+        "name": "7",
+        "intervals": [
+          0,
+          4,
+          7,
+          10
+        ]
+      },
+      {
+        "name": "m7b5",
+        "intervals": [
+          0,
+          3,
+          6,
+          10
+        ]
+      },
+      {
+        "name": "dim7",
+        "intervals": [
+          0,
+          3,
+          6,
+          9
+        ]
+      },
+      {
+        "name": "6",
+        "intervals": [
+          0,
+          4,
+          7,
+          9
+        ]
+      },
+      {
+        "name": "m6",
+        "intervals": [
+          0,
+          3,
+          7,
+          9
+        ]
+      },
+      {
+        "name": "add9",
+        "intervals": [
+          0,
+          4,
+          7,
+          14
+        ]
+      },
+      {
+        "name": "maj9",
+        "intervals": [
+          0,
+          4,
+          7,
+          11,
+          14
+        ]
+      },
+      {
+        "name": "m9",
+        "intervals": [
+          0,
+          3,
+          7,
+          10,
+          14
+        ]
+      },
+      {
+        "name": "9",
+        "intervals": [
+          0,
+          4,
+          7,
+          10,
+          14
+        ]
+      },
+      {
+        "name": "13",
+        "intervals": [
+          0,
+          4,
+          7,
+          10,
+          14,
+          21
+        ]
+      },
+      {
+        "name": "octave",
+        "intervals": [
+          0,
+          12
+        ]
+      }
+    ],
+    "arp_rates": [
+      {
+        "name": "1/4",
+        "quarters_num": 1,
+        "quarters_den": 1
+      },
+      {
+        "name": "1/4D",
+        "quarters_num": 3,
+        "quarters_den": 2
+      },
+      {
+        "name": "1/4T",
+        "quarters_num": 2,
+        "quarters_den": 3
+      },
+      {
+        "name": "1/8",
+        "quarters_num": 1,
+        "quarters_den": 2
+      },
+      {
+        "name": "1/8D",
+        "quarters_num": 3,
+        "quarters_den": 4
+      },
+      {
+        "name": "1/8T",
+        "quarters_num": 1,
+        "quarters_den": 3
+      },
+      {
+        "name": "1/16",
+        "quarters_num": 1,
+        "quarters_den": 4
+      },
+      {
+        "name": "1/16D",
+        "quarters_num": 3,
+        "quarters_den": 8
+      },
+      {
+        "name": "1/16T",
+        "quarters_num": 1,
+        "quarters_den": 6
+      },
+      {
+        "name": "1/32",
+        "quarters_num": 1,
+        "quarters_den": 8
+      }
+    ],
+    "arp_patterns": [
+      "up",
+      "down",
+      "up-down",
+      "random",
+      "as-played",
+      "strike"
+    ],
     "chromatic_half": {
       "note": "chromatic-half is the identity-passthrough sentinel. buildScalePitches returns [0..127]; snapToScale is a no-op."
     },
@@ -140,7 +386,19 @@
       "definition": "snapToChordTones(note, chordPcs, scalePitches, tolerance=2): snap note to nearest chord-tone MIDI pitch (chord PCs expanded across the full 0..127 MIDI range); if the distance to that nearest chord tone is <= tolerance, return it; otherwise fall back to snapToScale(note, scalePitches). Empty chord PCs degenerate to plain scale-snap. Mirrors inboil generative.ts:286-338."
     },
     "harmony_mode_rule": {
-      "definition": "diatonicShift(note, interval, direction, scalePitches): snap note to nearest scale pitch (tie → lower per snap_rule), then advance interval-1 scale steps in direction (above|below). Clamps at scalePitches[0] / scalePitches[last] rather than wrapping. interval=N is N-1 steps (3rd = 2 steps, 4th = 3, 5th = 4, 6th = 5). Mirrors inboil generative.ts:235-254."
+      "definition": "diatonicShift(note, interval, direction, scalePitches): snap note to nearest scale pitch (tie → lower per snap_rule), then advance interval-1 scale steps in direction (above|below). Clamps at scalePitches[0] / scalePitches[last] rather than wrapping. interval=N is N-1 steps (3rd = 2 steps, 4th = 3, 5th = 4, 6th = 5). Mirrors inboil generative.ts:235-254. REMOVED from target engines per ADR 004 (v2 → v3 break, replaced by chord shape primitive); kept here for historical audit traceability."
+    },
+    "chord_shape_rule": {
+      "definition": "applyChordShape(rootMidi, shape): intervallic expansion from the snapped root using semitone offsets (NOT scale degrees). Voices that would exceed MIDI 127 are dropped (silent step), not clamped, not wrapped. Out-of-scale voices are deliberate — this is the chord-voicing freedom that v0.2's chord shape primitive buys. ADR 004 §Decision §Chord shape primitive."
+    },
+    "arp_rate_rule": {
+      "definition": "parseArpRate(rate): returns { num, den } rational of quarter notes per arp step. Dotted = base × 3/2, triplet = base × 2/3. Target engines must reconstruct sample-count from the rational form to avoid float drift. ADR 004 §Decision §Arpeggiator parameters."
+    },
+    "arp_pattern_rule": {
+      "definition": "nextArpIndex(pattern, state, poolSize, octaves, stepRepeats, rngDraw01) → newState. State = { index, round, repeatTick, direction }. Step-repeat sub-counter: each step held for stepRepeats ticks before pattern advances. Round advances on pattern-cycle completion (up/down/up-down/as-played) or every step boundary (strike). Random consumes rngDraw01; other patterns ignore it. Initial state: { index:0, round:0, repeatTick:0, direction:+1 }. ADR 004 §Decision §Pattern semantics."
+    },
+    "arp_step_resolution_rule": {
+      "definition": "resolveArpStep(pool, index, octaveRound, pattern) → { kind, pitches? }. Traversal patterns return a single voice (pool[index] + 12*octaveRound). Strike returns the whole pool uniformly octave-shifted. Out-of-range pitches (>127 or <0) are dropped; if all drop or pool empty, returns kind:rest. ADR 004 §Decision §Pattern semantics + §Edge cases."
     }
   },
   "build_scale_pitches": [
@@ -1265,6 +1523,87 @@
         124,
         125,
         126,
+        127
+      ]
+    },
+    {
+      "scale": "phrygian-dominant",
+      "root": 0,
+      "pitches": [
+        0,
+        1,
+        4,
+        5,
+        7,
+        8,
+        10,
+        12,
+        13,
+        16,
+        17,
+        19,
+        20,
+        22,
+        24,
+        25,
+        28,
+        29,
+        31,
+        32,
+        34,
+        36,
+        37,
+        40,
+        41,
+        43,
+        44,
+        46,
+        48,
+        49,
+        52,
+        53,
+        55,
+        56,
+        58,
+        60,
+        61,
+        64,
+        65,
+        67,
+        68,
+        70,
+        72,
+        73,
+        76,
+        77,
+        79,
+        80,
+        82,
+        84,
+        85,
+        88,
+        89,
+        91,
+        92,
+        94,
+        96,
+        97,
+        100,
+        101,
+        103,
+        104,
+        106,
+        108,
+        109,
+        112,
+        113,
+        115,
+        116,
+        118,
+        120,
+        121,
+        124,
+        125,
         127
       ]
     },
@@ -2927,6 +3266,43 @@
       "expected": 65
     },
     {
+      "label": "phrygian-dominant root=0: input=60 (exact chord tone PC 0) → unchanged",
+      "note": 60,
+      "scale": "phrygian-dominant",
+      "root": 0,
+      "chord_pcs": [
+        0,
+        1,
+        4
+      ],
+      "tolerance": 2,
+      "expected": 60
+    },
+    {
+      "label": "phrygian-dominant root=0: input=61 (1st semitone above root chord-PC; within tolerance=2) → snap to chord",
+      "note": 61,
+      "scale": "phrygian-dominant",
+      "root": 0,
+      "chord_pcs": [
+        0,
+        1,
+        4
+      ],
+      "tolerance": 2,
+      "expected": 61
+    },
+    {
+      "label": "phrygian-dominant root=0: input=65, single-PC chord [0], distance >2 → scale fallback",
+      "note": 65,
+      "scale": "phrygian-dominant",
+      "root": 0,
+      "chord_pcs": [
+        0
+      ],
+      "tolerance": 2,
+      "expected": 65
+    },
+    {
       "label": "C major: empty chord PCs → identical to snapToScale (input 63 → tie 62/64 → 62)",
       "note": 63,
       "scale": "major",
@@ -4007,6 +4383,78 @@
       "expected": 55
     },
     {
+      "label": "phrygian-dominant root=0: 3↑ from MIDI 60",
+      "note": 60,
+      "scale": "phrygian-dominant",
+      "root": 0,
+      "interval": 3,
+      "direction": "above",
+      "expected": 64
+    },
+    {
+      "label": "phrygian-dominant root=0: 3↓ from MIDI 60",
+      "note": 60,
+      "scale": "phrygian-dominant",
+      "root": 0,
+      "interval": 3,
+      "direction": "below",
+      "expected": 56
+    },
+    {
+      "label": "phrygian-dominant root=0: 4↑ from MIDI 60",
+      "note": 60,
+      "scale": "phrygian-dominant",
+      "root": 0,
+      "interval": 4,
+      "direction": "above",
+      "expected": 65
+    },
+    {
+      "label": "phrygian-dominant root=0: 4↓ from MIDI 60",
+      "note": 60,
+      "scale": "phrygian-dominant",
+      "root": 0,
+      "interval": 4,
+      "direction": "below",
+      "expected": 55
+    },
+    {
+      "label": "phrygian-dominant root=0: 5↑ from MIDI 60",
+      "note": 60,
+      "scale": "phrygian-dominant",
+      "root": 0,
+      "interval": 5,
+      "direction": "above",
+      "expected": 67
+    },
+    {
+      "label": "phrygian-dominant root=0: 5↓ from MIDI 60",
+      "note": 60,
+      "scale": "phrygian-dominant",
+      "root": 0,
+      "interval": 5,
+      "direction": "below",
+      "expected": 53
+    },
+    {
+      "label": "phrygian-dominant root=0: 6↑ from MIDI 60",
+      "note": 60,
+      "scale": "phrygian-dominant",
+      "root": 0,
+      "interval": 6,
+      "direction": "above",
+      "expected": 68
+    },
+    {
+      "label": "phrygian-dominant root=0: 6↓ from MIDI 60",
+      "note": 60,
+      "scale": "phrygian-dominant",
+      "root": 0,
+      "interval": 6,
+      "direction": "below",
+      "expected": 52
+    },
+    {
       "label": "C major: out-of-scale input 63 (D#) → snaps to 62 (D) → 3rd↑ → 65 (F)",
       "note": 63,
       "scale": "major",
@@ -4050,6 +4498,1369 @@
       "interval": 3,
       "direction": "below",
       "expected": 59
+    }
+  ],
+  "apply_chord_shape": [
+    {
+      "label": "C4 + maj",
+      "root": 60,
+      "shape_index": 0,
+      "shape_name": "maj",
+      "intervals": [
+        0,
+        4,
+        7
+      ],
+      "expected": [
+        60,
+        64,
+        67
+      ]
+    },
+    {
+      "label": "C4 + m",
+      "root": 60,
+      "shape_index": 1,
+      "shape_name": "m",
+      "intervals": [
+        0,
+        3,
+        7
+      ],
+      "expected": [
+        60,
+        63,
+        67
+      ]
+    },
+    {
+      "label": "C4 + dim",
+      "root": 60,
+      "shape_index": 2,
+      "shape_name": "dim",
+      "intervals": [
+        0,
+        3,
+        6
+      ],
+      "expected": [
+        60,
+        63,
+        66
+      ]
+    },
+    {
+      "label": "C4 + aug",
+      "root": 60,
+      "shape_index": 3,
+      "shape_name": "aug",
+      "intervals": [
+        0,
+        4,
+        8
+      ],
+      "expected": [
+        60,
+        64,
+        68
+      ]
+    },
+    {
+      "label": "C4 + sus2",
+      "root": 60,
+      "shape_index": 4,
+      "shape_name": "sus2",
+      "intervals": [
+        0,
+        2,
+        7
+      ],
+      "expected": [
+        60,
+        62,
+        67
+      ]
+    },
+    {
+      "label": "C4 + sus4",
+      "root": 60,
+      "shape_index": 5,
+      "shape_name": "sus4",
+      "intervals": [
+        0,
+        5,
+        7
+      ],
+      "expected": [
+        60,
+        65,
+        67
+      ]
+    },
+    {
+      "label": "C4 + power",
+      "root": 60,
+      "shape_index": 6,
+      "shape_name": "power",
+      "intervals": [
+        0,
+        7
+      ],
+      "expected": [
+        60,
+        67
+      ]
+    },
+    {
+      "label": "C4 + maj7",
+      "root": 60,
+      "shape_index": 7,
+      "shape_name": "maj7",
+      "intervals": [
+        0,
+        4,
+        7,
+        11
+      ],
+      "expected": [
+        60,
+        64,
+        67,
+        71
+      ]
+    },
+    {
+      "label": "C4 + m7",
+      "root": 60,
+      "shape_index": 8,
+      "shape_name": "m7",
+      "intervals": [
+        0,
+        3,
+        7,
+        10
+      ],
+      "expected": [
+        60,
+        63,
+        67,
+        70
+      ]
+    },
+    {
+      "label": "C4 + 7",
+      "root": 60,
+      "shape_index": 9,
+      "shape_name": "7",
+      "intervals": [
+        0,
+        4,
+        7,
+        10
+      ],
+      "expected": [
+        60,
+        64,
+        67,
+        70
+      ]
+    },
+    {
+      "label": "C4 + m7b5",
+      "root": 60,
+      "shape_index": 10,
+      "shape_name": "m7b5",
+      "intervals": [
+        0,
+        3,
+        6,
+        10
+      ],
+      "expected": [
+        60,
+        63,
+        66,
+        70
+      ]
+    },
+    {
+      "label": "C4 + dim7",
+      "root": 60,
+      "shape_index": 11,
+      "shape_name": "dim7",
+      "intervals": [
+        0,
+        3,
+        6,
+        9
+      ],
+      "expected": [
+        60,
+        63,
+        66,
+        69
+      ]
+    },
+    {
+      "label": "C4 + 6",
+      "root": 60,
+      "shape_index": 12,
+      "shape_name": "6",
+      "intervals": [
+        0,
+        4,
+        7,
+        9
+      ],
+      "expected": [
+        60,
+        64,
+        67,
+        69
+      ]
+    },
+    {
+      "label": "C4 + m6",
+      "root": 60,
+      "shape_index": 13,
+      "shape_name": "m6",
+      "intervals": [
+        0,
+        3,
+        7,
+        9
+      ],
+      "expected": [
+        60,
+        63,
+        67,
+        69
+      ]
+    },
+    {
+      "label": "C4 + add9",
+      "root": 60,
+      "shape_index": 14,
+      "shape_name": "add9",
+      "intervals": [
+        0,
+        4,
+        7,
+        14
+      ],
+      "expected": [
+        60,
+        64,
+        67,
+        74
+      ]
+    },
+    {
+      "label": "C4 + maj9",
+      "root": 60,
+      "shape_index": 15,
+      "shape_name": "maj9",
+      "intervals": [
+        0,
+        4,
+        7,
+        11,
+        14
+      ],
+      "expected": [
+        60,
+        64,
+        67,
+        71,
+        74
+      ]
+    },
+    {
+      "label": "C4 + m9",
+      "root": 60,
+      "shape_index": 16,
+      "shape_name": "m9",
+      "intervals": [
+        0,
+        3,
+        7,
+        10,
+        14
+      ],
+      "expected": [
+        60,
+        63,
+        67,
+        70,
+        74
+      ]
+    },
+    {
+      "label": "C4 + 9",
+      "root": 60,
+      "shape_index": 17,
+      "shape_name": "9",
+      "intervals": [
+        0,
+        4,
+        7,
+        10,
+        14
+      ],
+      "expected": [
+        60,
+        64,
+        67,
+        70,
+        74
+      ]
+    },
+    {
+      "label": "C4 + 13",
+      "root": 60,
+      "shape_index": 18,
+      "shape_name": "13",
+      "intervals": [
+        0,
+        4,
+        7,
+        10,
+        14,
+        21
+      ],
+      "expected": [
+        60,
+        64,
+        67,
+        70,
+        74,
+        81
+      ]
+    },
+    {
+      "label": "C4 + octave",
+      "root": 60,
+      "shape_index": 19,
+      "shape_name": "octave",
+      "intervals": [
+        0,
+        12
+      ],
+      "expected": [
+        60,
+        72
+      ]
+    },
+    {
+      "label": "C5 + maj",
+      "root": 72,
+      "shape_index": 0,
+      "shape_name": "maj",
+      "expected": [
+        72,
+        76,
+        79
+      ]
+    },
+    {
+      "label": "C5 + m",
+      "root": 72,
+      "shape_index": 1,
+      "shape_name": "m",
+      "expected": [
+        72,
+        75,
+        79
+      ]
+    },
+    {
+      "label": "C5 + dim",
+      "root": 72,
+      "shape_index": 2,
+      "shape_name": "dim",
+      "expected": [
+        72,
+        75,
+        78
+      ]
+    },
+    {
+      "label": "C5 + aug",
+      "root": 72,
+      "shape_index": 3,
+      "shape_name": "aug",
+      "expected": [
+        72,
+        76,
+        80
+      ]
+    },
+    {
+      "label": "C5 + sus2",
+      "root": 72,
+      "shape_index": 4,
+      "shape_name": "sus2",
+      "expected": [
+        72,
+        74,
+        79
+      ]
+    },
+    {
+      "label": "C5 + sus4",
+      "root": 72,
+      "shape_index": 5,
+      "shape_name": "sus4",
+      "expected": [
+        72,
+        77,
+        79
+      ]
+    },
+    {
+      "label": "C5 + power",
+      "root": 72,
+      "shape_index": 6,
+      "shape_name": "power",
+      "expected": [
+        72,
+        79
+      ]
+    },
+    {
+      "label": "C5 + maj7",
+      "root": 72,
+      "shape_index": 7,
+      "shape_name": "maj7",
+      "expected": [
+        72,
+        76,
+        79,
+        83
+      ]
+    },
+    {
+      "label": "C5 + m7",
+      "root": 72,
+      "shape_index": 8,
+      "shape_name": "m7",
+      "expected": [
+        72,
+        75,
+        79,
+        82
+      ]
+    },
+    {
+      "label": "C5 + 7",
+      "root": 72,
+      "shape_index": 9,
+      "shape_name": "7",
+      "expected": [
+        72,
+        76,
+        79,
+        82
+      ]
+    },
+    {
+      "label": "C5 + m7b5",
+      "root": 72,
+      "shape_index": 10,
+      "shape_name": "m7b5",
+      "expected": [
+        72,
+        75,
+        78,
+        82
+      ]
+    },
+    {
+      "label": "C5 + dim7",
+      "root": 72,
+      "shape_index": 11,
+      "shape_name": "dim7",
+      "expected": [
+        72,
+        75,
+        78,
+        81
+      ]
+    },
+    {
+      "label": "C5 + 6",
+      "root": 72,
+      "shape_index": 12,
+      "shape_name": "6",
+      "expected": [
+        72,
+        76,
+        79,
+        81
+      ]
+    },
+    {
+      "label": "C5 + m6",
+      "root": 72,
+      "shape_index": 13,
+      "shape_name": "m6",
+      "expected": [
+        72,
+        75,
+        79,
+        81
+      ]
+    },
+    {
+      "label": "C5 + add9",
+      "root": 72,
+      "shape_index": 14,
+      "shape_name": "add9",
+      "expected": [
+        72,
+        76,
+        79,
+        86
+      ]
+    },
+    {
+      "label": "C5 + maj9",
+      "root": 72,
+      "shape_index": 15,
+      "shape_name": "maj9",
+      "expected": [
+        72,
+        76,
+        79,
+        83,
+        86
+      ]
+    },
+    {
+      "label": "C5 + m9",
+      "root": 72,
+      "shape_index": 16,
+      "shape_name": "m9",
+      "expected": [
+        72,
+        75,
+        79,
+        82,
+        86
+      ]
+    },
+    {
+      "label": "C5 + 9",
+      "root": 72,
+      "shape_index": 17,
+      "shape_name": "9",
+      "expected": [
+        72,
+        76,
+        79,
+        82,
+        86
+      ]
+    },
+    {
+      "label": "C5 + 13",
+      "root": 72,
+      "shape_index": 18,
+      "shape_name": "13",
+      "expected": [
+        72,
+        76,
+        79,
+        82,
+        86,
+        93
+      ]
+    },
+    {
+      "label": "C5 + octave",
+      "root": 72,
+      "shape_index": 19,
+      "shape_name": "octave",
+      "expected": [
+        72,
+        84
+      ]
+    },
+    {
+      "label": "edge: 13 at root 110 — top voice (131) drops",
+      "root": 110,
+      "shape_index": 18,
+      "shape_name": "13",
+      "expected": [
+        110,
+        114,
+        117,
+        120,
+        124
+      ]
+    },
+    {
+      "label": "edge: octave at root 127 — top voice (139) drops, root only",
+      "root": 127,
+      "shape_index": 19,
+      "shape_name": "octave",
+      "expected": [
+        127
+      ]
+    },
+    {
+      "label": "edge: 13 at root 127 — all extensions drop, root only",
+      "root": 127,
+      "shape_index": 18,
+      "shape_name": "13",
+      "expected": [
+        127
+      ]
+    },
+    {
+      "label": "edge: power at root 0 — low end, no drop",
+      "root": 0,
+      "shape_index": 6,
+      "shape_name": "power",
+      "expected": [
+        0,
+        7
+      ]
+    }
+  ],
+  "parse_arp_rate": [
+    {
+      "label": "1/4",
+      "rate_index": 0,
+      "rate_name": "1/4",
+      "expected_quarters": {
+        "num": 1,
+        "den": 1
+      },
+      "decimal_reference": 1
+    },
+    {
+      "label": "1/4D",
+      "rate_index": 1,
+      "rate_name": "1/4D",
+      "expected_quarters": {
+        "num": 3,
+        "den": 2
+      },
+      "decimal_reference": 1.5
+    },
+    {
+      "label": "1/4T",
+      "rate_index": 2,
+      "rate_name": "1/4T",
+      "expected_quarters": {
+        "num": 2,
+        "den": 3
+      },
+      "decimal_reference": 0.6666666666666666
+    },
+    {
+      "label": "1/8",
+      "rate_index": 3,
+      "rate_name": "1/8",
+      "expected_quarters": {
+        "num": 1,
+        "den": 2
+      },
+      "decimal_reference": 0.5
+    },
+    {
+      "label": "1/8D",
+      "rate_index": 4,
+      "rate_name": "1/8D",
+      "expected_quarters": {
+        "num": 3,
+        "den": 4
+      },
+      "decimal_reference": 0.75
+    },
+    {
+      "label": "1/8T",
+      "rate_index": 5,
+      "rate_name": "1/8T",
+      "expected_quarters": {
+        "num": 1,
+        "den": 3
+      },
+      "decimal_reference": 0.3333333333333333
+    },
+    {
+      "label": "1/16",
+      "rate_index": 6,
+      "rate_name": "1/16",
+      "expected_quarters": {
+        "num": 1,
+        "den": 4
+      },
+      "decimal_reference": 0.25
+    },
+    {
+      "label": "1/16D",
+      "rate_index": 7,
+      "rate_name": "1/16D",
+      "expected_quarters": {
+        "num": 3,
+        "den": 8
+      },
+      "decimal_reference": 0.375
+    },
+    {
+      "label": "1/16T",
+      "rate_index": 8,
+      "rate_name": "1/16T",
+      "expected_quarters": {
+        "num": 1,
+        "den": 6
+      },
+      "decimal_reference": 0.16666666666666666
+    },
+    {
+      "label": "1/32",
+      "rate_index": 9,
+      "rate_name": "1/32",
+      "expected_quarters": {
+        "num": 1,
+        "den": 8
+      },
+      "decimal_reference": 0.125
+    }
+  ],
+  "next_arp_index": [
+    {
+      "label": "up, pool=3, oct=1, sr=1 — 7-tick trace",
+      "pattern": "up",
+      "poolSize": 3,
+      "octaves": 1,
+      "stepRepeats": 1,
+      "initial": {
+        "index": 0,
+        "round": 0,
+        "repeatTick": 0,
+        "direction": 1
+      },
+      "trace": [
+        {
+          "index": 0,
+          "round": 0,
+          "repeatTick": 0,
+          "direction": 1
+        },
+        {
+          "index": 1,
+          "round": 0,
+          "repeatTick": 0,
+          "direction": 1
+        },
+        {
+          "index": 2,
+          "round": 0,
+          "repeatTick": 0,
+          "direction": 1
+        },
+        {
+          "index": 0,
+          "round": 0,
+          "repeatTick": 0,
+          "direction": 1
+        },
+        {
+          "index": 1,
+          "round": 0,
+          "repeatTick": 0,
+          "direction": 1
+        },
+        {
+          "index": 2,
+          "round": 0,
+          "repeatTick": 0,
+          "direction": 1
+        },
+        {
+          "index": 0,
+          "round": 0,
+          "repeatTick": 0,
+          "direction": 1
+        }
+      ]
+    },
+    {
+      "label": "up, pool=3, oct=2, sr=1 — round wraps after 6 ticks",
+      "pattern": "up",
+      "poolSize": 3,
+      "octaves": 2,
+      "stepRepeats": 1,
+      "initial": {
+        "index": 0,
+        "round": 0,
+        "repeatTick": 0,
+        "direction": 1
+      },
+      "trace": [
+        {
+          "index": 0,
+          "round": 0,
+          "repeatTick": 0,
+          "direction": 1
+        },
+        {
+          "index": 1,
+          "round": 0,
+          "repeatTick": 0,
+          "direction": 1
+        },
+        {
+          "index": 2,
+          "round": 0,
+          "repeatTick": 0,
+          "direction": 1
+        },
+        {
+          "index": 0,
+          "round": 1,
+          "repeatTick": 0,
+          "direction": 1
+        },
+        {
+          "index": 1,
+          "round": 1,
+          "repeatTick": 0,
+          "direction": 1
+        },
+        {
+          "index": 2,
+          "round": 1,
+          "repeatTick": 0,
+          "direction": 1
+        },
+        {
+          "index": 0,
+          "round": 0,
+          "repeatTick": 0,
+          "direction": 1
+        },
+        {
+          "index": 1,
+          "round": 0,
+          "repeatTick": 0,
+          "direction": 1
+        }
+      ]
+    },
+    {
+      "label": "up, pool=3, oct=1, sr=2 — ratchet (each step held 2 ticks)",
+      "pattern": "up",
+      "poolSize": 3,
+      "octaves": 1,
+      "stepRepeats": 2,
+      "initial": {
+        "index": 0,
+        "round": 0,
+        "repeatTick": 0,
+        "direction": 1
+      },
+      "trace": [
+        {
+          "index": 0,
+          "round": 0,
+          "repeatTick": 0,
+          "direction": 1
+        },
+        {
+          "index": 0,
+          "round": 0,
+          "repeatTick": 1,
+          "direction": 1
+        },
+        {
+          "index": 1,
+          "round": 0,
+          "repeatTick": 0,
+          "direction": 1
+        },
+        {
+          "index": 1,
+          "round": 0,
+          "repeatTick": 1,
+          "direction": 1
+        },
+        {
+          "index": 2,
+          "round": 0,
+          "repeatTick": 0,
+          "direction": 1
+        },
+        {
+          "index": 2,
+          "round": 0,
+          "repeatTick": 1,
+          "direction": 1
+        },
+        {
+          "index": 0,
+          "round": 0,
+          "repeatTick": 0,
+          "direction": 1
+        },
+        {
+          "index": 0,
+          "round": 0,
+          "repeatTick": 1,
+          "direction": 1
+        }
+      ]
+    },
+    {
+      "label": "down, pool=3, starts at index=2 — 6-tick trace",
+      "pattern": "down",
+      "poolSize": 3,
+      "octaves": 1,
+      "stepRepeats": 1,
+      "initial": {
+        "index": 2,
+        "round": 0,
+        "repeatTick": 0,
+        "direction": 1
+      },
+      "trace": [
+        {
+          "index": 2,
+          "round": 0,
+          "repeatTick": 0,
+          "direction": 1
+        },
+        {
+          "index": 1,
+          "round": 0,
+          "repeatTick": 0,
+          "direction": 1
+        },
+        {
+          "index": 0,
+          "round": 0,
+          "repeatTick": 0,
+          "direction": 1
+        },
+        {
+          "index": 2,
+          "round": 0,
+          "repeatTick": 0,
+          "direction": 1
+        },
+        {
+          "index": 1,
+          "round": 0,
+          "repeatTick": 0,
+          "direction": 1
+        },
+        {
+          "index": 0,
+          "round": 0,
+          "repeatTick": 0,
+          "direction": 1
+        }
+      ]
+    },
+    {
+      "label": "up-down, pool=4 — 9-tick trace, bounces at endpoints",
+      "pattern": "up-down",
+      "poolSize": 4,
+      "octaves": 1,
+      "stepRepeats": 1,
+      "initial": {
+        "index": 0,
+        "round": 0,
+        "repeatTick": 0,
+        "direction": 1
+      },
+      "trace": [
+        {
+          "index": 0,
+          "round": 0,
+          "repeatTick": 0,
+          "direction": 1
+        },
+        {
+          "index": 1,
+          "round": 0,
+          "repeatTick": 0,
+          "direction": 1
+        },
+        {
+          "index": 2,
+          "round": 0,
+          "repeatTick": 0,
+          "direction": 1
+        },
+        {
+          "index": 3,
+          "round": 0,
+          "repeatTick": 0,
+          "direction": 1
+        },
+        {
+          "index": 2,
+          "round": 0,
+          "repeatTick": 0,
+          "direction": -1
+        },
+        {
+          "index": 1,
+          "round": 0,
+          "repeatTick": 0,
+          "direction": -1
+        },
+        {
+          "index": 0,
+          "round": 0,
+          "repeatTick": 0,
+          "direction": -1
+        },
+        {
+          "index": 1,
+          "round": 0,
+          "repeatTick": 0,
+          "direction": 1
+        },
+        {
+          "index": 2,
+          "round": 0,
+          "repeatTick": 0,
+          "direction": 1
+        }
+      ]
+    },
+    {
+      "label": "up-down, pool=1, oct=2 — degenerate, round still advances",
+      "pattern": "up-down",
+      "poolSize": 1,
+      "octaves": 2,
+      "stepRepeats": 1,
+      "initial": {
+        "index": 0,
+        "round": 0,
+        "repeatTick": 0,
+        "direction": 1
+      },
+      "trace": [
+        {
+          "index": 0,
+          "round": 0,
+          "repeatTick": 0,
+          "direction": 1
+        },
+        {
+          "index": 0,
+          "round": 1,
+          "repeatTick": 0,
+          "direction": 1
+        },
+        {
+          "index": 0,
+          "round": 0,
+          "repeatTick": 0,
+          "direction": 1
+        },
+        {
+          "index": 0,
+          "round": 1,
+          "repeatTick": 0,
+          "direction": 1
+        }
+      ]
+    },
+    {
+      "label": "random, pool=5, draw=0.00 → index=0",
+      "pattern": "random",
+      "poolSize": 5,
+      "octaves": 1,
+      "stepRepeats": 1,
+      "initial": {
+        "index": 0,
+        "round": 0,
+        "repeatTick": 0,
+        "direction": 1
+      },
+      "rngDraw01": 0,
+      "expected": {
+        "index": 0,
+        "round": 0,
+        "repeatTick": 0,
+        "direction": 1
+      }
+    },
+    {
+      "label": "random, pool=5, draw=0.2 → index=1",
+      "pattern": "random",
+      "poolSize": 5,
+      "octaves": 1,
+      "stepRepeats": 1,
+      "initial": {
+        "index": 0,
+        "round": 0,
+        "repeatTick": 0,
+        "direction": 1
+      },
+      "rngDraw01": 0.2,
+      "expected": {
+        "index": 1,
+        "round": 0,
+        "repeatTick": 0,
+        "direction": 1
+      }
+    },
+    {
+      "label": "random, pool=5, draw=0.99 → index=4",
+      "pattern": "random",
+      "poolSize": 5,
+      "octaves": 1,
+      "stepRepeats": 1,
+      "initial": {
+        "index": 0,
+        "round": 0,
+        "repeatTick": 0,
+        "direction": 1
+      },
+      "rngDraw01": 0.99,
+      "expected": {
+        "index": 4,
+        "round": 0,
+        "repeatTick": 0,
+        "direction": 1
+      }
+    },
+    {
+      "label": "strike, pool=3, oct=2 — index=0 fixed, round wraps every tick",
+      "pattern": "strike",
+      "poolSize": 3,
+      "octaves": 2,
+      "stepRepeats": 1,
+      "initial": {
+        "index": 0,
+        "round": 0,
+        "repeatTick": 0,
+        "direction": 1
+      },
+      "trace": [
+        {
+          "index": 0,
+          "round": 0,
+          "repeatTick": 0,
+          "direction": 1
+        },
+        {
+          "index": 0,
+          "round": 1,
+          "repeatTick": 0,
+          "direction": 1
+        },
+        {
+          "index": 0,
+          "round": 0,
+          "repeatTick": 0,
+          "direction": 1
+        },
+        {
+          "index": 0,
+          "round": 1,
+          "repeatTick": 0,
+          "direction": 1
+        },
+        {
+          "index": 0,
+          "round": 0,
+          "repeatTick": 0,
+          "direction": 1
+        },
+        {
+          "index": 0,
+          "round": 1,
+          "repeatTick": 0,
+          "direction": 1
+        }
+      ]
+    },
+    {
+      "label": "empty pool — state unchanged",
+      "pattern": "up",
+      "poolSize": 0,
+      "octaves": 1,
+      "stepRepeats": 1,
+      "initial": {
+        "index": 5,
+        "round": 2,
+        "repeatTick": 3,
+        "direction": -1
+      },
+      "expected": {
+        "index": 5,
+        "round": 2,
+        "repeatTick": 3,
+        "direction": -1
+      }
+    }
+  ],
+  "resolve_arp_step": [
+    {
+      "label": "up, pool=C major triad, index=0, round=0 → emit [60]",
+      "pool": [
+        60,
+        64,
+        67
+      ],
+      "index": 0,
+      "octaveRound": 0,
+      "pattern": "up",
+      "expected": {
+        "kind": "emit",
+        "pitches": [
+          60
+        ]
+      }
+    },
+    {
+      "label": "up, pool=C major triad, index=2, round=0 → emit [67]",
+      "pool": [
+        60,
+        64,
+        67
+      ],
+      "index": 2,
+      "octaveRound": 0,
+      "pattern": "up",
+      "expected": {
+        "kind": "emit",
+        "pitches": [
+          67
+        ]
+      }
+    },
+    {
+      "label": "up, pool=C major triad, index=1, round=1 → emit [76]",
+      "pool": [
+        60,
+        64,
+        67
+      ],
+      "index": 1,
+      "octaveRound": 1,
+      "pattern": "up",
+      "expected": {
+        "kind": "emit",
+        "pitches": [
+          76
+        ]
+      }
+    },
+    {
+      "label": "strike, pool=C major triad, round=0 → emit [60,64,67]",
+      "pool": [
+        60,
+        64,
+        67
+      ],
+      "index": 0,
+      "octaveRound": 0,
+      "pattern": "strike",
+      "expected": {
+        "kind": "emit",
+        "pitches": [
+          60,
+          64,
+          67
+        ]
+      }
+    },
+    {
+      "label": "strike, pool=C major triad, round=1 → emit [72,76,79]",
+      "pool": [
+        60,
+        64,
+        67
+      ],
+      "index": 0,
+      "octaveRound": 1,
+      "pattern": "strike",
+      "expected": {
+        "kind": "emit",
+        "pitches": [
+          72,
+          76,
+          79
+        ]
+      }
+    },
+    {
+      "label": "up, pool=[127], round=1 → rest (127+12 out of range)",
+      "pool": [
+        127
+      ],
+      "index": 0,
+      "octaveRound": 1,
+      "pattern": "up",
+      "expected": {
+        "kind": "rest"
+      }
+    },
+    {
+      "label": "strike, pool=[120, 125], round=1 → emit [] (both overflow) → rest",
+      "pool": [
+        120,
+        125
+      ],
+      "index": 0,
+      "octaveRound": 1,
+      "pattern": "strike",
+      "expected": {
+        "kind": "rest"
+      }
+    },
+    {
+      "label": "strike, pool=[100, 120], round=1 → emit [112] (120+12 overflows, 100+12 ok)",
+      "pool": [
+        100,
+        120
+      ],
+      "index": 0,
+      "octaveRound": 1,
+      "pattern": "strike",
+      "expected": {
+        "kind": "emit",
+        "pitches": [
+          112
+        ]
+      }
+    },
+    {
+      "label": "empty pool → rest",
+      "pool": [],
+      "index": 0,
+      "octaveRound": 0,
+      "pattern": "up",
+      "expected": {
+        "kind": "rest"
+      }
+    },
+    {
+      "label": "up, pool=3, index=5 wraps to 2",
+      "pool": [
+        60,
+        64,
+        67
+      ],
+      "index": 5,
+      "octaveRound": 0,
+      "pattern": "up",
+      "expected": {
+        "kind": "emit",
+        "pitches": [
+          67
+        ]
+      }
     }
   ]
 }
