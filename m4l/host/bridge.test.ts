@@ -383,25 +383,23 @@ test("chord mode — default harmony slots produce 1-3-5 triad on a single noteI
   assert.deepEqual(f.notes.map((n) => n.pitch), [60, 64, 67]);
 });
 
-test("chord mode — clearing V1 and V2 collapses output to 1-in-1-out", () => {
-  // Set V1 and V2 direction to "off" → projected list empty → chord mode
-  // emits single output.
+test("chord mode — chordShape='power' collapses output to 2 voices", () => {
+  // ADR 004 §Chord shape primitive: power = [0, 7] → root + 5th only.
   const f = makeFakeDeps();
   const b = new PointsmanBridge(f.deps);
   b.setParam("mode", "chord");
-  b.setParam("harmonyV1Direction", "off");
-  b.setParam("harmonyV2Direction", "off");
+  b.setParam("chordShape", "power");
   b.noteIn(60, 100, 1);
-  assert.equal(f.notes.length, 1);
-  assert.equal(f.notes[0].pitch, 60);
+  assert.equal(f.notes.length, 2);
+  assert.deepEqual(f.notes.map((n) => n.pitch), [60, 67]);
 });
 
-test("chord mode — scale-mode counter-test (1-in-1-out even with default voices)", () => {
-  // mode=scale ignores harmonyVoices entirely.
+test("chord mode — scale-mode counter-test (1-in-1-out even with chord-shape set)", () => {
+  // mode=scale ignores chordShape entirely.
   const f = makeFakeDeps();
   const b = new PointsmanBridge(f.deps);
-  // Default mode=scale; bridge default voices are populated, but scale mode
-  // does not emit them.
+  // Default mode=scale; chordShape defaults to "maj" but scale mode
+  // does not expand.
   b.noteIn(60, 100, 1);
   assert.equal(f.notes.length, 1);
 });
@@ -436,118 +434,278 @@ test("inputChannel — chord mode does NOT expand pass-through channel", () => {
   assert.equal(f.notes.length, 4);
 });
 
-// ---------- harmony slot collection (bridge → host harmonyVoices) ----------
+// ---------- chordShape dispatch (ADR 004 Phase 3-A) ----------
 //
-// 3 live.menu pairs (interval + direction) per slot. Defaults:
-//   V1 = { 3rd, above }
-//   V2 = { 5th, above }
-//   V3 = { 3rd, off }
-// → projected harmonyVoices = [{3,above},{5,above}] = 1-3-5 triad.
+// chordShape replaces the v2 harmonyV1..V3 slot widget cluster. Single
+// live.menu enum with 20 named presets (ADR 004 §Chord shape primitive).
+// The bridge accepts the string name OR the int index (Live's live.menu
+// can be configured either way).
 
-test("harmony slot V1 — direction='off' removes voice from filtered output", () => {
-  const f = makeFakeDeps();
-  const b = new PointsmanBridge(f.deps);
-  b.setParam("mode", "chord");
-  b.setParam("harmonyV1Direction", "off");
-  b.setParam("harmonyV2Direction", "off"); // also off
-  b.noteIn(60, 100, 1);
-  assert.equal(f.notes.length, 1);
-});
-
-test("harmony slot — interval enum strings map to diatonic shifts", () => {
-  // Parametric over the 4 interval values for V1. Direction="above", input
-  // C(60) in C major. Diatonic distances:
-  //   3rd → 64 (E, 2 scale steps), 4th → 65 (F, 3 steps)
-  //   5th → 67 (G, 4 steps),       6th → 69 (A, 5 steps)
-  const cases: Array<[string, number]> = [
-    ["3rd", 64], ["4th", 65], ["5th", 67], ["6th", 69],
+test("chordShape — accepts each of 20 preset strings", () => {
+  const presets = [
+    "maj", "m", "dim", "aug", "sus2", "sus4", "power",
+    "maj7", "m7", "7", "m7b5", "dim7", "6", "m6",
+    "add9", "maj9", "m9", "9", "13", "octave",
   ];
-  for (const [intervalStr, expected] of cases) {
+  for (const p of presets) {
     const f = makeFakeDeps();
     const b = new PointsmanBridge(f.deps);
-    b.setParam("mode", "chord");
-    b.setParam("harmonyV2Direction", "off"); // drop V2 to isolate V1
-    b.setParam("harmonyV1Interval", intervalStr);
-    b.setParam("harmonyV1Direction", "above");
-    b.noteIn(60, 100, 1);
-    assert.deepEqual(
-      f.notes.map((n) => n.pitch),
-      [60, expected],
-      `harmonyV1Interval='${intervalStr}' should produce voice at ${expected}`,
-    );
+    b.setParam("chordShape", p);
+    assert.equal(getHostParamsForTest(b).chordShape, p,
+      `chordShape '${p}' must land in host`);
   }
 });
 
-test("harmony slot — direction='below' inverts the diatonic shift", () => {
-  // C major, 3rd↓ = 57 (A below: 2 scale steps).
+test("chordShape — accepts int index (live.menu parameter_type=1 path)", () => {
+  // Live's live.menu can be configured to emit the int index rather than
+  // the string label. ADR 004 §Persistence: on-disk index order is
+  // append-only — index 0 = "maj", index 1 = "m", etc. The bridge
+  // resolves both forms.
   const f = makeFakeDeps();
   const b = new PointsmanBridge(f.deps);
-  b.setParam("mode", "chord");
-  b.setParam("harmonyV2Direction", "off");
-  b.setParam("harmonyV1Interval", "3rd");
-  b.setParam("harmonyV1Direction", "below");
-  b.noteIn(60, 100, 1);
-  assert.deepEqual(f.notes.map((n) => n.pitch), [60, 57]);
+  b.setParam("chordShape", 0); // maj
+  assert.equal(getHostParamsForTest(b).chordShape, "maj");
+  b.setParam("chordShape", 7); // maj7
+  assert.equal(getHostParamsForTest(b).chordShape, "maj7");
+  b.setParam("chordShape", 19); // octave (last)
+  assert.equal(getHostParamsForTest(b).chordShape, "octave");
 });
 
-test("harmony slot — invalid interval is silently rejected (slot unchanged)", () => {
+test("chordShape — rejects out-of-range index / unknown string", () => {
+  const f = makeFakeDeps();
+  const b = new PointsmanBridge(f.deps);
+  b.setParam("chordShape", "maj7");
+  b.setParam("chordShape", -1); // bad int
+  b.setParam("chordShape", 20); // out of range
+  b.setParam("chordShape", "diminished7th"); // bad string
+  // Threshold: chordShape unchanged after every reject path.
+  assert.equal(getHostParamsForTest(b).chordShape, "maj7");
+});
+
+test("chordShape — emission switches on next noteIn", () => {
+  // C major + maj → [60, 64, 67]. After setParam to "m" → [60, 63, 67].
   const f = makeFakeDeps();
   const b = new PointsmanBridge(f.deps);
   b.setParam("mode", "chord");
-  b.setParam("harmonyV2Direction", "off");
+  b.noteIn(60, 100, 1);
+  assert.deepEqual(f.notes.map((n) => n.pitch), [60, 64, 67]);
+  f.setNow(100);
+  b.setParam("chordShape", "m");
+  // chordShape is a FLUSH key — emits a noteOff for the sounding 60 first.
+  // Filter to ON events (velocity > 0) for the post-switch emission only.
+  const before = f.notes.length;
+  b.noteIn(60, 100, 1);
+  const after = f.notes.slice(before);
+  const onAfter = after.filter((n) => n.velocity > 0).map((n) => n.pitch);
+  assert.deepEqual(onAfter, [60, 63, 67]);
+});
+
+test("chordShape — mode-switch flush also fires on chordShape change", () => {
+  // ADR 004: chordShape mid-hold must release sounding voices before the
+  // next emission uses the new shape (parallel to scale/root/mode flush).
+  const f = makeFakeDeps();
+  const b = new PointsmanBridge(f.deps);
+  b.setParam("mode", "chord");
+  b.noteIn(60, 100, 1);
+  // Threshold: 3 sounding notes from default maj triad.
+  assert.equal(f.notes.filter((n) => n.velocity > 0).length, 3);
+  // Sanity: no noteOff has fired yet.
+  assert.equal(f.notes.filter((n) => n.velocity === 0).length, 0);
+  // chordShape is in FLUSH_PARAM_KEYS — change triggers immediate noteOff
+  // for all in-flight sounding pitches (any one would do; we just assert
+  // the count of fired releases).
+  b.setParam("chordShape", "m");
+  // After flush, at least one noteOff fired for the pending humanize-gated
+  // tail of the 3 sounding notes (gate=1.0 default → pendingNoteOffs all
+  // 3). assert: noteOffs fired > 0.
+  const noteOffs = f.notes.filter((n) => n.velocity === 0).length;
+  assert.ok(noteOffs > 0, `expected ≥1 flush noteOff, got ${noteOffs}`);
+});
+
+// ---------- arp param dispatch (ADR 004 Phase 3-A) ----------
+
+test("arpPattern — string and int dispatch both resolve", () => {
+  const f = makeFakeDeps();
+  const b = new PointsmanBridge(f.deps);
+  b.setParam("arpPattern", "down");
+  assert.equal(getHostParamsForTest(b).arpPattern, "down");
+  // Int index path: ARP_PATTERN_ORDER index 5 = "strike".
+  b.setParam("arpPattern", 5);
+  assert.equal(getHostParamsForTest(b).arpPattern, "strike");
+});
+
+test("arpPattern — rejects unknown value", () => {
+  const f = makeFakeDeps();
+  const b = new PointsmanBridge(f.deps);
+  b.setParam("arpPattern", "up");
+  b.setParam("arpPattern", "spiral"); // bad string
+  b.setParam("arpPattern", 99); // bad int
+  assert.equal(getHostParamsForTest(b).arpPattern, "up");
+});
+
+test("arpRate — accepts each of 10 rate names", () => {
+  const rates = [
+    "1/4", "1/4D", "1/4T",
+    "1/8", "1/8D", "1/8T",
+    "1/16", "1/16D", "1/16T",
+    "1/32",
+  ];
+  for (const r of rates) {
+    const f = makeFakeDeps();
+    const b = new PointsmanBridge(f.deps);
+    b.setParam("arpRate", r);
+    assert.equal(getHostParamsForTest(b).arpRate, r);
+  }
+});
+
+test("arpRate — int index dispatch resolves", () => {
+  // ARP_RATES table is append-only and index-stable: index 6 = "1/16".
+  const f = makeFakeDeps();
+  const b = new PointsmanBridge(f.deps);
+  b.setParam("arpRate", 6);
+  assert.equal(getHostParamsForTest(b).arpRate, "1/16");
+  b.setParam("arpRate", 9);
+  assert.equal(getHostParamsForTest(b).arpRate, "1/32");
+});
+
+test("arpRate — rejects unknown rate", () => {
+  const f = makeFakeDeps();
+  const b = new PointsmanBridge(f.deps);
+  b.setParam("arpRate", "1/16");
+  b.setParam("arpRate", "1/64");
+  b.setParam("arpRate", -1);
+  assert.equal(getHostParamsForTest(b).arpRate, "1/16");
+});
+
+test("arpOctaves — int 1..4 accepted, out-of-range rejected", () => {
+  const f = makeFakeDeps();
+  const b = new PointsmanBridge(f.deps);
+  // Threshold: ADR 004 §Arpeggiator parameters arpOctaves range = 1..4.
+  for (const v of [1, 2, 3, 4]) {
+    b.setParam("arpOctaves", v);
+    assert.equal(getHostParamsForTest(b).arpOctaves, v);
+  }
+  b.setParam("arpOctaves", 4); // settle
+  for (const bad of [0, 5, -1, 1.5, "two"]) {
+    b.setParam("arpOctaves", bad);
+    assert.equal(getHostParamsForTest(b).arpOctaves, 4,
+      `arpOctaves=${bad} should be rejected (still 4)`);
+  }
+});
+
+test("arpStepRepeats — int 1..8 accepted, out-of-range rejected", () => {
+  // Threshold: ADR 004 §Arpeggiator parameters arpStepRepeats range = 1..8.
+  const f = makeFakeDeps();
+  const b = new PointsmanBridge(f.deps);
+  b.setParam("arpStepRepeats", 8);
+  assert.equal(getHostParamsForTest(b).arpStepRepeats, 8);
+  b.setParam("arpStepRepeats", 9);
+  assert.equal(getHostParamsForTest(b).arpStepRepeats, 8);
+  b.setParam("arpStepRepeats", 0);
+  assert.equal(getHostParamsForTest(b).arpStepRepeats, 8);
+});
+
+test("arpGate / arpVariation — 0..1 float, out-of-range clamps", () => {
+  // Threshold: ADR 004 §Arpeggiator parameters — both are 0..1 floats.
+  // Bridge clamps (parallel to feel / drift) so that an automation envelope
+  // overshoot doesn't poison state.
+  const f = makeFakeDeps();
+  const b = new PointsmanBridge(f.deps);
+  b.setParam("arpGate", 0.42);
+  assert.equal(getHostParamsForTest(b).arpGate, 0.42);
+  b.setParam("arpGate", -0.5); // clamps to 0
+  assert.equal(getHostParamsForTest(b).arpGate, 0);
+  b.setParam("arpGate", 2.0);  // clamps to 1
+  assert.equal(getHostParamsForTest(b).arpGate, 1);
+  b.setParam("arpVariation", 0.3);
+  assert.equal(getHostParamsForTest(b).arpVariation, 0.3);
+});
+
+test("arpLatch — int 0/1 coerces to bool", () => {
+  // Live.toggle widgets emit 0/1 ints. Bridge coerces.
+  const f = makeFakeDeps();
+  const b = new PointsmanBridge(f.deps);
+  b.setParam("arpLatch", 1);
+  assert.equal(getHostParamsForTest(b).arpLatch, true);
+  b.setParam("arpLatch", 0);
+  assert.equal(getHostParamsForTest(b).arpLatch, false);
+});
+
+test("arpSwing — 0..0.75 float with cap clamp", () => {
+  // Threshold: ADR 004 §Arpeggiator parameters caps arpSwing at 0.75
+  // (beyond that the swung tick collides with the next 16th).
+  const f = makeFakeDeps();
+  const b = new PointsmanBridge(f.deps);
+  b.setParam("arpSwing", 0.5);
+  assert.equal(getHostParamsForTest(b).arpSwing, 0.5);
+  b.setParam("arpSwing", 1.0); // clamps to 0.75
+  assert.equal(getHostParamsForTest(b).arpSwing, 0.75);
+  b.setParam("arpSwing", -0.1); // clamps to 0
+  assert.equal(getHostParamsForTest(b).arpSwing, 0);
+});
+
+test("arpAccent — bulk-set 16-int array round-trips through bridge", () => {
+  // Bulk-set whole-pattern message. Bridge accepts a 16-element array and
+  // forwards verbatim; host clamps + pads.
+  const f = makeFakeDeps();
+  const b = new PointsmanBridge(f.deps);
+  const pattern = [
+    127, 100, 80, 60, 100, 100, 100, 100,
+    100, 100, 100, 100, 100, 100, 100, 0,
+  ];
+  b.setParam("arpAccent", pattern);
+  assert.deepEqual([...getHostParamsForTest(b).arpAccent], pattern);
+});
+
+test("arpAccent — non-array payload silently rejected", () => {
+  // Threshold: bridge defends against gross type mismatch only; per-cell
+  // validation is the host's job.
+  const f = makeFakeDeps();
+  const b = new PointsmanBridge(f.deps);
+  const before = [...getHostParamsForTest(b).arpAccent];
+  b.setParam("arpAccent", "not an array");
+  b.setParam("arpAccent", 42);
+  b.setParam("arpAccent", null);
+  assert.deepEqual([...getHostParamsForTest(b).arpAccent], before);
+});
+
+test("arpSlide — bulk-set 16-bool array round-trips", () => {
+  const f = makeFakeDeps();
+  const b = new PointsmanBridge(f.deps);
+  const pattern = [
+    true, false, false, true, false, false, false, true,
+    false, false, true, false, false, false, true, false,
+  ];
+  b.setParam("arpSlide", pattern);
+  assert.deepEqual([...getHostParamsForTest(b).arpSlide], pattern);
+});
+
+test("arpSlide — non-array payload silently rejected", () => {
+  const f = makeFakeDeps();
+  const b = new PointsmanBridge(f.deps);
+  const before = [...getHostParamsForTest(b).arpSlide];
+  b.setParam("arpSlide", "no");
+  b.setParam("arpSlide", 0);
+  assert.deepEqual([...getHostParamsForTest(b).arpSlide], before);
+});
+
+// ---------- legacy harmony slot pids are silently discarded (v3) ----------
+
+test("setParam removed pid — harmonyV[1-3]* logs once and no-ops", () => {
+  // ADR 004 §Decision removes the 3-slot harmony widget cluster. A stale
+  // .maxpat or pre-v3 preset firing these keys must not poison live
+  // state. The .maxpat itself is updated in Phase 3-C; until then the
+  // bridge tolerates them.
+  const f = makeFakeDeps();
+  const b = new PointsmanBridge(f.deps);
+  b.setParam("mode", "chord");
+  const before = getHostParamsForTest(b).chordShape;
   b.setParam("harmonyV1Interval", "5th");
-  b.setParam("harmonyV1Direction", "above");
-  b.setParam("harmonyV1Interval", "7th");
-  b.setParam("harmonyV1Interval", "3");
-  b.setParam("harmonyV1Interval", "third");
-  b.noteIn(60, 100, 1);
-  // Voice still uses 5th above (G=67).
-  assert.deepEqual(f.notes.map((n) => n.pitch), [60, 67]);
-});
-
-test("harmony slot — invalid direction is silently rejected", () => {
-  const f = makeFakeDeps();
-  const b = new PointsmanBridge(f.deps);
-  b.setParam("mode", "chord");
+  b.setParam("harmonyV1Direction", "below");
   b.setParam("harmonyV2Direction", "off");
-  b.setParam("harmonyV1Direction", "above");
-  b.setParam("harmonyV1Direction", "diagonal"); // invalid
-  b.noteIn(60, 100, 1);
-  assert.deepEqual(f.notes.map((n) => n.pitch), [60, 64]);
-});
-
-test("harmony slots — all 3 active produces primary + 3 voiced notes", () => {
-  // V1=3rd above (E=64), V2=5th above (G=67), V3=3rd below (A=57). C major.
-  const f = makeFakeDeps();
-  const b = new PointsmanBridge(f.deps);
-  b.setParam("mode", "chord");
-  // V1 defaults to 3rd above, V2 defaults to 5th above — already set.
   b.setParam("harmonyV3Interval", "3rd");
-  b.setParam("harmonyV3Direction", "below");
-  b.noteIn(60, 100, 1);
-  assert.deepEqual(f.notes.map((n) => n.pitch), [60, 64, 67, 57]);
-});
-
-test("harmony slots — gap-filtering preserves declared slot order (V2 only)", () => {
-  // V1=off, V2 active (5th above default), V3=off → filtered voices = [V2].
-  const f = makeFakeDeps();
-  const b = new PointsmanBridge(f.deps);
-  b.setParam("mode", "chord");
-  b.setParam("harmonyV1Direction", "off");
-  // V2 stays at default {5th, above}.
-  b.noteIn(60, 100, 1);
-  assert.deepEqual(f.notes.map((n) => n.pitch), [60, 67]);
-});
-
-test("harmony slot — out-of-range slot index (V4) is silent no-op", () => {
-  const f = makeFakeDeps();
-  const b = new PointsmanBridge(f.deps);
-  b.setParam("mode", "chord");
-  b.setParam("harmonyV4Interval", "3rd");
-  b.setParam("harmonyV4Direction", "above");
-  // Default slots still drive output (1-3-5 triad).
-  b.noteIn(60, 100, 1);
-  assert.equal(f.notes.length, 3);
+  // chordShape unchanged — legacy pids did not leak into v3 state.
+  assert.equal(getHostParamsForTest(b).chordShape, before);
 });
 
 // ---------- transport / panic ----------

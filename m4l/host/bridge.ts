@@ -1,33 +1,39 @@
-// Pointsman bridge — v2 surface protocol layer.
+// Pointsman bridge — v3 surface protocol layer (ADR 004 Phase 3-A).
 //
 // Pure JS/TS routing between the Max patch and the PointsmanHost class.
 // All Max-specific I/O (Max.outlet, Max.addHandler, Date.now, setTimeout)
 // is injected via deps so this module is testable under node:test.
 //
-// v2 changes vs v1 (m4l Phase 5 handoff):
-//   - mode enum {scale, chord} (drop "harmony")
-//   - removed pids: humanizeVelocity/Gate/Timing/Drift, outputLevel,
-//     triggerMode, controlChannel — incoming setParam for any of these is
-//     a silent no-op (concept.md §"Parameter surface" v2 removes section)
-//     with a single console.warn the first time we see one (stale .maxpat
-//     or pre-v2 preset).
-//   - added pids: feel / drift (concept.md §"Per-event humanize")
-//   - chordChanged outlet removed (no held-context concept)
-//   - random seed at construction (unless overridden via initialParams)
+// v3 changes vs v2 (ADR 004 Phase 3-A):
+//   - mode enum {scale, chord, arp} (add "arp")
+//   - chordShape (20 named intervallic presets) replaces the harmonyV1..V3
+//     slot widget cluster. The 6 harmonyV[1-3]Interval/Direction setParam
+//     keys are removed; an incoming setParam for any of them is silently
+//     no-op'd via the default branch fall-through (until the .maxpat
+//     surgery in Phase 3-C removes the widgets entirely).
+//   - 8 arp scalar pids added: arpPattern, arpRate, arpOctaves,
+//     arpStepRepeats, arpGate, arpVariation, arpLatch, arpSwing.
+//   - 2 arp pattern messages added: arpAccent (16 ints), arpSlide (16
+//     bools). These are bulk-set whole-pattern messages — per-cell edit
+//     surface (16 sliders × 2 strips) lands in Phase 3-C / Phase 4 UI.
 //
 // Pointsman differs from a TM device:
 //   - No `step` driver: events are MIDI-driven. The bridge passes
 //     `deps.now()` per noteIn so the host can derive sourceStepDuration
-//     from input timing.
+//     from input timing. (Phase 3-B adds a transport-tick driver for the
+//     arp clock — see ADR 004 §Per-target notes.)
 //   - Three event types from host: `noteOn` / `noteOff` / `notePulse`.
 //     `noteOn` and `noteOff` go to the MIDI emit path; `notePulse` goes
 //     to a side-channel outlet for the jsui scale keyboard.
 
 import {
+  ARP_PATTERN_ORDER,
+  ARP_RATES,
   buildScalePitches,
-  type HarmonyDirection,
-  type HarmonyInterval,
-  type HarmonyVoice,
+  CHORD_SHAPE_ORDER,
+  type ArpPattern,
+  type ArpRate,
+  type ChordShape,
   type ScaleName,
 } from "../engine/quantizer.ts";
 import {
@@ -67,33 +73,7 @@ const SCALE_NAMES: readonly ScaleName[] = [
   "phrygian-dominant",
 ];
 
-const POINTSMAN_MODES: readonly PointsmanMode[] = ["scale", "chord"];
-
-// 3 live.menu pairs (interval + direction) per slot. v2 defaults:
-//   V1 = { 3rd, above }
-//   V2 = { 5th, above }
-//   V3 = { 3rd, off }
-// → projected harmonyVoices = [{3,above},{5,above}] = 1-3-5 triad.
-type HarmonySlotDirection = "off" | HarmonyDirection;
-const HARMONY_SLOT_COUNT = 3;
-const HARMONY_SLOT_DIRECTIONS: readonly HarmonySlotDirection[] = ["off", "above", "below"];
-const INTERVAL_FROM_STRING: Readonly<Record<string, HarmonyInterval>> = {
-  "3rd": 3,
-  "4th": 4,
-  "5th": 5,
-  "6th": 6,
-};
-
-interface HarmonySlot {
-  interval: HarmonyInterval;
-  direction: HarmonySlotDirection;
-}
-
-const DEFAULT_HARMONY_SLOTS: readonly HarmonySlot[] = [
-  { interval: 3, direction: "above" },
-  { interval: 5, direction: "above" },
-  { interval: 3, direction: "off" },
-];
+const POINTSMAN_MODES: readonly PointsmanMode[] = ["scale", "chord", "arp"];
 
 // MIDI domain guards: pitch 0..127, velocity 0..127, channel 0..16. Live's
 // [midiparse] guarantees these ranges, but defense-in-depth keeps the host
@@ -115,17 +95,21 @@ const noteKey = (pitch: number, channel: number): string =>
 
 // setParam keys that require flushing in-flight noteOffs (mirror of the
 // host's flushKeys list — these are the params whose change invalidates
-// any held quantize result).
+// any held quantize result). chordShape joins the set in v3: mid-hold
+// shape changes would otherwise mix old + new voicings.
 const FLUSH_PARAM_KEYS: ReadonlySet<string> = new Set([
   "scale",
   "root",
   "mode",
+  "chordShape",
 ]);
 
-// Removed pids (concept.md §"Parameter surface" v2 removes section). An
-// incoming setParam for any of these is a stale-state message from an
-// out-of-date .maxpat or pre-v2 preset; bridge logs once per pid and
-// otherwise silently no-ops.
+// Legacy / removed pids. v2 removed humanizeVelocity/Gate/Timing,
+// humanizeDrift, outputLevel, triggerMode, controlChannel. v3 (ADR 004)
+// further removes the 6 harmonyV[1-3]Interval/Direction slot keys in
+// favour of a single `chordShape` enum. An incoming setParam for any of
+// these is a stale-state message from an out-of-date .maxpat / preset;
+// bridge logs once per pid and silently no-ops.
 const REMOVED_PIDS: ReadonlySet<string> = new Set([
   "humanizeVelocity",
   "humanizeGate",
@@ -134,12 +118,52 @@ const REMOVED_PIDS: ReadonlySet<string> = new Set([
   "outputLevel",
   "triggerMode",
   "controlChannel",
+  "harmonyVoices",
+  "harmonyV1Interval",
+  "harmonyV1Direction",
+  "harmonyV2Interval",
+  "harmonyV2Direction",
+  "harmonyV3Interval",
+  "harmonyV3Direction",
 ]);
+
+// ADR 004 §Persistence: arpRate is dispatched as either an enum name
+// ("1/16") or its integer index. Live's live.menu with parameter_type=2
+// (string enum) sends the string; parameter_type=1 (int enum) sends the
+// index. Resolve both forms to the canonical name here so host.setParam
+// always sees the string.
+function resolveArpRate(value: unknown): ArpRate | null {
+  if (typeof value === "string") {
+    return ARP_RATES.find((r) => r.name === value)?.name ?? null;
+  }
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 0 || n >= ARP_RATES.length) return null;
+  return ARP_RATES[n].name;
+}
+
+function resolveArpPattern(value: unknown): ArpPattern | null {
+  if (typeof value === "string") {
+    return ARP_PATTERN_ORDER.includes(value as ArpPattern)
+      ? (value as ArpPattern) : null;
+  }
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 0 || n >= ARP_PATTERN_ORDER.length) return null;
+  return ARP_PATTERN_ORDER[n];
+}
+
+function resolveChordShape(value: unknown): ChordShape | null {
+  if (typeof value === "string") {
+    return CHORD_SHAPE_ORDER.includes(value as ChordShape)
+      ? (value as ChordShape) : null;
+  }
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 0 || n >= CHORD_SHAPE_ORDER.length) return null;
+  return CHORD_SHAPE_ORDER[n];
+}
 
 export class PointsmanBridge {
   private host: PointsmanHost;
   private deps: BridgeDeps;
-  private harmonySlots: HarmonySlot[] = DEFAULT_HARMONY_SLOTS.map((s) => ({ ...s }));
 
   // First-time-seen tracker for removed-pid setParam warnings. Avoids
   // spamming the Max console when a stale patch fires its initial pid
@@ -219,22 +243,22 @@ export class PointsmanBridge {
   }
 
   setParam(key: string, value: unknown): void {
-    // v1 → v2 discard: stale .maxpat / pre-v2 preset may fire setParam for
-    // pids removed in Phase 5. Log once per pid then silent no-op so the
-    // user sees the signal without console spam.
+    // Legacy-state discard: stale .maxpat / pre-v3 preset may fire setParam
+    // for pids removed across v1/v2/v3 transitions. Log once per pid then
+    // silent no-op so the user sees the signal without console spam.
     if (REMOVED_PIDS.has(key)) {
       if (!this.warnedRemovedPids.has(key)) {
         this.warnedRemovedPids.add(key);
         // eslint-disable-next-line no-console
         console.warn(
-          `Pointsman: discarding pre-v2 state (setParam ${key}=${String(value)})`,
+          `Pointsman: discarding legacy state (setParam ${key}=${String(value)})`,
         );
       }
       return;
     }
 
-    // Mode / scale / root invalidate any in-flight quantize result —
-    // release sounding pitches before applying.
+    // Mode / scale / root / chordShape invalidate any in-flight quantize
+    // result — release sounding pitches before applying.
     if (FLUSH_PARAM_KEYS.has(key)) {
       this.flushInFlight();
     }
@@ -262,6 +286,12 @@ export class PointsmanBridge {
         events = this.host.setParam("mode", v as PointsmanMode);
         break;
       }
+      case "chordShape": {
+        const v = resolveChordShape(value);
+        if (v === null) return;
+        events = this.host.setParam("chordShape", v);
+        break;
+      }
       case "feel":
       case "drift": {
         const v = Number(value);
@@ -287,27 +317,68 @@ export class PointsmanBridge {
         events = this.host.setParam("seed", v);
         break;
       }
-      case "harmonyV1Interval":
-      case "harmonyV2Interval":
-      case "harmonyV3Interval": {
-        // key.charAt(8) is the slot digit ("1" | "2" | "3"); subtract
-        // 1 for the zero-based slot index.
-        const idx = Number(key.charAt(8)) - 1;
-        const v = INTERVAL_FROM_STRING[String(value)];
-        if (v === undefined) return;
-        this.harmonySlots[idx].interval = v;
-        this.rebuildHarmonyVoices();
-        return;
+      // ── ADR 004 arp params ──
+      case "arpPattern": {
+        const v = resolveArpPattern(value);
+        if (v === null) return;
+        events = this.host.setParam("arpPattern", v);
+        break;
       }
-      case "harmonyV1Direction":
-      case "harmonyV2Direction":
-      case "harmonyV3Direction": {
-        const idx = Number(key.charAt(8)) - 1;
-        const v = String(value);
-        if (!HARMONY_SLOT_DIRECTIONS.includes(v as HarmonySlotDirection)) return;
-        this.harmonySlots[idx].direction = v as HarmonySlotDirection;
-        this.rebuildHarmonyVoices();
-        return;
+      case "arpRate": {
+        const v = resolveArpRate(value);
+        if (v === null) return;
+        events = this.host.setParam("arpRate", v);
+        break;
+      }
+      case "arpOctaves": {
+        const v = Number(value);
+        if (!Number.isInteger(v) || v < 1 || v > 4) return;
+        events = this.host.setParam("arpOctaves", v);
+        break;
+      }
+      case "arpStepRepeats": {
+        const v = Number(value);
+        if (!Number.isInteger(v) || v < 1 || v > 8) return;
+        events = this.host.setParam("arpStepRepeats", v);
+        break;
+      }
+      case "arpGate":
+      case "arpVariation": {
+        const v = Number(value);
+        if (!Number.isFinite(v)) return;
+        const clamped = Math.max(0, Math.min(1, v));
+        events = this.host.setParam(key, clamped);
+        break;
+      }
+      case "arpLatch": {
+        // Live live.toggle widgets emit ints (0/1); allow booleans too.
+        const v = Number(value);
+        if (!Number.isFinite(v)) return;
+        events = this.host.setParam("arpLatch", v !== 0);
+        break;
+      }
+      case "arpSwing": {
+        // Range cap derivation: ADR 004 §Arpeggiator parameters caps
+        // arpSwing at 0.75 (beyond that the swung tick collides with the
+        // next 16th — musically not useful).
+        const v = Number(value);
+        if (!Number.isFinite(v)) return;
+        const clamped = Math.max(0, Math.min(0.75, v));
+        events = this.host.setParam("arpSwing", clamped);
+        break;
+      }
+      case "arpAccent": {
+        // Bulk-set whole-pattern message. Bridge defers validation to
+        // host (clamps to 0..127 and pads to 16). Reject only the gross
+        // type mismatch case.
+        if (!Array.isArray(value)) return;
+        events = this.host.setParam("arpAccent", value as number[]);
+        break;
+      }
+      case "arpSlide": {
+        if (!Array.isArray(value)) return;
+        events = this.host.setParam("arpSlide", value as boolean[]);
+        break;
       }
       default:
         return;
@@ -434,19 +505,6 @@ export class PointsmanBridge {
   private emitScaleChanged(): void {
     const p = this.host.getParams();
     this.deps.emitOutlet("scaleChanged", p.scale, p.root);
-  }
-
-  // Project the 3-slot state to a dense HarmonyVoice[] (filter "off",
-  // map slot fields to engine voice fields) and push to the host. Host
-  // defensive-copies the array so subsequent slot mutations don't alias.
-  private rebuildHarmonyVoices(): void {
-    const voices: HarmonyVoice[] = this.harmonySlots
-      .filter(
-        (s): s is { interval: HarmonyInterval; direction: HarmonyDirection } =>
-          s.direction !== "off",
-      )
-      .map((s) => ({ interval: s.interval, direction: s.direction }));
-    this.host.setParam("harmonyVoices", voices);
   }
 }
 
