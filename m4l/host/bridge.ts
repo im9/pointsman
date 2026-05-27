@@ -242,6 +242,19 @@ export class PointsmanBridge {
     for (const ev of this.host.transportStop()) this.dispatch(ev);
   }
 
+  // ADR 004 Phase 3-B: arp clock tick from the Max-side transport poller.
+  // The patcher's `[metro]` (gated by is_playing) bangs at a fixed cadence
+  // and reads the host transport's PPQ position + BPM via [live.observer],
+  // packs them, and dispatches `transportTick <ppq> <bpm>` to node.script.
+  // The host computes which tick(s) are due in (now, now + lookahead] and
+  // returns scheduled NoteEvents; the bridge dispatches them via the same
+  // delay-aware path used by humanize.
+  transportTick(positionPpq: number, bpm: number): void {
+    if (!Number.isFinite(positionPpq) || !Number.isFinite(bpm)) return;
+    const events = this.host.transportTick(positionPpq, bpm, this.deps.now());
+    for (const ev of events) this.dispatch(ev);
+  }
+
   setParam(key: string, value: unknown): void {
     // Legacy-state discard: stale .maxpat / pre-v3 preset may fire setParam
     // for pids removed across v1/v2/v3 transitions. Log once per pid then

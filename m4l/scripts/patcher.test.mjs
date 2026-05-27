@@ -657,3 +657,121 @@ test('Pointsman.maxpat — transport observer chain: live.path -> live.observer 
   )
 })
 
+test('Pointsman.maxpat — transport poll chain: live.observer current_song_time + tempo -> gate -> pack -> transportTick -> node.script', () => {
+  // ADR 004 Phase 3-B arp clock: the host's transportTick handler needs
+  // (positionPpq, bpm) from Live's transport. Wiring:
+  //   live.path live_set
+  //     -> live.observer tempo -> flonum tempo-cache -> pack cold inlet 1
+  //     -> live.observer current_song_time -> gate 1 (data) -> pack hot
+  //        inlet 0 -> prepend transportTick -> node.script
+  //   [sel 0 1] outlet 1 (playing=1) -> message "1" -> gate control
+  //   [sel 0 1] outlet 0 (playing=0) -> message "0" -> gate control
+  // The gate ensures position observations only emit transportTick while
+  // transport is playing.
+  const { boxes, lines } = loadPatcher(POINTSMAN_MAXPAT)
+  const tempoObs = boxes.find(
+    (b) =>
+      b.box?.maxclass === 'newobj' &&
+      b.box?.text === 'live.observer tempo',
+  )
+  assert.ok(tempoObs, 'expected [live.observer tempo]')
+  const posObs = boxes.find(
+    (b) =>
+      b.box?.maxclass === 'newobj' &&
+      b.box?.text === 'live.observer current_song_time',
+  )
+  assert.ok(posObs, 'expected [live.observer current_song_time]')
+  const tempoCache = boxes.find(
+    (b) => b.box?.maxclass === 'flonum' && b.box?.id === 'obj-tempo-cache',
+  )
+  assert.ok(tempoCache, 'expected [flonum] tempo cache (obj-tempo-cache)')
+  const gateTick = boxes.find(
+    (b) =>
+      b.box?.maxclass === 'newobj' && b.box?.text === 'gate 1' &&
+      b.box?.id === 'obj-gate-tick',
+  )
+  assert.ok(gateTick, 'expected [gate 1] (obj-gate-tick)')
+  const packTick = boxes.find(
+    (b) =>
+      b.box?.maxclass === 'newobj' && b.box?.text === 'pack 0. 120.' &&
+      b.box?.id === 'obj-pack-tick',
+  )
+  assert.ok(packTick, 'expected [pack 0. 120.] (obj-pack-tick)')
+  const prepTick = boxes.find(
+    (b) =>
+      b.box?.maxclass === 'newobj' &&
+      b.box?.text === 'prepend transportTick',
+  )
+  assert.ok(prepTick, 'expected [prepend transportTick]')
+  const nodeScript = boxes.find((b) => /^node\.script\b/.test(b.box?.text ?? ''))
+  assert.ok(nodeScript, 'expected [node.script]')
+
+  // tempo chain: observer -> cache -> pack cold inlet 1
+  assert.ok(followsLineFromTo(lines, tempoObs.box.id, tempoCache.box.id),
+    'live.observer tempo -> tempo cache wire missing')
+  const tempoToPackCold = lines.find(
+    (l) =>
+      l.patchline?.source?.[0] === tempoCache.box.id &&
+      l.patchline?.destination?.[0] === packTick.box.id &&
+      l.patchline?.destination?.[1] === 1,
+  )
+  assert.ok(tempoToPackCold,
+    'tempo cache -> pack cold inlet 1 wire missing')
+
+  // position chain: observer -> gate data inlet (1) -> pack hot inlet 0
+  const posToGateData = lines.find(
+    (l) =>
+      l.patchline?.source?.[0] === posObs.box.id &&
+      l.patchline?.destination?.[0] === gateTick.box.id &&
+      l.patchline?.destination?.[1] === 1,
+  )
+  assert.ok(posToGateData,
+    'live.observer current_song_time -> gate data inlet wire missing')
+  const gateToPackHot = lines.find(
+    (l) =>
+      l.patchline?.source?.[0] === gateTick.box.id &&
+      l.patchline?.destination?.[0] === packTick.box.id &&
+      l.patchline?.destination?.[1] === 0,
+  )
+  assert.ok(gateToPackHot,
+    'gate -> pack hot inlet 0 wire missing')
+
+  // gate control wires from [sel 0 1] via "1"/"0" messages
+  const selPlaying = boxes.find(
+    (b) => b.box?.maxclass === 'newobj' && b.box?.text === 'sel 0 1',
+  )
+  assert.ok(selPlaying, 'expected [sel 0 1] for gate control')
+  const gateOpenMsg = boxes.find(
+    (b) => b.box?.maxclass === 'message' && b.box?.id === 'obj-msg-gate-open',
+  )
+  assert.ok(gateOpenMsg, 'expected [message 1] for gate open')
+  const gateCloseMsg = boxes.find(
+    (b) => b.box?.maxclass === 'message' && b.box?.id === 'obj-msg-gate-close',
+  )
+  assert.ok(gateCloseMsg, 'expected [message 0] for gate close')
+  const playToOpen = lines.find(
+    (l) =>
+      l.patchline?.source?.[0] === selPlaying.box.id &&
+      l.patchline?.source?.[1] === 1 &&
+      l.patchline?.destination?.[0] === gateOpenMsg.box.id,
+  )
+  assert.ok(playToOpen, 'sel outlet 1 -> message "1" wire missing')
+  const stopToClose = lines.find(
+    (l) =>
+      l.patchline?.source?.[0] === selPlaying.box.id &&
+      l.patchline?.source?.[1] === 0 &&
+      l.patchline?.destination?.[0] === gateCloseMsg.box.id,
+  )
+  assert.ok(stopToClose, 'sel outlet 0 -> message "0" wire missing')
+  assert.ok(followsLineFromTo(lines, gateOpenMsg.box.id, gateTick.box.id),
+    'message "1" -> gate control wire missing')
+  assert.ok(followsLineFromTo(lines, gateCloseMsg.box.id, gateTick.box.id),
+    'message "0" -> gate control wire missing')
+
+  // pack -> prepend transportTick -> node.script
+  assert.ok(followsLineFromTo(lines, packTick.box.id, prepTick.box.id),
+    'pack -> prepend transportTick wire missing')
+  assert.ok(followsLineFromTo(lines, prepTick.box.id, nodeScript.box.id),
+    'prepend transportTick -> node.script wire missing')
+})
+

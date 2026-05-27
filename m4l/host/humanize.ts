@@ -45,6 +45,13 @@ export interface ComposeArgs {
   drift: number;               // 0..1 EMA factor per-axis
   inputVelocity: number;       // 1..127
   sourceStepDuration: number;  // ms
+  // ADR 004 Phase 3-B: deterministic-gate base. Scale / chord modes
+  // implicitly use 1.0 (full step length, v0.1 behaviour); arp mode passes
+  // arpGate so humanize jitters around the user's setting instead of the
+  // 1.0 ceiling. Optional with a 1.0 default so the chord-mode call site
+  // stays untouched and reproducibility against existing seeds is
+  // preserved bit-for-bit.
+  inputGate?: number;          // 0..1, default 1.0 (full step)
 }
 
 export interface ComposeResult {
@@ -84,9 +91,12 @@ export function composeHumanize(
 
   const velRaw = Math.round(args.inputVelocity * (1 + usedVel));
   const velocityFinal = clamp1to127(velRaw);
-  // outputGateBase was always 1.0 in v1; inlined here for the single
-  // remaining gate-final formula.
-  const gateFinal = clamp01(1.0 * (1 + usedGate));
+  // inputGate defaults to 1.0 (v0.1 behaviour: full-step base, jittered);
+  // arp mode passes arpGate so the (1 + jitter) multiplier centres on the
+  // user-set base. Clamp to [0, 1] — gate fractions outside the step are
+  // not physically meaningful.
+  const gateBase = args.inputGate ?? 1.0;
+  const gateFinal = clamp01(gateBase * (1 + usedGate));
   const timingRaw = usedTime * args.sourceStepDuration;
   // Normalize -0 → +0 so callers / tests can compare with strict equality.
   const timingOffset = timingRaw === 0 ? 0 : timingRaw;

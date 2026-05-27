@@ -950,3 +950,50 @@ test("cancellation — channel scope: same pitch on different channels is indepe
   const channels = offs.map((n) => n.channel).sort();
   assert.deepEqual(channels, [1, 2]);
 });
+
+// ---------- transportTick (ADR 004 Phase 3-B arp clock) ----------
+
+test("transportTick — non-finite payload silently dropped", () => {
+  // Threshold: bridge defends against malformed Max payloads (NaN /
+  // undefined / -Infinity) so a [live.observer] race during patcher load
+  // can't push the host into bad state.
+  const f = makeFakeDeps();
+  const b = new PointsmanBridge(f.deps);
+  b.setParam("mode", "arp");
+  b.noteIn(60, 100, 1);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  b.transportTick(Number.NaN as any, 120);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  b.transportTick(0, undefined as any);
+  // Threshold 0: no emits from malformed ticks.
+  assert.equal(f.notes.length, 0);
+});
+
+test("transportTick — arp mode emits scheduled noteOn via dispatch", () => {
+  // End-to-end: noteIn populates pool, transportTick at position 0 fires
+  // tick immediately (delayMs=0), bridge emits via emitNote synchronously.
+  const f = makeFakeDeps();
+  const b = new PointsmanBridge(f.deps);
+  b.setParam("mode", "arp");
+  b.setParam("chordShape", "maj");
+  b.setParam("arpSwing", 0);
+  b.setParam("arpAccent", Array.from({ length: 16 }, () => 100));
+  b.setParam("feel", 0);
+  b.noteIn(60, 100, 1);
+  // Pool now has {60, 64, 67}. First tick at position 0 → noteOn(60).
+  b.transportTick(0, 120);
+  const ons = f.notes.filter((n) => n.velocity > 0);
+  // Threshold 1: up pattern emits the lowest pool voice.
+  assert.equal(ons.length, 1);
+  assert.equal(ons[0].pitch, 60);
+});
+
+test("transportTick — scale mode emits nothing", () => {
+  const f = makeFakeDeps();
+  const b = new PointsmanBridge(f.deps);
+  // Default mode=scale.
+  b.noteIn(60, 100, 1);  // emits via scale path
+  const before = f.notes.length;
+  b.transportTick(0, 120);
+  assert.equal(f.notes.length, before, "scale mode ignores transport ticks");
+});

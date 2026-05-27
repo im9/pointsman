@@ -294,22 +294,382 @@ test("chord mode — notePulse fires for every voiced note", () => {
   );
 });
 
-// ---------- arp mode (Phase 3-A placeholder — shares chord branch) ----------
+// ---------- arp mode (Phase 3-B — pool + transportTick) ----------
 //
-// ADR 004 sub-step note (mirroring vst Phase 2-A): mode=arp temporarily
-// behaves like chord mode so the chordShape primitive remains audible
-// end-to-end during the 3-A → 3-B transition. The pool maintenance +
-// tick-driven emission proper lands in Phase 3-B.
+// ADR 004 §Held-note pool: arp mode noteIn populates the held-note pool
+// (chord-shape voices added) and does NOT emit immediately — emission is
+// tick-driven by transportTick. The bridge polls transport position +
+// BPM at DEFAULT_TRANSPORT_POLL_MS cadence and feeds them in; the host
+// computes the next due tick(s) relative to the current position and
+// returns scheduled events.
 
-test("arp mode — noteIn emits the chord-shape pulse (3-A placeholder)", () => {
-  // chordShape="maj" + mode="arp" + input C(60) → same emission as
-  // chord mode. This test exists to pin the placeholder behaviour; it
-  // will be REPLACED in Phase 3-B with pool-driven tick tests.
+test("arp mode — noteIn populates pool, emits no immediate notes", () => {
+  // ADR §Held-note pool: input C(60) with chordShape=maj → snap to 60
+  // → expand to {60, 64, 67} → pool has 3 entries. No noteOn emitted at
+  // this point; the next transportTick will start the cycle.
   const host = makeHost({
     mode: "arp", scale: "major", root: 0, chordShape: "maj",
   });
   const r = partition(host.noteIn(60, 100, 1, 0));
-  assert.deepEqual(r.noteOns.map((e) => e.pitch), [60, 64, 67]);
+  assert.equal(r.noteOns.length, 0,
+    "arp noteIn must not emit synchronously");
+  assert.equal(r.noteOffs.length, 0);
+  assert.equal(r.pulses.length, 0);
+  // Threshold 3: maj triad → 3 pool voices.
+  assert.equal(host.getArpPoolForTest().length, 3);
+  assert.deepEqual(
+    host.getArpPoolForTest().map((e) => e.pitch),
+    [60, 64, 67],
+  );
+});
+
+test("arp mode — noteOff removes contributed voices (no latch)", () => {
+  const host = makeHost({
+    mode: "arp", scale: "major", root: 0, chordShape: "maj",
+  });
+  host.noteIn(60, 100, 1, 0);
+  assert.equal(host.getArpPoolForTest().length, 3);
+  host.noteOff(60, 1);
+  // Threshold 0: voices from the only held source are gone.
+  assert.equal(host.getArpPoolForTest().length, 0);
+  assert.equal(host.getArpHeldKeysCountForTest(), 0);
+});
+
+test("arp mode — multiple held notes accumulate pool voices", () => {
+  // C major: input C(60) → {60, 64, 67}; input E(64) → {64, 68, 71}.
+  // The 64 collides with the C-contributed entry — dedup drops it.
+  // Net pool: {60, 64, 67, 68, 71} = 5 voices.
+  const host = makeHost({
+    mode: "arp", scale: "major", root: 0, chordShape: "maj",
+  });
+  host.noteIn(60, 100, 1, 0);
+  host.noteIn(64, 100, 1, 100);
+  const pool = host.getArpPoolForTest();
+  // Threshold 5: 3 + 3 voices with one dedup collision.
+  assert.equal(pool.length, 5);
+  assert.deepEqual(
+    pool.map((e) => e.pitch).sort((a, b) => a - b),
+    [60, 64, 67, 68, 71],
+  );
+});
+
+test("arp mode — arpLatch preserves voices after noteOff", () => {
+  const host = makeHost({
+    mode: "arp", scale: "major", root: 0, chordShape: "maj",
+    arpLatch: true,
+  });
+  host.noteIn(60, 100, 1, 0);
+  assert.equal(host.getArpPoolForTest().length, 3);
+  host.noteOff(60, 1);
+  // Threshold 3: latch retains voices even with no held keys.
+  assert.equal(host.getArpPoolForTest().length, 3);
+  assert.equal(host.getArpHeldKeysCountForTest(), 0);
+});
+
+test("arp mode — arpLatch + new noteOn after release replaces pool", () => {
+  // ADR §Held-note pool: latch holds the pool until a new noteOn after
+  // all keys release — that noteOn REPLACES (not adds to) the pool.
+  const host = makeHost({
+    mode: "arp", scale: "major", root: 0, chordShape: "maj",
+    arpLatch: true,
+  });
+  host.noteIn(60, 100, 1, 0);   // pool = {60, 64, 67}
+  host.noteOff(60, 1);          // latched
+  host.noteIn(67, 100, 1, 100); // replace
+  const pool = host.getArpPoolForTest().map((e) => e.pitch).sort((a, b) => a - b);
+  // Threshold 3: G(67) maj triad = {67, 71, 74}.
+  assert.deepEqual(pool, [67, 71, 74]);
+});
+
+test("arp mode — chordShape change mid-hold rebuilds pool", () => {
+  // ADR §Held-note pool: chordShape change in arp mode rebuilds from
+  // currently-held keys with the new shape. C(60) held → switch maj
+  // (3 voices) to m (3 voices, different middle).
+  const host = makeHost({
+    mode: "arp", scale: "major", root: 0, chordShape: "maj",
+  });
+  host.noteIn(60, 100, 1, 0);
+  assert.deepEqual(
+    host.getArpPoolForTest().map((e) => e.pitch),
+    [60, 64, 67],
+  );
+  host.setParam("chordShape", "m");
+  assert.deepEqual(
+    host.getArpPoolForTest().map((e) => e.pitch),
+    [60, 63, 67],
+  );
+});
+
+test("arp mode — mode switch out of arp clears pool + held keys", () => {
+  const host = makeHost({
+    mode: "arp", scale: "major", root: 0, chordShape: "maj",
+  });
+  host.noteIn(60, 100, 1, 0);
+  assert.equal(host.getArpPoolForTest().length, 3);
+  host.setParam("mode", "scale");
+  // Threshold 0: arp state evacuates so re-entry starts clean.
+  assert.equal(host.getArpPoolForTest().length, 0);
+  assert.equal(host.getArpHeldKeysCountForTest(), 0);
+});
+
+// ---------- arp mode — transportTick clock ----------
+
+test("transportTick — empty pool emits nothing", () => {
+  const host = makeHost({ mode: "arp" });
+  const out = host.transportTick(0, 120, 0);
+  assert.deepEqual(out, []);
+});
+
+test("transportTick — non-arp mode emits nothing", () => {
+  const host = makeHost({ mode: "scale" });
+  host.noteIn(60, 100, 1, 0); // emits but irrelevant here
+  const out = host.transportTick(0, 120, 0);
+  assert.deepEqual(out, []);
+});
+
+test("transportTick — first tick at position=0 fires with delayMs=0", () => {
+  // ADR §Transport semantics §Start: pattern begins on the next clock
+  // tick. position=0 lands on the 1/16 grid (0 mod 0.25 == 0), so the
+  // first tick fires immediately. Default arpPattern=up, chordShape=maj,
+  // pool sorted ascending {60, 64, 67} → first emission is the lowest
+  // voice (60).
+  const host = makeHost({
+    mode: "arp", scale: "major", root: 0,
+    chordShape: "maj", seed: 0,
+    feel: 0, // no humanize jitter so timing is bit-exact for assertion
+    arpAccent: Array.from({ length: 16 }, () => 100),
+    arpSwing: 0,
+  });
+  host.noteIn(60, 100, 1, 0);
+  const out = host.transportTick(0, 120, 0);
+  const noteOns = out.filter((e) => e.type === "noteOn");
+  // Threshold 1: `up` pattern → one voice per tick.
+  assert.equal(noteOns.length, 1);
+  // Threshold 60: the lowest pool pitch (root of maj triad).
+  assert.equal(noteOns[0].pitch, 60);
+  // Threshold 0: position-aligned tick, no swing, no humanize → fires
+  // immediately.
+  assert.equal(noteOns[0].delayMs, 0);
+});
+
+test("transportTick — successive ticks advance the up pattern", () => {
+  // Run a sequence of transportTicks at increasing position. The bridge
+  // polls every ~16 ms; at BPM 120 (msPerBeat=500), one 1/16 = 125 ms =
+  // 0.25 ppq. We'll step position by 0.25 ppq each call to land exactly
+  // one tick per call.
+  const host = makeHost({
+    mode: "arp", scale: "major", root: 0,
+    chordShape: "maj", seed: 0, feel: 0,
+    arpSwing: 0,
+  });
+  host.noteIn(60, 100, 1, 0);
+  const pitches: number[] = [];
+  for (let i = 0; i < 3; i++) {
+    // Pass pollIntervalMs=0 so lookahead is just the safety margin (5
+    // ms) — this isolates the test from lookahead's pre-scheduling.
+    const out = host.transportTick(i * 0.25, 120, i * 125, 0);
+    for (const ev of out) {
+      if (ev.type === "noteOn") pitches.push(ev.pitch);
+    }
+  }
+  // Threshold [60, 64, 67]: up pattern over the 3-voice maj triad pool.
+  assert.deepEqual(pitches, [60, 64, 67]);
+});
+
+test("transportTick — pattern wraps after one full pool cycle", () => {
+  const host = makeHost({
+    mode: "arp", scale: "major", root: 0,
+    chordShape: "maj", seed: 0, feel: 0, arpSwing: 0,
+  });
+  host.noteIn(60, 100, 1, 0);
+  const pitches: number[] = [];
+  for (let i = 0; i < 4; i++) {
+    const out = host.transportTick(i * 0.25, 120, i * 125, 0);
+    for (const ev of out) {
+      if (ev.type === "noteOn") pitches.push(ev.pitch);
+    }
+  }
+  // Threshold [60, 64, 67, 60]: 3-voice pool wraps after 3 ticks.
+  assert.deepEqual(pitches, [60, 64, 67, 60]);
+});
+
+test("transportTick — arpRate change re-anchors next tick", () => {
+  const host = makeHost({
+    mode: "arp", scale: "major", root: 0,
+    chordShape: "maj", seed: 0, feel: 0, arpSwing: 0,
+    arpRate: "1/16",
+  });
+  host.noteIn(60, 100, 1, 0);
+  host.transportTick(0, 120, 0, 0);
+  // Switch rate mid-flight; next tick should align to the new rate's
+  // grid, NOT continue at 0.25 ppq (the old grid). Position 0.3 ppq —
+  // not on either grid. Next 1/8 boundary at 0.5 ppq = 100 ms ahead at
+  // BPM 120. Use pollIntervalMs=150 → lookahead 155 ms = 0.31 ppq,
+  // covers the 0.2 ppq gap to the next 1/8 tick.
+  host.setParam("arpRate", "1/8"); // 1/8 = 0.5 quarter notes per step
+  const out = host.transportTick(0.3, 120, 150, 150);
+  const noteOns = out.filter((e) => e.type === "noteOn");
+  // Threshold 1: one tick fires within lookahead at the next 1/8.
+  // delayMs = (0.5 - 0.3) * 500 = 100 ms.
+  assert.equal(noteOns.length, 1);
+  assert.equal(noteOns[0].delayMs, 100);
+});
+
+test("transportTick — gate length = arpGate × stepMs (no humanize)", () => {
+  // Threshold derivation: with arpGate=0.5 at 1/16 @ 120 BPM, stepMs =
+  // 125 ms. gate ms = 0.5 × 125 = 62.5 ms. feel=0 → humanize gateFinal
+  // = inputGate = 0.5 (no jitter), so noteOff delay = noteOn + 62.5.
+  const host = makeHost({
+    mode: "arp", scale: "major", root: 0,
+    chordShape: "maj", seed: 0,
+    feel: 0, arpGate: 0.5, arpSwing: 0,
+  });
+  host.noteIn(60, 100, 1, 0);
+  const out = host.transportTick(0, 120, 0, 0);
+  const noteOn = out.find((e) => e.type === "noteOn");
+  const noteOff = out.find((e) => e.type === "noteOff");
+  assert.ok(noteOn && noteOff);
+  // Threshold 62.5: spec-derived gate duration.
+  assert.equal(noteOff!.delayMs - noteOn!.delayMs, 62.5);
+});
+
+test("transportTick — arpSwing=0.5 delays odd 16th by quarter of 16th", () => {
+  // Threshold derivation: arpSwing applies to tickIndex mod 2 == 1
+  // (odd 16ths). With arpSwing=0.5, sixteenthMs = msPerBeat/4 = 125 ms
+  // (at BPM 120), swing offset = 0.5 × (125/2) = 31.25 ms.
+  // First tick (tickIndex=0): no swing. Second tick (tickIndex=1):
+  // base delayMs (one step ahead) + 31.25 ms swing offset.
+  const host = makeHost({
+    mode: "arp", scale: "major", root: 0,
+    chordShape: "maj", seed: 0, feel: 0,
+    arpSwing: 0.5,
+  });
+  host.noteIn(60, 100, 1, 0);
+  const out1 = host.transportTick(0, 120, 0, 0);
+  const out2 = host.transportTick(0.25, 120, 125, 0);
+  const on1 = out1.find((e) => e.type === "noteOn");
+  const on2 = out2.find((e) => e.type === "noteOn");
+  assert.ok(on1 && on2);
+  // Tick 0: position 0 == grid → delayMs 0; tickIndex=0 → no swing.
+  assert.equal(on1!.delayMs, 0);
+  // Tick 1: position 0.25 == grid → base delayMs 0; tickIndex=1 →
+  // swing offset 31.25 ms.
+  assert.equal(on2!.delayMs, 31.25);
+});
+
+test("transportTick — accent table drives per-step velocity", () => {
+  // Threshold: arpAccent[0]=120, [1]=80. With feel=0 (no jitter)
+  // humanize passes inputVelocity through unchanged. Tick 0 fires
+  // velocity 120; tick 1 fires velocity 80.
+  const accent = Array.from({ length: 16 }, () => 100);
+  accent[0] = 120;
+  accent[1] = 80;
+  const host = makeHost({
+    mode: "arp", scale: "major", root: 0,
+    chordShape: "maj", seed: 0, feel: 0,
+    arpAccent: accent, arpSwing: 0,
+  });
+  host.noteIn(60, 100, 1, 0);
+  const out0 = host.transportTick(0, 120, 0, 0);
+  const out1 = host.transportTick(0.25, 120, 125, 0);
+  const on0 = out0.find((e) => e.type === "noteOn");
+  const on1 = out1.find((e) => e.type === "noteOn");
+  assert.ok(on0 && on1);
+  assert.equal(on0!.velocity, 120);
+  assert.equal(on1!.velocity, 80);
+});
+
+test("transportTick — slide step defers noteOff to next tick's noteOn", () => {
+  // ADR §Groove layer §arpSlide: slide-on step suppresses noteOff at
+  // gate boundary; held note ties into the next emission's noteOn.
+  // Slide on tick 0 → tick 0 emits only noteOn (no immediate noteOff);
+  // tick 1 emits noteOn THEN noteOff_of_tick0 at the same delayMs.
+  const slide = Array.from({ length: 16 }, () => false);
+  slide[0] = true;
+  const host = makeHost({
+    mode: "arp", scale: "major", root: 0,
+    chordShape: "maj", seed: 0, feel: 0,
+    arpSwing: 0, arpSlide: slide,
+  });
+  host.noteIn(60, 100, 1, 0);
+  const out0 = host.transportTick(0, 120, 0, 0);
+  // Threshold: tick 0 emits noteOn(60) + notePulse only, NO noteOff
+  // (slide deferred).
+  const offsT0 = out0.filter((e) => e.type === "noteOff");
+  assert.equal(offsT0.length, 0,
+    "slide step must not schedule its own noteOff at the gate boundary");
+
+  const out1 = host.transportTick(0.25, 120, 125, 0);
+  // Tick 1: should emit noteOn(64) then noteOff(60) at the same delayMs
+  // (tick 1's noteOn time). Tick 1 itself has slide=false so its own
+  // noteOff schedules normally.
+  const noteOnsT1 = out1.filter((e) => e.type === "noteOn");
+  const noteOffsT1 = out1.filter((e) => e.type === "noteOff");
+  assert.equal(noteOnsT1.length, 1);
+  assert.equal(noteOnsT1[0].pitch, 64);
+  // Threshold ≥1: the deferred noteOff(60) appears in tick 1's batch.
+  const deferred = noteOffsT1.find((e) => e.pitch === 60);
+  assert.ok(deferred, "deferred noteOff(60) must fire at tick 1");
+  assert.equal(deferred!.delayMs, noteOnsT1[0].delayMs,
+    "deferred noteOff fires at tick 1's noteOn time for slide overlap");
+});
+
+test("transportTick — strike pattern emits all pool voices per tick", () => {
+  // ADR §Pattern semantics §strike: all pool voices emit simultaneously
+  // per tick. Default pool = maj triad → 3 noteOns per tick.
+  const host = makeHost({
+    mode: "arp", scale: "major", root: 0,
+    chordShape: "maj", seed: 0, feel: 0,
+    arpPattern: "strike", arpSwing: 0,
+  });
+  host.noteIn(60, 100, 1, 0);
+  const out = host.transportTick(0, 120, 0, 0);
+  const noteOns = out.filter((e) => e.type === "noteOn");
+  // Threshold 3: chord pulse at the arp rate.
+  assert.equal(noteOns.length, 3);
+  assert.deepEqual(
+    noteOns.map((e) => e.pitch).sort((a, b) => a - b),
+    [60, 64, 67],
+  );
+});
+
+test("transportTick — bpm scales delayMs linearly", () => {
+  // Threshold derivation: 1/16 @ 120 BPM = 125 ms; @ 60 BPM = 250 ms.
+  // Tick at position 0.1 ppq → delayMs = (0.25 - 0.1) × msPerBeat.
+  // pollIntervalMs=100 → lookahead 105 ms = 0.21 ppq at BPM 120, which
+  // covers the 0.15 ppq gap to the next 1/16 tick.
+  const host = makeHost({
+    mode: "arp", scale: "major", root: 0,
+    chordShape: "maj", seed: 0, feel: 0, arpSwing: 0,
+  });
+  host.noteIn(60, 100, 1, 0);
+  const out = host.transportTick(0.1, 120, 50, 100);
+  const on = out.find((e) => e.type === "noteOn");
+  assert.ok(on);
+  // Threshold 75: 0.15 ppq × 500 ms/beat.
+  assert.equal(on!.delayMs, 75);
+});
+
+test("transportTick — variation cascade advances RNG even at variation=0", () => {
+  // RNG-stream determinism: a tick always consumes 2 variation draws + 3
+  // humanize draws + 1 nextArpIndex draw regardless of effect, so the
+  // (seed, input, params) reproducibility contract holds bit-for-bit.
+  // We can test this indirectly: two hosts with the same seed/params
+  // produce identical tick outputs.
+  const mkHost = () => makeHost({
+    mode: "arp", scale: "major", root: 0,
+    chordShape: "maj", seed: 42, feel: 1, arpSwing: 0,
+    arpVariation: 0,
+  });
+  const a = mkHost();
+  const b = mkHost();
+  a.noteIn(60, 100, 1, 0);
+  b.noteIn(60, 100, 1, 0);
+  for (let i = 0; i < 5; i++) {
+    const ra = a.transportTick(i * 0.25, 120, i * 125, 0);
+    const rb = b.transportTick(i * 0.25, 120, i * 125, 0);
+    assert.deepEqual(ra, rb, `tick ${i} must match across seeded hosts`);
+  }
 });
 
 // ---------- scale mode ----------
@@ -627,17 +987,19 @@ test("chord → scale mode switch — next noteIn produces single output", () =>
   assert.equal(r2.noteOns.length, 1);
 });
 
-test("scale → arp mode switch — next noteIn produces chord-shape output (3-A)", () => {
-  // 3-A placeholder: arp mode shares chord branch. Switching from scale
-  // to arp produces the default chordShape ("maj") triad on the next
-  // input. (Phase 3-B replaces this with pool maintenance — the test
-  // will be updated then.)
+test("scale → arp mode switch — noteIn populates pool, no synchronous emission", () => {
+  // ADR Phase 3-B: arp mode noteIn no longer emits synchronously — it
+  // populates the pool. Tick-driven emission is verified by separate
+  // transportTick tests below.
   const host = makeHost({ mode: "scale", scale: "major", root: 0 });
   const r1 = partition(host.noteIn(60, 100, 1, 0));
   assert.equal(r1.noteOns.length, 1);
   host.setParam("mode", "arp");
   const r2 = partition(host.noteIn(60, 100, 1, 100));
-  assert.equal(r2.noteOns.length, 3);
+  assert.equal(r2.noteOns.length, 0,
+    "arp mode noteIn must not emit immediately (pool-driven)");
+  // Threshold 3: pool populated with maj triad.
+  assert.equal(host.getArpPoolForTest().length, 3);
 });
 
 // ---------- source step / timing ----------

@@ -185,6 +185,156 @@
             },
             {
                 "box": {
+                    "id": "obj-liveobs-tempo",
+                    "maxclass": "newobj",
+                    "text": "live.observer tempo",
+                    "numinlets": 2,
+                    "numoutlets": 3,
+                    "outlettype": [
+                        "",
+                        "",
+                        ""
+                    ],
+                    "patching_rect": [
+                        40,
+                        320,
+                        160,
+                        22
+                    ]
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-tempo-cache",
+                    "maxclass": "flonum",
+                    "numinlets": 1,
+                    "numoutlets": 2,
+                    "outlettype": [
+                        "float",
+                        "bang"
+                    ],
+                    "minimum": 1,
+                    "maximum": 999,
+                    "patching_rect": [
+                        40,
+                        350,
+                        60,
+                        22
+                    ]
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-liveobs-position",
+                    "maxclass": "newobj",
+                    "text": "live.observer current_song_time",
+                    "numinlets": 2,
+                    "numoutlets": 3,
+                    "outlettype": [
+                        "",
+                        "",
+                        ""
+                    ],
+                    "patching_rect": [
+                        220,
+                        320,
+                        220,
+                        22
+                    ]
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-msg-gate-open",
+                    "maxclass": "message",
+                    "text": "1",
+                    "numinlets": 2,
+                    "numoutlets": 1,
+                    "outlettype": [
+                        ""
+                    ],
+                    "patching_rect": [
+                        110,
+                        290,
+                        30,
+                        22
+                    ]
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-msg-gate-close",
+                    "maxclass": "message",
+                    "text": "0",
+                    "numinlets": 2,
+                    "numoutlets": 1,
+                    "outlettype": [
+                        ""
+                    ],
+                    "patching_rect": [
+                        150,
+                        290,
+                        30,
+                        22
+                    ]
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-gate-tick",
+                    "maxclass": "newobj",
+                    "text": "gate 1",
+                    "numinlets": 2,
+                    "numoutlets": 1,
+                    "outlettype": [
+                        ""
+                    ],
+                    "patching_rect": [
+                        220,
+                        350,
+                        60,
+                        22
+                    ]
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-pack-tick",
+                    "maxclass": "newobj",
+                    "text": "pack 0. 120.",
+                    "numinlets": 2,
+                    "numoutlets": 1,
+                    "outlettype": [
+                        ""
+                    ],
+                    "patching_rect": [
+                        220,
+                        380,
+                        100,
+                        22
+                    ]
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-prep-tick",
+                    "maxclass": "newobj",
+                    "text": "prepend transportTick",
+                    "numinlets": 1,
+                    "numoutlets": 1,
+                    "outlettype": [
+                        ""
+                    ],
+                    "patching_rect": [
+                        220,
+                        410,
+                        140,
+                        22
+                    ]
+                }
+            },
+            {
+                "box": {
                     "id": "obj-panic-btn",
                     "maxclass": "live.text",
                     "numinlets": 1,
@@ -2525,6 +2675,150 @@
                 "patchline": {
                     "source": [
                         "obj-msg-tstart",
+                        0
+                    ],
+                    "destination": [
+                        "obj-nodescript",
+                        0
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-livepath",
+                        0
+                    ],
+                    "destination": [
+                        "obj-liveobs-tempo",
+                        0
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-liveobs-tempo",
+                        0
+                    ],
+                    "destination": [
+                        "obj-tempo-cache",
+                        0
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-tempo-cache",
+                        0
+                    ],
+                    "destination": [
+                        "obj-pack-tick",
+                        1
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-livepath",
+                        0
+                    ],
+                    "destination": [
+                        "obj-liveobs-position",
+                        0
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-liveobs-position",
+                        0
+                    ],
+                    "destination": [
+                        "obj-gate-tick",
+                        1
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-sel-playing",
+                        1
+                    ],
+                    "destination": [
+                        "obj-msg-gate-open",
+                        0
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-sel-playing",
+                        0
+                    ],
+                    "destination": [
+                        "obj-msg-gate-close",
+                        0
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-msg-gate-open",
+                        0
+                    ],
+                    "destination": [
+                        "obj-gate-tick",
+                        0
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-msg-gate-close",
+                        0
+                    ],
+                    "destination": [
+                        "obj-gate-tick",
+                        0
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-gate-tick",
+                        0
+                    ],
+                    "destination": [
+                        "obj-pack-tick",
+                        0
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-pack-tick",
+                        0
+                    ],
+                    "destination": [
+                        "obj-prep-tick",
+                        0
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-prep-tick",
                         0
                     ],
                     "destination": [

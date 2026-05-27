@@ -44,6 +44,12 @@
 //     panic                                all notes off
 //     transportStart                       host state reset
 //     transportStop                        flush
+//     transportTick <position> <bpm>       ADR 004 Phase 3-B arp clock
+//                                          poll. The patcher's [metro],
+//                                          gated by is_playing, bangs at
+//                                          ~16 ms cadence and packs the
+//                                          live transport's position (ppq)
+//                                          + tempo into this message.
 //
 //   here → Max (via Max.outlet):
 //     note <pitch> <velocity> <channel>    velocity=0 = note-off
@@ -75,6 +81,12 @@ Max.addHandler("noteOff", (pitch, channel) =>
 Max.addHandler("panic", () => bridge.panic());
 Max.addHandler("transportStart", () => bridge.transportStart());
 Max.addHandler("transportStop", () => bridge.transportStop());
+// ADR 004 Phase 3-B: transport polling. The patcher's [metro 16] (gated
+// by is_playing) packs (position, tempo) and dispatches here on every
+// tick. position is the live_set.current_song_time in beats (= PPQ
+// scaled by quarter notes); tempo is BPM.
+Max.addHandler("transportTick", (position, bpm) =>
+  bridge.transportTick(Number(position), Number(bpm)));
 
 // Signal the patcher that node.script is up and every handler is wired.
 // The patcher's [route ... ready ...] outlet bangs each live.* widget on
