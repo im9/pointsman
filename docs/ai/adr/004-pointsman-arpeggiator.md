@@ -915,34 +915,54 @@ flagged where DAW / UI behaviour cannot be unit-tested.
     with `applyChordShape`, the engine helpers are deleted as the
     final step of Phase 3.
 
-- [ ] **Phase 2 — vst APVTS + processor wiring (schema v2 → v3 break)**
-  - In `vst/Source/Plugin/Parameters.{h,cpp}`: remove
-    `harmonyVoices` ValueTree child; add `chordShape` Choice pid
-    (20 presets); extend `mode` choices to add `"Arp"`; extend
-    `scale` choices to add `"Phrygian Dominant"`; append eight
-    arp pids with §Arpeggiator parameters defaults (including
-    `arpSwing`). Add `"harmonyVoices"` to `kRemovedV1Pids`
-    (renamed in spirit to `kRemovedLegacyPids`) so schema-v2 state
-    detection remains unambiguous.
-  - Add `arpGroovePattern` ValueTree child node on the APVTS root
-    holding `accent` (16 ints) and `slide` (16 bools).
-    `getStateInformation` / `setStateInformation` cover both.
-  - Bump `kStateVersion` to 3 in `Engine/State.h`. Schema-v2 tree
-    is recognised and discarded; new defaults take over.
-  - Extend `PluginProcessor::processBlock`: in `mode == chord`,
-    apply `chordShape` to snapped root for vertical expansion; in
-    `mode == arp`, build/maintain pool via `applyChordShape`,
-    schedule arp ticks via the existing `pending_` queue, apply
-    variation cascade then groove cascade
-    (`applyArpGroove` + `scheduleArpNoteOff`). Mode-switch
-    triggers `panic` + pool flush. Chord-shape change mid-hold
-    rebuilds pool.
-  - APVTS round-trip test: a schema-v3 state round-trips
-    chord-shape, arp state, and `arpGroovePattern` (accent + slide
-    arrays). Loading a schema-v2 tree resets to schema-v3 defaults
-    (verifiable by checking `chordShape == maj` and groove pattern
-    at defaults).
-  - Build all targets (VST3 / AU / CLAP) — `make build` succeeds.
+- [x] **Phase 2 — vst APVTS + processor wiring (schema v2 → v3 break)**
+  - [x] `vst/Source/Plugin/Parameters.{h,cpp}`: `chordShape` Choice
+    pid (20 presets), `mode` extended with `"Arp"`, scale already
+    carried `"Phrygian Dominant"` from Phase 1, eight arp pids
+    appended (pattern / rate / octaves / step-repeats / gate /
+    variation / latch / swing), `kRemovedV1Pids` renamed to
+    `kRemovedLegacyPids` and grew the documentation entry
+    `"harmonyVoices"`.
+  - [x] `arpGroovePattern` ValueTree child node on the APVTS root,
+    accent stored as a space-separated int run, slide as a 16-char
+    `0`/`1` bitmask, both round-tripped through
+    `getStateInformation` / `setStateInformation`.
+  - [x] `kStateVersion` bumped to 3 (lives in `PluginProcessor.h`,
+    not `Engine/State.h` — the ADR draft was off here, the
+    implementation is the source of truth). Schema-v2 detection
+    uses `PointsmanState.version != 3` as the primary marker, with
+    the `kRemovedLegacyPids` PARAM scan catching v1 trees.
+  - [x] `PluginProcessor::processBlock` runs `applyChordShapeInto`
+    in `mode == chord`, and a full arp clock in `mode == arp`:
+    pool maintenance on noteOn/noteOff, fractional-sample tick
+    scheduler driven by host BPM, variation cascade then groove
+    cascade then humanize per tick, slide-tied noteOff deferred to
+    the next tick's noteOn for sample-tight overlap. Mode-switch
+    triggers panic + pool drop, chordShape change mid-hold rebuilds
+    the pool from held source keys.
+  - [x] APVTS round-trip test covers chordShape + all eight arp
+    pids + the `arpGroovePattern` accent/slide arrays; a v2 tree
+    is detected and discarded, leaving v3 defaults intact.
+    Suite: 110 cases / 1572 assertions green.
+  - [x] `make build` produces VST3 / AU / CLAP artefacts clean.
+
+  **Implementation notes (deviations from the spec above):**
+  - `harmonyVoices` ValueTree child + the `setHarmonyVoices` /
+    `getHarmonyVoices` API stay as a vestige path: the v0.1 editor's
+    HARMONY group rebuilds its badges via a `ValueTreeListener` on
+    `PointsmanState`, so removing the tree mirror in Phase 2 would
+    have broken the editor's `+` button mid-phase. Tree mirror still
+    runs on every `setHarmonyVoices`, but `processBlock` does not
+    consult it — chord/arp output is intervallic via `chordShape`
+    only. Phase 4 deletes the editor group, the API, and the tree
+    mirror in one cut. Schema-v3 trees may therefore carry
+    `HarmonyVoice` child nodes alongside `version="3"`; v2-discard
+    relies on the version property, NOT on `HarmonyVoice` presence.
+  - Phase 2 shipped in two sub-steps on the
+    `feat/adr-004-amendment` branch: sub-step A (parameter surface
+    + schema v3 + chord-mode swap to `chordShape`) at commit
+    `57ab211`, sub-step B (arp pool + tick scheduler + groove
+    cascade + slide handling) at commit `a6f3990`.
 
 - [ ] **Phase 3 — m4l host wiring**
   - In `Pointsman.maxpat`: remove `harmonyVoices` `live.*`
