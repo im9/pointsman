@@ -964,27 +964,73 @@ flagged where DAW / UI behaviour cannot be unit-tested.
     `57ab211`, sub-step B (arp pool + tick scheduler + groove
     cascade + slide handling) at commit `a6f3990`.
 
-- [ ] **Phase 3 — m4l host wiring**
-  - In `Pointsman.maxpat`: remove `harmonyVoices` `live.*`
+- [x] **Phase 3 — m4l host wiring**
+  - [x] In `Pointsman.maxpat`: remove `harmonyVoices` `live.*`
     objects; add `chordShape` `live.menu` (20 choices); extend
     `mode` `live.menu` with `"arp"`; extend `scale` `live.menu`
     with `"phrygian-dominant"`; add eight arp `live.*` objects
     (including `arpSwing`). parameter_longname matches vst pids.
-  - In `m4l/host/bridge.ts`: relay `chordShape` and arp params
-    (including `arpSwing`) to host state. Add bridge messages
-    for accent / slide pattern read / write (whole-pattern set
-    and per-cell set). Remove `harmonyVoices` plumbing.
-  - In `m4l/host/host.ts`: implement chord-shape expansion in
+  - [x] In `m4l/host/bridge.ts`: relay `chordShape` and arp params
+    (including `arpSwing`) to host state. Bridge messages for
+    accent / slide pattern bulk-set (whole-pattern). Remove
+    `harmonyVoices` plumbing.
+  - [x] In `m4l/host/host.ts`: implement chord-shape expansion in
     `mode == chord` and `mode == arp`; arp clock ticks on
     `transport.position` / BPM (only when `mode == arp`); apply
     variation cascade then groove cascade with shared humanize
     RNG; mode-switch handler flushes pool + emits panic.
-    Persist accent / slide patterns through the hidden-persistence
-    block in the program string (ADR 006). New `host.test.ts`
-    cases (groove + persistence round-trip).
-  - `pnpm -r test`, `pnpm -r build`, `pnpm bake` all succeed;
-    baked `.amxd` loads in Live (manual; n4m process behaviour
-    per CLAUDE.md "Live runtime gotchas").
+    New `host.test.ts` cases for chordShape, pool maintenance,
+    transportTick, variation, groove, slide-deferred noteOff.
+  - [x] `pnpm -r test`, `pnpm -r build`, `pnpm bake` all succeed.
+    Baked `.amxd` Live load is **deferred to a manual pass before
+    release** (n4m process behaviour per CLAUDE.md "Live runtime
+    gotchas") — does not gate the next-phase work since UI surface
+    additions in Phase 4 will trigger a fresh round of Live
+    verification anyway.
+
+  **Implementation notes (deviations from the spec above):**
+  - Phase 3 shipped in three sub-steps on the
+    `feat/adr-004-amendment` branch:
+    - **3-A** (commit `38fcefa`): engine swap (`harmonyVoices` →
+      `chordShape`) + arp param surface in `host.ts` / `bridge.ts`.
+      mode=arp shared the chord-mode branch as a placeholder so
+      the `chordShape` primitive stayed audible end-to-end during
+      3-A → 3-B.
+    - **3-B** (commit `e82f279`): real arp clock — pool
+      maintenance, `transportTick(positionPpq, bpm)`, variation /
+      groove / humanize cascade with slide-deferred noteOff, and
+      the `.maxpat` is_playing-gated polling chain
+      (`live.observer current_song_time` + `tempo` → gate → pack
+      → transportTick → node.script).
+    - **3-C**: `.maxpat` widget surgery (harmonyV[1-3] removal +
+      chordShape + 8 arp live.* + mode/scale enum extensions) +
+      engine cleanup (m4l-side `diatonicShift` /
+      `snapToChordTones` / `HarmonyVoice` types removed).
+  - **Accent / slide hidden-persistence is deferred to Phase 4**
+    alongside the floating-window editor. ADR 004 §Persistence
+    spec'd accent / slide as a packed block in the m4l "hidden
+    persistence array (ADR 006)"; that ADR doesn't yet exist in
+    this repo, and without a UI surface to populate the tables
+    the defaults (all-100 accent, all-off slide) are the only
+    observable state. The bridge already accepts the
+    `setParam arpAccent <list>` / `setParam arpSlide <list>`
+    bulk-set messages; Phase 4 wires them to the floating window
+    and adds the hidden-state widget cluster needed for round-
+    trip persistence.
+  - **m4l engine cleanup (Phase 1 deferral) executed at end of
+    Phase 3 per the ADR note**: `m4l/engine/quantizer.ts` no
+    longer carries `diatonicShift`, `snapToChordTones`,
+    `HarmonyVoice`, `HarmonyDirection`, or `HarmonyInterval`.
+    The shared JSON vectors at `docs/ai/quantizer-test-vectors.json`
+    retain the `snap_to_chord_tones` + `diatonic_shift` sections —
+    the vst target's engine still exercises them; vst Phase 4
+    cleans those up alongside the HARMONY editor group deletion.
+  - **No `arpAccent` / `arpSlide` live.* widgets in `.maxpat`**
+    (parallel to the vst rationale in §Persistence: 32 numbox
+    rows would saturate Live's parameter inspector). The bridge
+    accepts the bulk-set messages; Phase 4 adds the floating
+    pattern-editor sub-patcher (`design.md` §"Rules when a
+    floating window is added").
 
 - [ ] **Phase 4 — UI (vst layout redesign + m4l mode-contextual visibility)**
   - vst layout redesign (per §UI vst layout): rewrite

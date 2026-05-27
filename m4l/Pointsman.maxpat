@@ -767,7 +767,8 @@
                                 "melodic",
                                 "whole",
                                 "chromatic",
-                                "chromatic-half"
+                                "chromatic-half",
+                                "phrygian-dominant"
                             ],
                             "parameter_initial": [
                                 0
@@ -784,10 +785,11 @@
                 "box": {
                     "id": "obj-sel-scale",
                     "maxclass": "newobj",
-                    "text": "sel 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14",
+                    "text": "sel 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15",
                     "numinlets": 1,
-                    "numoutlets": 16,
+                    "numoutlets": 17,
                     "outlettype": [
+                        "bang",
                         "bang",
                         "bang",
                         "bang",
@@ -1242,7 +1244,8 @@
                         "valueof": {
                             "parameter_enum": [
                                 "scale",
-                                "chord"
+                                "chord",
+                                "arp"
                             ],
                             "parameter_initial": [
                                 0
@@ -1259,7 +1262,7 @@
                 "box": {
                     "id": "obj-sel-mode",
                     "maxclass": "newobj",
-                    "text": "sel 0 1",
+                    "text": "sel 0 1 2",
                     "numinlets": 1,
                     "numoutlets": 4,
                     "outlettype": [
@@ -1308,61 +1311,6 @@
                         1180,
                         600,
                         200,
-                        22
-                    ]
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-sel-mode-harmony",
-                    "maxclass": "newobj",
-                    "text": "sel 1",
-                    "numinlets": 1,
-                    "numoutlets": 2,
-                    "outlettype": [
-                        "bang",
-                        ""
-                    ],
-                    "patching_rect": [
-                        1450,
-                        540,
-                        80,
-                        22
-                    ]
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-msg-voices-hidden-0",
-                    "maxclass": "message",
-                    "text": "active 1, ignoreclick 0",
-                    "numinlets": 2,
-                    "numoutlets": 1,
-                    "outlettype": [
-                        ""
-                    ],
-                    "patching_rect": [
-                        1550,
-                        540,
-                        80,
-                        22
-                    ]
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-msg-voices-hidden-1",
-                    "maxclass": "message",
-                    "text": "active 0, ignoreclick 1",
-                    "numinlets": 2,
-                    "numoutlets": 1,
-                    "outlettype": [
-                        ""
-                    ],
-                    "patching_rect": [
-                        1550,
-                        570,
-                        80,
                         22
                     ]
                 }
@@ -1549,774 +1497,6 @@
             },
             {
                 "box": {
-                    "id": "obj-w-harmonyV1Interval",
-                    "maxclass": "live.menu",
-                    "numinlets": 1,
-                    "numoutlets": 3,
-                    "outlettype": [
-                        "",
-                        "",
-                        "float"
-                    ],
-                    "parameter_enable": 1,
-                    "patching_rect": [
-                        40,
-                        700,
-                        100,
-                        22
-                    ],
-                    "presentation": 1,
-                    "presentation_rect": [
-                        20,
-                        104,
-                        80,
-                        16
-                    ],
-                    "saved_attribute_attributes": {
-                        "valueof": {
-                            "parameter_enum": [
-                                "3rd",
-                                "4th",
-                                "5th",
-                                "6th"
-                            ],
-                            "parameter_initial": [
-                                0
-                            ],
-                            "parameter_initial_enable": 1,
-                            "parameter_longname": "PointsmanHarmonyV1Interval",
-                            "parameter_shortname": "V1Iv",
-                            "parameter_type": 2
-                        }
-                    }
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-sel-harmonyV1Interval",
-                    "maxclass": "newobj",
-                    "text": "sel 0 1 2 3",
-                    "numinlets": 1,
-                    "numoutlets": 5,
-                    "outlettype": [
-                        "bang",
-                        "bang",
-                        "bang",
-                        "bang",
-                        ""
-                    ],
-                    "patching_rect": [
-                        40,
-                        730,
-                        120,
-                        22
-                    ]
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-msg-harmonyV1Interval-3rd",
-                    "maxclass": "message",
-                    "text": "setParam harmonyV1Interval 3rd",
-                    "numinlets": 2,
-                    "numoutlets": 1,
-                    "outlettype": [
-                        ""
-                    ],
-                    "patching_rect": [
-                        40,
-                        760,
-                        220,
-                        22
-                    ]
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-msg-harmonyV1Interval-4th",
-                    "maxclass": "message",
-                    "text": "setParam harmonyV1Interval 4th",
-                    "numinlets": 2,
-                    "numoutlets": 1,
-                    "outlettype": [
-                        ""
-                    ],
-                    "patching_rect": [
-                        40,
-                        790,
-                        220,
-                        22
-                    ]
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-msg-harmonyV1Interval-5th",
-                    "maxclass": "message",
-                    "text": "setParam harmonyV1Interval 5th",
-                    "numinlets": 2,
-                    "numoutlets": 1,
-                    "outlettype": [
-                        ""
-                    ],
-                    "patching_rect": [
-                        40,
-                        820,
-                        220,
-                        22
-                    ]
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-msg-harmonyV1Interval-6th",
-                    "maxclass": "message",
-                    "text": "setParam harmonyV1Interval 6th",
-                    "numinlets": 2,
-                    "numoutlets": 1,
-                    "outlettype": [
-                        ""
-                    ],
-                    "patching_rect": [
-                        40,
-                        850,
-                        220,
-                        22
-                    ]
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-w-harmonyV1Direction",
-                    "maxclass": "live.menu",
-                    "numinlets": 1,
-                    "numoutlets": 3,
-                    "outlettype": [
-                        "",
-                        "",
-                        "float"
-                    ],
-                    "parameter_enable": 1,
-                    "patching_rect": [
-                        40,
-                        880,
-                        100,
-                        22
-                    ],
-                    "presentation": 1,
-                    "presentation_rect": [
-                        108,
-                        104,
-                        56,
-                        16
-                    ],
-                    "saved_attribute_attributes": {
-                        "valueof": {
-                            "parameter_enum": [
-                                "off",
-                                "above",
-                                "below"
-                            ],
-                            "parameter_initial": [
-                                1
-                            ],
-                            "parameter_initial_enable": 1,
-                            "parameter_longname": "PointsmanHarmonyV1Direction",
-                            "parameter_shortname": "V1Dr",
-                            "parameter_type": 2
-                        }
-                    }
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-sel-harmonyV1Direction",
-                    "maxclass": "newobj",
-                    "text": "sel 0 1 2",
-                    "numinlets": 1,
-                    "numoutlets": 4,
-                    "outlettype": [
-                        "bang",
-                        "bang",
-                        "bang",
-                        ""
-                    ],
-                    "patching_rect": [
-                        40,
-                        910,
-                        100,
-                        22
-                    ]
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-msg-harmonyV1Direction-off",
-                    "maxclass": "message",
-                    "text": "setParam harmonyV1Direction off",
-                    "numinlets": 2,
-                    "numoutlets": 1,
-                    "outlettype": [
-                        ""
-                    ],
-                    "patching_rect": [
-                        40,
-                        940,
-                        220,
-                        22
-                    ]
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-msg-harmonyV1Direction-above",
-                    "maxclass": "message",
-                    "text": "setParam harmonyV1Direction above",
-                    "numinlets": 2,
-                    "numoutlets": 1,
-                    "outlettype": [
-                        ""
-                    ],
-                    "patching_rect": [
-                        40,
-                        970,
-                        220,
-                        22
-                    ]
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-msg-harmonyV1Direction-below",
-                    "maxclass": "message",
-                    "text": "setParam harmonyV1Direction below",
-                    "numinlets": 2,
-                    "numoutlets": 1,
-                    "outlettype": [
-                        ""
-                    ],
-                    "patching_rect": [
-                        40,
-                        1000,
-                        220,
-                        22
-                    ]
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-w-harmonyV2Interval",
-                    "maxclass": "live.menu",
-                    "numinlets": 1,
-                    "numoutlets": 3,
-                    "outlettype": [
-                        "",
-                        "",
-                        "float"
-                    ],
-                    "parameter_enable": 1,
-                    "patching_rect": [
-                        300,
-                        700,
-                        100,
-                        22
-                    ],
-                    "presentation": 1,
-                    "presentation_rect": [
-                        20,
-                        124,
-                        80,
-                        16
-                    ],
-                    "saved_attribute_attributes": {
-                        "valueof": {
-                            "parameter_enum": [
-                                "3rd",
-                                "4th",
-                                "5th",
-                                "6th"
-                            ],
-                            "parameter_initial": [
-                                2
-                            ],
-                            "parameter_initial_enable": 1,
-                            "parameter_longname": "PointsmanHarmonyV2Interval",
-                            "parameter_shortname": "V2Iv",
-                            "parameter_type": 2
-                        }
-                    }
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-sel-harmonyV2Interval",
-                    "maxclass": "newobj",
-                    "text": "sel 0 1 2 3",
-                    "numinlets": 1,
-                    "numoutlets": 5,
-                    "outlettype": [
-                        "bang",
-                        "bang",
-                        "bang",
-                        "bang",
-                        ""
-                    ],
-                    "patching_rect": [
-                        300,
-                        730,
-                        120,
-                        22
-                    ]
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-msg-harmonyV2Interval-3rd",
-                    "maxclass": "message",
-                    "text": "setParam harmonyV2Interval 3rd",
-                    "numinlets": 2,
-                    "numoutlets": 1,
-                    "outlettype": [
-                        ""
-                    ],
-                    "patching_rect": [
-                        300,
-                        760,
-                        220,
-                        22
-                    ]
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-msg-harmonyV2Interval-4th",
-                    "maxclass": "message",
-                    "text": "setParam harmonyV2Interval 4th",
-                    "numinlets": 2,
-                    "numoutlets": 1,
-                    "outlettype": [
-                        ""
-                    ],
-                    "patching_rect": [
-                        300,
-                        790,
-                        220,
-                        22
-                    ]
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-msg-harmonyV2Interval-5th",
-                    "maxclass": "message",
-                    "text": "setParam harmonyV2Interval 5th",
-                    "numinlets": 2,
-                    "numoutlets": 1,
-                    "outlettype": [
-                        ""
-                    ],
-                    "patching_rect": [
-                        300,
-                        820,
-                        220,
-                        22
-                    ]
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-msg-harmonyV2Interval-6th",
-                    "maxclass": "message",
-                    "text": "setParam harmonyV2Interval 6th",
-                    "numinlets": 2,
-                    "numoutlets": 1,
-                    "outlettype": [
-                        ""
-                    ],
-                    "patching_rect": [
-                        300,
-                        850,
-                        220,
-                        22
-                    ]
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-w-harmonyV2Direction",
-                    "maxclass": "live.menu",
-                    "numinlets": 1,
-                    "numoutlets": 3,
-                    "outlettype": [
-                        "",
-                        "",
-                        "float"
-                    ],
-                    "parameter_enable": 1,
-                    "patching_rect": [
-                        300,
-                        880,
-                        100,
-                        22
-                    ],
-                    "presentation": 1,
-                    "presentation_rect": [
-                        108,
-                        124,
-                        56,
-                        16
-                    ],
-                    "saved_attribute_attributes": {
-                        "valueof": {
-                            "parameter_enum": [
-                                "off",
-                                "above",
-                                "below"
-                            ],
-                            "parameter_initial": [
-                                1
-                            ],
-                            "parameter_initial_enable": 1,
-                            "parameter_longname": "PointsmanHarmonyV2Direction",
-                            "parameter_shortname": "V2Dr",
-                            "parameter_type": 2
-                        }
-                    }
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-sel-harmonyV2Direction",
-                    "maxclass": "newobj",
-                    "text": "sel 0 1 2",
-                    "numinlets": 1,
-                    "numoutlets": 4,
-                    "outlettype": [
-                        "bang",
-                        "bang",
-                        "bang",
-                        ""
-                    ],
-                    "patching_rect": [
-                        300,
-                        910,
-                        100,
-                        22
-                    ]
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-msg-harmonyV2Direction-off",
-                    "maxclass": "message",
-                    "text": "setParam harmonyV2Direction off",
-                    "numinlets": 2,
-                    "numoutlets": 1,
-                    "outlettype": [
-                        ""
-                    ],
-                    "patching_rect": [
-                        300,
-                        940,
-                        220,
-                        22
-                    ]
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-msg-harmonyV2Direction-above",
-                    "maxclass": "message",
-                    "text": "setParam harmonyV2Direction above",
-                    "numinlets": 2,
-                    "numoutlets": 1,
-                    "outlettype": [
-                        ""
-                    ],
-                    "patching_rect": [
-                        300,
-                        970,
-                        220,
-                        22
-                    ]
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-msg-harmonyV2Direction-below",
-                    "maxclass": "message",
-                    "text": "setParam harmonyV2Direction below",
-                    "numinlets": 2,
-                    "numoutlets": 1,
-                    "outlettype": [
-                        ""
-                    ],
-                    "patching_rect": [
-                        300,
-                        1000,
-                        220,
-                        22
-                    ]
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-w-harmonyV3Interval",
-                    "maxclass": "live.menu",
-                    "numinlets": 1,
-                    "numoutlets": 3,
-                    "outlettype": [
-                        "",
-                        "",
-                        "float"
-                    ],
-                    "parameter_enable": 1,
-                    "patching_rect": [
-                        560,
-                        700,
-                        100,
-                        22
-                    ],
-                    "presentation": 1,
-                    "presentation_rect": [
-                        20,
-                        144,
-                        80,
-                        16
-                    ],
-                    "saved_attribute_attributes": {
-                        "valueof": {
-                            "parameter_enum": [
-                                "3rd",
-                                "4th",
-                                "5th",
-                                "6th"
-                            ],
-                            "parameter_initial": [
-                                0
-                            ],
-                            "parameter_initial_enable": 1,
-                            "parameter_longname": "PointsmanHarmonyV3Interval",
-                            "parameter_shortname": "V3Iv",
-                            "parameter_type": 2
-                        }
-                    }
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-sel-harmonyV3Interval",
-                    "maxclass": "newobj",
-                    "text": "sel 0 1 2 3",
-                    "numinlets": 1,
-                    "numoutlets": 5,
-                    "outlettype": [
-                        "bang",
-                        "bang",
-                        "bang",
-                        "bang",
-                        ""
-                    ],
-                    "patching_rect": [
-                        560,
-                        730,
-                        120,
-                        22
-                    ]
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-msg-harmonyV3Interval-3rd",
-                    "maxclass": "message",
-                    "text": "setParam harmonyV3Interval 3rd",
-                    "numinlets": 2,
-                    "numoutlets": 1,
-                    "outlettype": [
-                        ""
-                    ],
-                    "patching_rect": [
-                        560,
-                        760,
-                        220,
-                        22
-                    ]
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-msg-harmonyV3Interval-4th",
-                    "maxclass": "message",
-                    "text": "setParam harmonyV3Interval 4th",
-                    "numinlets": 2,
-                    "numoutlets": 1,
-                    "outlettype": [
-                        ""
-                    ],
-                    "patching_rect": [
-                        560,
-                        790,
-                        220,
-                        22
-                    ]
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-msg-harmonyV3Interval-5th",
-                    "maxclass": "message",
-                    "text": "setParam harmonyV3Interval 5th",
-                    "numinlets": 2,
-                    "numoutlets": 1,
-                    "outlettype": [
-                        ""
-                    ],
-                    "patching_rect": [
-                        560,
-                        820,
-                        220,
-                        22
-                    ]
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-msg-harmonyV3Interval-6th",
-                    "maxclass": "message",
-                    "text": "setParam harmonyV3Interval 6th",
-                    "numinlets": 2,
-                    "numoutlets": 1,
-                    "outlettype": [
-                        ""
-                    ],
-                    "patching_rect": [
-                        560,
-                        850,
-                        220,
-                        22
-                    ]
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-w-harmonyV3Direction",
-                    "maxclass": "live.menu",
-                    "numinlets": 1,
-                    "numoutlets": 3,
-                    "outlettype": [
-                        "",
-                        "",
-                        "float"
-                    ],
-                    "parameter_enable": 1,
-                    "patching_rect": [
-                        560,
-                        880,
-                        100,
-                        22
-                    ],
-                    "presentation": 1,
-                    "presentation_rect": [
-                        108,
-                        144,
-                        56,
-                        16
-                    ],
-                    "saved_attribute_attributes": {
-                        "valueof": {
-                            "parameter_enum": [
-                                "off",
-                                "above",
-                                "below"
-                            ],
-                            "parameter_initial": [
-                                0
-                            ],
-                            "parameter_initial_enable": 1,
-                            "parameter_longname": "PointsmanHarmonyV3Direction",
-                            "parameter_shortname": "V3Dr",
-                            "parameter_type": 2
-                        }
-                    }
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-sel-harmonyV3Direction",
-                    "maxclass": "newobj",
-                    "text": "sel 0 1 2",
-                    "numinlets": 1,
-                    "numoutlets": 4,
-                    "outlettype": [
-                        "bang",
-                        "bang",
-                        "bang",
-                        ""
-                    ],
-                    "patching_rect": [
-                        560,
-                        910,
-                        100,
-                        22
-                    ]
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-msg-harmonyV3Direction-off",
-                    "maxclass": "message",
-                    "text": "setParam harmonyV3Direction off",
-                    "numinlets": 2,
-                    "numoutlets": 1,
-                    "outlettype": [
-                        ""
-                    ],
-                    "patching_rect": [
-                        560,
-                        940,
-                        220,
-                        22
-                    ]
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-msg-harmonyV3Direction-above",
-                    "maxclass": "message",
-                    "text": "setParam harmonyV3Direction above",
-                    "numinlets": 2,
-                    "numoutlets": 1,
-                    "outlettype": [
-                        ""
-                    ],
-                    "patching_rect": [
-                        560,
-                        970,
-                        220,
-                        22
-                    ]
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-msg-harmonyV3Direction-below",
-                    "maxclass": "message",
-                    "text": "setParam harmonyV3Direction below",
-                    "numinlets": 2,
-                    "numoutlets": 1,
-                    "outlettype": [
-                        ""
-                    ],
-                    "patching_rect": [
-                        560,
-                        1000,
-                        220,
-                        22
-                    ]
-                }
-            },
-            {
-                "box": {
                     "id": "obj-w-feel",
                     "maxclass": "live.dial",
                     "numinlets": 1,
@@ -2479,29 +1659,6 @@
             },
             {
                 "box": {
-                    "id": "obj-grplbl-voices",
-                    "maxclass": "comment",
-                    "text": "VOICES",
-                    "patching_rect": [
-                        970,
-                        200,
-                        56,
-                        14
-                    ],
-                    "presentation": 1,
-                    "presentation_rect": [
-                        20,
-                        88,
-                        56,
-                        14
-                    ],
-                    "fontface": 0,
-                    "fontsize": 9,
-                    "fontname": "Andale Mono"
-                }
-            },
-            {
-                "box": {
                     "id": "obj-lbl-rnd",
                     "maxclass": "comment",
                     "text": "RND",
@@ -2569,6 +1726,534 @@
                         970,
                         466,
                         96,
+                        22
+                    ]
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-msg-mode-arp",
+                    "maxclass": "message",
+                    "text": "setParam mode arp",
+                    "numinlets": 2,
+                    "numoutlets": 1,
+                    "outlettype": [
+                        ""
+                    ],
+                    "patching_rect": [
+                        1180,
+                        630,
+                        200,
+                        22
+                    ]
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-msg-scale-phrygian-dominant",
+                    "maxclass": "message",
+                    "text": "setParam scale phrygian-dominant",
+                    "numinlets": 2,
+                    "numoutlets": 1,
+                    "outlettype": [
+                        ""
+                    ],
+                    "patching_rect": [
+                        1180,
+                        540,
+                        240,
+                        22
+                    ]
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-w-chordShape",
+                    "maxclass": "live.menu",
+                    "numinlets": 1,
+                    "numoutlets": 3,
+                    "outlettype": [
+                        "",
+                        "",
+                        "float"
+                    ],
+                    "parameter_enable": 1,
+                    "patching_rect": [
+                        40,
+                        740,
+                        200,
+                        22
+                    ],
+                    "saved_attribute_attributes": {
+                        "valueof": {
+                            "parameter_enum": [
+                                "maj",
+                                "m",
+                                "dim",
+                                "aug",
+                                "sus2",
+                                "sus4",
+                                "power",
+                                "maj7",
+                                "m7",
+                                "7",
+                                "m7b5",
+                                "dim7",
+                                "6",
+                                "m6",
+                                "add9",
+                                "maj9",
+                                "m9",
+                                "9",
+                                "13",
+                                "octave"
+                            ],
+                            "parameter_initial": [
+                                0
+                            ],
+                            "parameter_initial_enable": 1,
+                            "parameter_longname": "PointsmanChordShape",
+                            "parameter_shortname": "ChrdShp",
+                            "parameter_type": 2
+                        }
+                    }
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-prep-chordShape",
+                    "maxclass": "newobj",
+                    "text": "prepend setParam chordShape",
+                    "numinlets": 1,
+                    "numoutlets": 1,
+                    "outlettype": [
+                        ""
+                    ],
+                    "patching_rect": [
+                        260,
+                        740,
+                        220,
+                        22
+                    ]
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-w-arpPattern",
+                    "maxclass": "live.menu",
+                    "numinlets": 1,
+                    "numoutlets": 3,
+                    "outlettype": [
+                        "",
+                        "",
+                        "float"
+                    ],
+                    "parameter_enable": 1,
+                    "patching_rect": [
+                        40,
+                        770,
+                        200,
+                        22
+                    ],
+                    "saved_attribute_attributes": {
+                        "valueof": {
+                            "parameter_enum": [
+                                "up",
+                                "down",
+                                "up-down",
+                                "random",
+                                "as-played",
+                                "strike"
+                            ],
+                            "parameter_initial": [
+                                0
+                            ],
+                            "parameter_initial_enable": 1,
+                            "parameter_longname": "PointsmanArpPattern",
+                            "parameter_shortname": "ArpPat",
+                            "parameter_type": 2
+                        }
+                    }
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-prep-arpPattern",
+                    "maxclass": "newobj",
+                    "text": "prepend setParam arpPattern",
+                    "numinlets": 1,
+                    "numoutlets": 1,
+                    "outlettype": [
+                        ""
+                    ],
+                    "patching_rect": [
+                        260,
+                        770,
+                        220,
+                        22
+                    ]
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-w-arpRate",
+                    "maxclass": "live.menu",
+                    "numinlets": 1,
+                    "numoutlets": 3,
+                    "outlettype": [
+                        "",
+                        "",
+                        "float"
+                    ],
+                    "parameter_enable": 1,
+                    "patching_rect": [
+                        40,
+                        800,
+                        200,
+                        22
+                    ],
+                    "saved_attribute_attributes": {
+                        "valueof": {
+                            "parameter_enum": [
+                                "1/4",
+                                "1/4D",
+                                "1/4T",
+                                "1/8",
+                                "1/8D",
+                                "1/8T",
+                                "1/16",
+                                "1/16D",
+                                "1/16T",
+                                "1/32"
+                            ],
+                            "parameter_initial": [
+                                6
+                            ],
+                            "parameter_initial_enable": 1,
+                            "parameter_longname": "PointsmanArpRate",
+                            "parameter_shortname": "ArpRate",
+                            "parameter_type": 2
+                        }
+                    }
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-prep-arpRate",
+                    "maxclass": "newobj",
+                    "text": "prepend setParam arpRate",
+                    "numinlets": 1,
+                    "numoutlets": 1,
+                    "outlettype": [
+                        ""
+                    ],
+                    "patching_rect": [
+                        260,
+                        800,
+                        220,
+                        22
+                    ]
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-w-arpOctaves",
+                    "maxclass": "live.numbox",
+                    "numinlets": 1,
+                    "numoutlets": 2,
+                    "outlettype": [
+                        "",
+                        "float"
+                    ],
+                    "parameter_enable": 1,
+                    "patching_rect": [
+                        40,
+                        830,
+                        60,
+                        22
+                    ],
+                    "saved_attribute_attributes": {
+                        "valueof": {
+                            "parameter_initial": [
+                                1
+                            ],
+                            "parameter_initial_enable": 1,
+                            "parameter_longname": "PointsmanArpOctaves",
+                            "parameter_mmax": 4,
+                            "parameter_mmin": 1,
+                            "parameter_shortname": "ArpOct",
+                            "parameter_type": 1
+                        }
+                    }
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-prep-arpOctaves",
+                    "maxclass": "newobj",
+                    "text": "prepend setParam arpOctaves",
+                    "numinlets": 1,
+                    "numoutlets": 1,
+                    "outlettype": [
+                        ""
+                    ],
+                    "patching_rect": [
+                        260,
+                        830,
+                        220,
+                        22
+                    ]
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-w-arpStepRepeats",
+                    "maxclass": "live.numbox",
+                    "numinlets": 1,
+                    "numoutlets": 2,
+                    "outlettype": [
+                        "",
+                        "float"
+                    ],
+                    "parameter_enable": 1,
+                    "patching_rect": [
+                        40,
+                        860,
+                        60,
+                        22
+                    ],
+                    "saved_attribute_attributes": {
+                        "valueof": {
+                            "parameter_initial": [
+                                1
+                            ],
+                            "parameter_initial_enable": 1,
+                            "parameter_longname": "PointsmanArpStepRepeats",
+                            "parameter_mmax": 8,
+                            "parameter_mmin": 1,
+                            "parameter_shortname": "ArpRep",
+                            "parameter_type": 1
+                        }
+                    }
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-prep-arpStepRepeats",
+                    "maxclass": "newobj",
+                    "text": "prepend setParam arpStepRepeats",
+                    "numinlets": 1,
+                    "numoutlets": 1,
+                    "outlettype": [
+                        ""
+                    ],
+                    "patching_rect": [
+                        260,
+                        860,
+                        220,
+                        22
+                    ]
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-w-arpGate",
+                    "maxclass": "live.dial",
+                    "numinlets": 1,
+                    "numoutlets": 2,
+                    "outlettype": [
+                        "",
+                        "float"
+                    ],
+                    "parameter_enable": 1,
+                    "patching_rect": [
+                        40,
+                        890,
+                        40,
+                        22
+                    ],
+                    "saved_attribute_attributes": {
+                        "valueof": {
+                            "parameter_initial": [
+                                0.5
+                            ],
+                            "parameter_initial_enable": 1,
+                            "parameter_longname": "PointsmanArpGate",
+                            "parameter_mmax": 1,
+                            "parameter_mmin": 0,
+                            "parameter_shortname": "ArpGate",
+                            "parameter_type": 0,
+                            "parameter_unitstyle": 1
+                        }
+                    }
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-prep-arpGate",
+                    "maxclass": "newobj",
+                    "text": "prepend setParam arpGate",
+                    "numinlets": 1,
+                    "numoutlets": 1,
+                    "outlettype": [
+                        ""
+                    ],
+                    "patching_rect": [
+                        260,
+                        890,
+                        220,
+                        22
+                    ]
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-w-arpVariation",
+                    "maxclass": "live.dial",
+                    "numinlets": 1,
+                    "numoutlets": 2,
+                    "outlettype": [
+                        "",
+                        "float"
+                    ],
+                    "parameter_enable": 1,
+                    "patching_rect": [
+                        40,
+                        920,
+                        40,
+                        22
+                    ],
+                    "saved_attribute_attributes": {
+                        "valueof": {
+                            "parameter_initial": [
+                                0
+                            ],
+                            "parameter_initial_enable": 1,
+                            "parameter_longname": "PointsmanArpVariation",
+                            "parameter_mmax": 1,
+                            "parameter_mmin": 0,
+                            "parameter_shortname": "ArpVar",
+                            "parameter_type": 0,
+                            "parameter_unitstyle": 1
+                        }
+                    }
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-prep-arpVariation",
+                    "maxclass": "newobj",
+                    "text": "prepend setParam arpVariation",
+                    "numinlets": 1,
+                    "numoutlets": 1,
+                    "outlettype": [
+                        ""
+                    ],
+                    "patching_rect": [
+                        260,
+                        920,
+                        220,
+                        22
+                    ]
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-w-arpLatch",
+                    "maxclass": "live.toggle",
+                    "numinlets": 1,
+                    "numoutlets": 2,
+                    "outlettype": [
+                        "",
+                        ""
+                    ],
+                    "parameter_enable": 1,
+                    "patching_rect": [
+                        40,
+                        950,
+                        20,
+                        22
+                    ],
+                    "saved_attribute_attributes": {
+                        "valueof": {
+                            "parameter_initial": [
+                                0
+                            ],
+                            "parameter_initial_enable": 1,
+                            "parameter_longname": "PointsmanArpLatch",
+                            "parameter_shortname": "ArpLatch",
+                            "parameter_type": 1,
+                            "parameter_mmin": 0,
+                            "parameter_mmax": 1
+                        }
+                    }
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-prep-arpLatch",
+                    "maxclass": "newobj",
+                    "text": "prepend setParam arpLatch",
+                    "numinlets": 1,
+                    "numoutlets": 1,
+                    "outlettype": [
+                        ""
+                    ],
+                    "patching_rect": [
+                        260,
+                        950,
+                        220,
+                        22
+                    ]
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-w-arpSwing",
+                    "maxclass": "live.dial",
+                    "numinlets": 1,
+                    "numoutlets": 2,
+                    "outlettype": [
+                        "",
+                        "float"
+                    ],
+                    "parameter_enable": 1,
+                    "patching_rect": [
+                        40,
+                        980,
+                        40,
+                        22
+                    ],
+                    "saved_attribute_attributes": {
+                        "valueof": {
+                            "parameter_initial": [
+                                0
+                            ],
+                            "parameter_initial_enable": 1,
+                            "parameter_longname": "PointsmanArpSwing",
+                            "parameter_mmax": 0.75,
+                            "parameter_mmin": 0,
+                            "parameter_shortname": "ArpSw",
+                            "parameter_type": 0,
+                            "parameter_unitstyle": 1
+                        }
+                    }
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-prep-arpSwing",
+                    "maxclass": "newobj",
+                    "text": "prepend setParam arpSwing",
+                    "numinlets": 1,
+                    "numoutlets": 1,
+                    "outlettype": [
+                        ""
+                    ],
+                    "patching_rect": [
+                        260,
+                        980,
+                        220,
                         22
                     ]
                 }
@@ -3682,834 +3367,6 @@
             {
                 "patchline": {
                     "source": [
-                        "obj-w-harmonyV1Interval",
-                        0
-                    ],
-                    "destination": [
-                        "obj-sel-harmonyV1Interval",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-sel-harmonyV1Interval",
-                        0
-                    ],
-                    "destination": [
-                        "obj-msg-harmonyV1Interval-3rd",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-sel-harmonyV1Interval",
-                        1
-                    ],
-                    "destination": [
-                        "obj-msg-harmonyV1Interval-4th",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-sel-harmonyV1Interval",
-                        2
-                    ],
-                    "destination": [
-                        "obj-msg-harmonyV1Interval-5th",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-sel-harmonyV1Interval",
-                        3
-                    ],
-                    "destination": [
-                        "obj-msg-harmonyV1Interval-6th",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-msg-harmonyV1Interval-3rd",
-                        0
-                    ],
-                    "destination": [
-                        "obj-nodescript",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-msg-harmonyV1Interval-4th",
-                        0
-                    ],
-                    "destination": [
-                        "obj-nodescript",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-msg-harmonyV1Interval-5th",
-                        0
-                    ],
-                    "destination": [
-                        "obj-nodescript",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-msg-harmonyV1Interval-6th",
-                        0
-                    ],
-                    "destination": [
-                        "obj-nodescript",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-w-harmonyV1Direction",
-                        0
-                    ],
-                    "destination": [
-                        "obj-sel-harmonyV1Direction",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-sel-harmonyV1Direction",
-                        0
-                    ],
-                    "destination": [
-                        "obj-msg-harmonyV1Direction-off",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-sel-harmonyV1Direction",
-                        1
-                    ],
-                    "destination": [
-                        "obj-msg-harmonyV1Direction-above",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-sel-harmonyV1Direction",
-                        2
-                    ],
-                    "destination": [
-                        "obj-msg-harmonyV1Direction-below",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-msg-harmonyV1Direction-off",
-                        0
-                    ],
-                    "destination": [
-                        "obj-nodescript",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-msg-harmonyV1Direction-above",
-                        0
-                    ],
-                    "destination": [
-                        "obj-nodescript",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-msg-harmonyV1Direction-below",
-                        0
-                    ],
-                    "destination": [
-                        "obj-nodescript",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-w-harmonyV2Interval",
-                        0
-                    ],
-                    "destination": [
-                        "obj-sel-harmonyV2Interval",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-sel-harmonyV2Interval",
-                        0
-                    ],
-                    "destination": [
-                        "obj-msg-harmonyV2Interval-3rd",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-sel-harmonyV2Interval",
-                        1
-                    ],
-                    "destination": [
-                        "obj-msg-harmonyV2Interval-4th",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-sel-harmonyV2Interval",
-                        2
-                    ],
-                    "destination": [
-                        "obj-msg-harmonyV2Interval-5th",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-sel-harmonyV2Interval",
-                        3
-                    ],
-                    "destination": [
-                        "obj-msg-harmonyV2Interval-6th",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-msg-harmonyV2Interval-3rd",
-                        0
-                    ],
-                    "destination": [
-                        "obj-nodescript",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-msg-harmonyV2Interval-4th",
-                        0
-                    ],
-                    "destination": [
-                        "obj-nodescript",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-msg-harmonyV2Interval-5th",
-                        0
-                    ],
-                    "destination": [
-                        "obj-nodescript",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-msg-harmonyV2Interval-6th",
-                        0
-                    ],
-                    "destination": [
-                        "obj-nodescript",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-w-harmonyV2Direction",
-                        0
-                    ],
-                    "destination": [
-                        "obj-sel-harmonyV2Direction",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-sel-harmonyV2Direction",
-                        0
-                    ],
-                    "destination": [
-                        "obj-msg-harmonyV2Direction-off",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-sel-harmonyV2Direction",
-                        1
-                    ],
-                    "destination": [
-                        "obj-msg-harmonyV2Direction-above",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-sel-harmonyV2Direction",
-                        2
-                    ],
-                    "destination": [
-                        "obj-msg-harmonyV2Direction-below",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-msg-harmonyV2Direction-off",
-                        0
-                    ],
-                    "destination": [
-                        "obj-nodescript",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-msg-harmonyV2Direction-above",
-                        0
-                    ],
-                    "destination": [
-                        "obj-nodescript",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-msg-harmonyV2Direction-below",
-                        0
-                    ],
-                    "destination": [
-                        "obj-nodescript",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-w-harmonyV3Interval",
-                        0
-                    ],
-                    "destination": [
-                        "obj-sel-harmonyV3Interval",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-sel-harmonyV3Interval",
-                        0
-                    ],
-                    "destination": [
-                        "obj-msg-harmonyV3Interval-3rd",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-sel-harmonyV3Interval",
-                        1
-                    ],
-                    "destination": [
-                        "obj-msg-harmonyV3Interval-4th",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-sel-harmonyV3Interval",
-                        2
-                    ],
-                    "destination": [
-                        "obj-msg-harmonyV3Interval-5th",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-sel-harmonyV3Interval",
-                        3
-                    ],
-                    "destination": [
-                        "obj-msg-harmonyV3Interval-6th",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-msg-harmonyV3Interval-3rd",
-                        0
-                    ],
-                    "destination": [
-                        "obj-nodescript",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-msg-harmonyV3Interval-4th",
-                        0
-                    ],
-                    "destination": [
-                        "obj-nodescript",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-msg-harmonyV3Interval-5th",
-                        0
-                    ],
-                    "destination": [
-                        "obj-nodescript",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-msg-harmonyV3Interval-6th",
-                        0
-                    ],
-                    "destination": [
-                        "obj-nodescript",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-w-harmonyV3Direction",
-                        0
-                    ],
-                    "destination": [
-                        "obj-sel-harmonyV3Direction",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-sel-harmonyV3Direction",
-                        0
-                    ],
-                    "destination": [
-                        "obj-msg-harmonyV3Direction-off",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-sel-harmonyV3Direction",
-                        1
-                    ],
-                    "destination": [
-                        "obj-msg-harmonyV3Direction-above",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-sel-harmonyV3Direction",
-                        2
-                    ],
-                    "destination": [
-                        "obj-msg-harmonyV3Direction-below",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-msg-harmonyV3Direction-off",
-                        0
-                    ],
-                    "destination": [
-                        "obj-nodescript",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-msg-harmonyV3Direction-above",
-                        0
-                    ],
-                    "destination": [
-                        "obj-nodescript",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-msg-harmonyV3Direction-below",
-                        0
-                    ],
-                    "destination": [
-                        "obj-nodescript",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-trig-ready",
-                        0
-                    ],
-                    "destination": [
-                        "obj-w-harmonyV1Interval",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-trig-ready",
-                        0
-                    ],
-                    "destination": [
-                        "obj-w-harmonyV1Direction",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-trig-ready",
-                        0
-                    ],
-                    "destination": [
-                        "obj-w-harmonyV2Interval",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-trig-ready",
-                        0
-                    ],
-                    "destination": [
-                        "obj-w-harmonyV2Direction",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-trig-ready",
-                        0
-                    ],
-                    "destination": [
-                        "obj-w-harmonyV3Interval",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-trig-ready",
-                        0
-                    ],
-                    "destination": [
-                        "obj-w-harmonyV3Direction",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-w-mode",
-                        0
-                    ],
-                    "destination": [
-                        "obj-sel-mode-harmony",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-sel-mode-harmony",
-                        0
-                    ],
-                    "destination": [
-                        "obj-msg-voices-hidden-0",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-sel-mode-harmony",
-                        1
-                    ],
-                    "destination": [
-                        "obj-msg-voices-hidden-1",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-msg-voices-hidden-0",
-                        0
-                    ],
-                    "destination": [
-                        "obj-w-harmonyV1Interval",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-msg-voices-hidden-0",
-                        0
-                    ],
-                    "destination": [
-                        "obj-w-harmonyV1Direction",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-msg-voices-hidden-0",
-                        0
-                    ],
-                    "destination": [
-                        "obj-w-harmonyV2Interval",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-msg-voices-hidden-0",
-                        0
-                    ],
-                    "destination": [
-                        "obj-w-harmonyV2Direction",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-msg-voices-hidden-0",
-                        0
-                    ],
-                    "destination": [
-                        "obj-w-harmonyV3Interval",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-msg-voices-hidden-0",
-                        0
-                    ],
-                    "destination": [
-                        "obj-w-harmonyV3Direction",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-msg-voices-hidden-1",
-                        0
-                    ],
-                    "destination": [
-                        "obj-w-harmonyV1Interval",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-msg-voices-hidden-1",
-                        0
-                    ],
-                    "destination": [
-                        "obj-w-harmonyV1Direction",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-msg-voices-hidden-1",
-                        0
-                    ],
-                    "destination": [
-                        "obj-w-harmonyV2Interval",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-msg-voices-hidden-1",
-                        0
-                    ],
-                    "destination": [
-                        "obj-w-harmonyV2Direction",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-msg-voices-hidden-1",
-                        0
-                    ],
-                    "destination": [
-                        "obj-w-harmonyV3Interval",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
-                        "obj-msg-voices-hidden-1",
-                        0
-                    ],
-                    "destination": [
-                        "obj-w-harmonyV3Direction",
-                        0
-                    ]
-                }
-            },
-            {
-                "patchline": {
-                    "source": [
                         "obj-w-feel",
                         0
                     ],
@@ -4599,6 +3456,378 @@
                     ],
                     "destination": [
                         "obj-w-seed",
+                        0
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-sel-mode",
+                        2
+                    ],
+                    "destination": [
+                        "obj-msg-mode-arp",
+                        0
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-msg-mode-arp",
+                        0
+                    ],
+                    "destination": [
+                        "obj-nodescript",
+                        0
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-sel-scale",
+                        15
+                    ],
+                    "destination": [
+                        "obj-msg-scale-phrygian-dominant",
+                        0
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-msg-scale-phrygian-dominant",
+                        0
+                    ],
+                    "destination": [
+                        "obj-nodescript",
+                        0
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-w-chordShape",
+                        0
+                    ],
+                    "destination": [
+                        "obj-prep-chordShape",
+                        0
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-prep-chordShape",
+                        0
+                    ],
+                    "destination": [
+                        "obj-nodescript",
+                        0
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-trig-ready",
+                        0
+                    ],
+                    "destination": [
+                        "obj-w-chordShape",
+                        0
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-w-arpPattern",
+                        0
+                    ],
+                    "destination": [
+                        "obj-prep-arpPattern",
+                        0
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-prep-arpPattern",
+                        0
+                    ],
+                    "destination": [
+                        "obj-nodescript",
+                        0
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-trig-ready",
+                        0
+                    ],
+                    "destination": [
+                        "obj-w-arpPattern",
+                        0
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-w-arpRate",
+                        0
+                    ],
+                    "destination": [
+                        "obj-prep-arpRate",
+                        0
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-prep-arpRate",
+                        0
+                    ],
+                    "destination": [
+                        "obj-nodescript",
+                        0
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-trig-ready",
+                        0
+                    ],
+                    "destination": [
+                        "obj-w-arpRate",
+                        0
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-w-arpOctaves",
+                        0
+                    ],
+                    "destination": [
+                        "obj-prep-arpOctaves",
+                        0
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-prep-arpOctaves",
+                        0
+                    ],
+                    "destination": [
+                        "obj-nodescript",
+                        0
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-trig-ready",
+                        0
+                    ],
+                    "destination": [
+                        "obj-w-arpOctaves",
+                        0
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-w-arpStepRepeats",
+                        0
+                    ],
+                    "destination": [
+                        "obj-prep-arpStepRepeats",
+                        0
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-prep-arpStepRepeats",
+                        0
+                    ],
+                    "destination": [
+                        "obj-nodescript",
+                        0
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-trig-ready",
+                        0
+                    ],
+                    "destination": [
+                        "obj-w-arpStepRepeats",
+                        0
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-w-arpGate",
+                        0
+                    ],
+                    "destination": [
+                        "obj-prep-arpGate",
+                        0
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-prep-arpGate",
+                        0
+                    ],
+                    "destination": [
+                        "obj-nodescript",
+                        0
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-trig-ready",
+                        0
+                    ],
+                    "destination": [
+                        "obj-w-arpGate",
+                        0
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-w-arpVariation",
+                        0
+                    ],
+                    "destination": [
+                        "obj-prep-arpVariation",
+                        0
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-prep-arpVariation",
+                        0
+                    ],
+                    "destination": [
+                        "obj-nodescript",
+                        0
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-trig-ready",
+                        0
+                    ],
+                    "destination": [
+                        "obj-w-arpVariation",
+                        0
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-w-arpLatch",
+                        0
+                    ],
+                    "destination": [
+                        "obj-prep-arpLatch",
+                        0
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-prep-arpLatch",
+                        0
+                    ],
+                    "destination": [
+                        "obj-nodescript",
+                        0
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-trig-ready",
+                        0
+                    ],
+                    "destination": [
+                        "obj-w-arpLatch",
+                        0
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-w-arpSwing",
+                        0
+                    ],
+                    "destination": [
+                        "obj-prep-arpSwing",
+                        0
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-prep-arpSwing",
+                        0
+                    ],
+                    "destination": [
+                        "obj-nodescript",
+                        0
+                    ]
+                }
+            },
+            {
+                "patchline": {
+                    "source": [
+                        "obj-trig-ready",
+                        0
+                    ],
+                    "destination": [
+                        "obj-w-arpSwing",
                         0
                     ]
                 }

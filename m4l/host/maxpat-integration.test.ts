@@ -48,6 +48,9 @@ function makeFakeDeps(): {
 
 // Map a live.* widget's parameter_longname to the bridge setParam key.
 // Mirrors the (longname → bridgeKey) mapping in scripts/patcher.test.mjs.
+// ADR 004 Phase 3-C: the v0.1 harmonyV[1-3] slot widgets are gone;
+// chordShape + 8 arp params replace them. arpAccent / arpSlide are NOT
+// live.* widgets — Phase 4 floating-window UI + hidden persistence.
 const LONGNAME_TO_KEY: Record<string, string> = {
   PointsmanScale: "scale",
   PointsmanRoot: "root",
@@ -56,17 +59,29 @@ const LONGNAME_TO_KEY: Record<string, string> = {
   PointsmanDrift: "drift",
   PointsmanInputChannel: "inputChannel",
   PointsmanSeed: "seed",
-  PointsmanHarmonyV1Interval: "harmonyV1Interval",
-  PointsmanHarmonyV1Direction: "harmonyV1Direction",
-  PointsmanHarmonyV2Interval: "harmonyV2Interval",
-  PointsmanHarmonyV2Direction: "harmonyV2Direction",
-  PointsmanHarmonyV3Interval: "harmonyV3Interval",
-  PointsmanHarmonyV3Direction: "harmonyV3Direction",
+  PointsmanChordShape: "chordShape",
+  PointsmanArpPattern: "arpPattern",
+  PointsmanArpRate: "arpRate",
+  PointsmanArpOctaves: "arpOctaves",
+  PointsmanArpStepRepeats: "arpStepRepeats",
+  PointsmanArpGate: "arpGate",
+  PointsmanArpVariation: "arpVariation",
+  PointsmanArpLatch: "arpLatch",
+  PointsmanArpSwing: "arpSwing",
 };
 
-// `root` is an int-enum: parameter_initial is the int index, and bridge
-// receives the int directly (no string lookup).
-const INT_ENUM_LONGNAMES = new Set(["PointsmanRoot"]);
+// Int-enum widgets: live.menu with parameter_type=2 (string display) but
+// the dispatch wiring sends the int index rather than the string. The
+// bridge accepts both forms (resolveX helpers); using int here keeps the
+// cascade simulation aligned with the actual maxpat wiring shape (which
+// uses [prepend setParam <key>] on the live.menu's int outlet, not the
+// per-value [sel + msg] string cascade).
+const INT_ENUM_LONGNAMES = new Set([
+  "PointsmanRoot",
+  "PointsmanChordShape",
+  "PointsmanArpPattern",
+  "PointsmanArpRate",
+]);
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function widgetInitialPayload(box: any): unknown {
@@ -87,8 +102,10 @@ function widgetInitialPayload(box: any): unknown {
 function findLiveWidgets(boxes: any[]): any[] {
   return boxes.filter((b) => {
     const cls = b.box?.maxclass;
+    // ADR 004 Phase 3-C adds live.toggle (arpLatch).
     return (cls === "live.dial" || cls === "live.menu" ||
-            cls === "live.numbox" || cls === "live.slider") &&
+            cls === "live.numbox" || cls === "live.slider" ||
+            cls === "live.toggle") &&
       typeof b.box?.saved_attribute_attributes?.valueof?.parameter_longname === "string" &&
       b.box.saved_attribute_attributes.valueof.parameter_longname.startsWith("Pointsman");
   });

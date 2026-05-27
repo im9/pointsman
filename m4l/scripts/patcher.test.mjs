@@ -129,8 +129,13 @@ function reachable(lines, srcId, dstId, maxDepth = 6) {
 // - `inputChannel` (0..16): MIDI channel filter, 0 = omni. Notes on
 //   non-matching channels pass through verbatim (MPE per-note carry).
 // - `seed` (0..2^24-1): float32 round-trip safe upper bound.
-// - `mode` is now a 2-enum (scale | chord). v1 "harmony" merged into
-//   `chord` with default voices = [{3 above}, {5 above}].
+// - `mode` is a 3-enum (scale | chord | arp) post ADR 004 Phase 3-C.
+// - ADR 004 added the chordShape primitive + 8 arp params; the 6 v0.1
+//   harmonyV[1-3]Interval/Direction slot widgets are deleted from the
+//   maxpat. arpAccent / arpSlide (16-step accent + slide tables) are
+//   NOT live.* parameters (parallel rationale to vst: 32 numbox rows
+//   would saturate Live's parameter inspector); Phase 4 adds the
+//   floating-window editor + hidden persistence.
 const LIVE_PARAMS = [
   // longname,                   shortname, bridgeKey,           type, mmin, mmax, initial
   ['PointsmanFeel',              'FEEL',    'feel',              0, 0,    1,        0],
@@ -142,50 +147,65 @@ const LIVE_PARAMS = [
   // explicitly higher; stencil's seed numbox dodges that by using float-
   // with-zero-decimals (see stencil/m4l/Stencil.maxpat).
   ['PointsmanSeed',              'Seed',    'seed',              0, 0,    16777215, 42],
+  // ADR 004 arp params (Phase 3-C). Numbox (int): arpOctaves 1..4,
+  // arpStepRepeats 1..8. Dial (float): arpGate 0..1 default 0.5;
+  // arpVariation 0..1 default 0; arpSwing 0..0.75 default 0. Toggle
+  // (bool): arpLatch default off. Ranges pinned to ADR §Arpeggiator
+  // parameters; bridge re-clamps as defense-in-depth.
+  ['PointsmanArpOctaves',        'ArpOct',   'arpOctaves',        1, 1,    4,        1],
+  ['PointsmanArpStepRepeats',    'ArpRep',   'arpStepRepeats',    1, 1,    8,        1],
+  ['PointsmanArpGate',           'ArpGate',  'arpGate',           0, 0,    1,        0.5],
+  ['PointsmanArpVariation',      'ArpVar',   'arpVariation',      0, 0,    1,        0],
+  ['PointsmanArpSwing',          'ArpSw',    'arpSwing',          0, 0,    0.75,     0],
+  ['PointsmanArpLatch',          'ArpLatch', 'arpLatch',          1, 0,    1,        0],
 ]
 
-// String enums mirror m4l/host/bridge.ts SCALE_NAMES / POINTSMAN_MODES /
-// harmony slot dictionaries exactly. Drift in either list is what this
-// test catches.
+// String-cascade enums: widget outlet 0 → [sel 0 1 ... N-1] → per-value
+// [message setParam <key> <enum>] → node.script. Used by the v0.1 widgets
+// that predate the bridge's int-index resolver — kept on the same path
+// for backwards-compatible dispatch shape.
 const LIVE_ENUMS = [
   // longname,              shortname, bridgeKey,     enumStrings, initialIdx
   ['PointsmanScale',        'Scl',     'scale',
     ['major', 'minor', 'dorian', 'phrygian', 'lydian', 'mixolydian',
      'locrian', 'pentatonic', 'minor-pentatonic', 'blues', 'harmonic',
-     'melodic', 'whole', 'chromatic', 'chromatic-half'], 0],
-  // mode: 2-enum (scale | chord). v1's "harmony" merged into `chord`
-  // with default voices pre-populated as 1-3-5 triad.
-  ['PointsmanMode',         'Mode',    'mode',        ['scale', 'chord'], 0],
-  // Harmony voice cluster (3 rows × 2 menus). v2 defaults the cluster to
-  // the 1-3-5 triad so chord mode ships "single note becomes a chord"
-  // out of the box (concept.md §"Scale and chord modes"):
-  //   V1 = { 3rd, above }   ← Direction idx 1 = "above"
-  //   V2 = { 5th, above }   ← Interval idx 2 = "5th", Direction idx 1
-  //   V3 = { 3rd, off }     ← Direction idx 0 = "off" (slot empty)
-  // The widget parameter_initial is the authoritative default because
-  // ready-bang fires AFTER the bridge constructor, so the widget's idx
-  // overwrites the bridge's harmonySlots fallback.
-  ['PointsmanHarmonyV1Interval',  'V1Iv', 'harmonyV1Interval',
-    ['3rd', '4th', '5th', '6th'], 0],
-  ['PointsmanHarmonyV1Direction', 'V1Dr', 'harmonyV1Direction',
-    ['off', 'above', 'below'], 1],
-  ['PointsmanHarmonyV2Interval',  'V2Iv', 'harmonyV2Interval',
-    ['3rd', '4th', '5th', '6th'], 2],
-  ['PointsmanHarmonyV2Direction', 'V2Dr', 'harmonyV2Direction',
-    ['off', 'above', 'below'], 1],
-  ['PointsmanHarmonyV3Interval',  'V3Iv', 'harmonyV3Interval',
-    ['3rd', '4th', '5th', '6th'], 0],
-  ['PointsmanHarmonyV3Direction', 'V3Dr', 'harmonyV3Direction',
-    ['off', 'above', 'below'], 0],
+     'melodic', 'whole', 'chromatic', 'chromatic-half',
+     // ADR 004 §Scale additions: append-only, slot 15.
+     'phrygian-dominant'], 0],
+  // mode: 3-enum (scale | chord | arp) per ADR 004. ADR §Decision: mode
+  // is exclusive; chord adds intervallic voicing on top of scale, arp
+  // decomposes the chord over time.
+  ['PointsmanMode',         'Mode',    'mode',
+    ['scale', 'chord', 'arp'], 0],
 ]
 // Int-enum widgets: live.menu showing labels but emitting the int
-// index 0..N-1 directly. Bridge accepts the int (no [sel] -> [message]
-// fanout). `root` is note-name display (C..B); bridge `setParam root`
-// takes the int.
+// index 0..N-1 directly via the live.menu outlet → [prepend setParam
+// <key>] → [node.script]. Bridge accepts the int (resolveX helpers in
+// m4l/host/bridge.ts ADR 004 Phase 3-A). `root` predates ADR 004; the
+// chordShape + arpPattern + arpRate widgets added by Phase 3-C use this
+// same direct-dispatch path to avoid 36 cascade msg boxes (20 + 6 + 10).
 const LIVE_INT_ENUMS = [
   // longname,        shortname, bridgeKey, enumValues, initialIdx
   ['PointsmanRoot',   'Root',    'root',
     ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'], 0],
+  // ADR 004 §Chord shape primitive: 20 named presets, append-only on
+  // disk. Default "maj" = 1-3-5 triad (index 0).
+  ['PointsmanChordShape', 'ChrdShp', 'chordShape',
+    ['maj', 'm', 'dim', 'aug', 'sus2', 'sus4', 'power',
+     'maj7', 'm7', '7', 'm7b5', 'dim7', '6', 'm6',
+     'add9', 'maj9', 'm9', '9', '13', 'octave'], 0],
+  // ADR 004 §Arpeggiator parameters: traversal patterns (up, down,
+  // up-down, random, as-played) + non-traversal strike.
+  ['PointsmanArpPattern', 'ArpPat',  'arpPattern',
+    ['up', 'down', 'up-down', 'random', 'as-played', 'strike'], 0],
+  // ADR 004 §Arpeggiator parameters: 10 rates spanning 1/4 .. 1/32
+  // including dotted (D) and triplet (T) subdivisions. Default 1/16
+  // = index 6.
+  ['PointsmanArpRate',    'ArpRate', 'arpRate',
+    ['1/4', '1/4D', '1/4T',
+     '1/8', '1/8D', '1/8T',
+     '1/16', '1/16D', '1/16T',
+     '1/32'], 6],
 ]
 
 // ---- guard tests --------------------------------------------------------
@@ -424,7 +444,13 @@ test('Pointsman.maxpat — all live.* parameters present per LIVE_PARAMS + LIVE_
   const { boxes } = loadPatcher(POINTSMAN_MAXPAT)
   const liveWidgets = boxes.filter((b) => {
     const cls = b.box?.maxclass
-    return (cls === 'live.numbox' || cls === 'live.dial' || cls === 'live.slider' || cls === 'live.menu')
+    // ADR 004 Phase 3-C adds live.toggle (arpLatch). Keep the filter
+    // permissive to all Live parameter widget classes that carry a
+    // parameter_longname; this is the source of truth for "this widget
+    // is part of the v3 surface".
+    return (cls === 'live.numbox' || cls === 'live.dial' ||
+            cls === 'live.slider' || cls === 'live.menu' ||
+            cls === 'live.toggle')
       && b.box?.saved_attribute_attributes?.valueof?.parameter_longname?.startsWith('Pointsman')
   })
   const expected = LIVE_PARAMS.length + LIVE_ENUMS.length + LIVE_INT_ENUMS.length
