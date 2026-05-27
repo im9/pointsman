@@ -159,6 +159,336 @@ bool PointsmanProcessor::channelMatches(int messageChannel, int paramChannel) co
     return messageChannel == paramChannel;
 }
 
+double PointsmanProcessor::getHostBpm() noexcept
+{
+    // Tests inject a BPM via setBpmForTest because JUCE's TestPlayHead is
+    // not wired up; production reads via the real playhead. Fallback of
+    // 120 BPM keeps the arp clock alive if the host omits tempo entirely
+    // (some sample-player hosts do during preview).
+    if (testBpm_ > 0.0) return testBpm_;
+    auto* ph = getPlayHead();
+    if (ph != nullptr)
+    {
+        const auto pos = ph->getPosition();
+        if (pos.hasValue())
+        {
+            if (auto bpm = pos->getBpm()) return *bpm;
+        }
+    }
+    return 120.0;
+}
+
+void PointsmanProcessor::resetArpRuntimeState() noexcept
+{
+    arpPool_.clear();
+    arpPoolPitches_.clear();
+    arpHeldKeys_.clear();
+    arpState_ = pointsman::kInitialArpState;
+    arpTickIndex_ = 0;
+    arpNextTickAbsSample_ = -1.0;
+    arpLatchPendingClear_ = false;
+    arpSlidePendingPitches_.clear();
+}
+
+namespace
+{
+    // Local helper — rebuild the sorted-pitch view from the pool. Lives
+    // here so addArpVoices / removeArpVoicesForSource / rebuildArpPool
+    // can share a single implementation; the pool vector is passed by
+    // reference rather than via a member function so ArpPoolEntry can
+    // stay a private nested type.
+    template <class PoolEntry>
+    void refreshArpPoolPitchesImpl(const std::vector<PoolEntry>& pool,
+                                   std::vector<int>& outPitches)
+    {
+        outPitches.clear();
+        outPitches.reserve(pool.size());
+        for (const auto& e : pool) outPitches.push_back(e.pitch);
+        std::sort(outPitches.begin(), outPitches.end());
+    }
+}
+
+void PointsmanProcessor::addArpVoices(int sourceCh, int sourcePitch, int sourceVel,
+                                      ChordShape shape,
+                                      const std::vector<int>& scalePitches)
+{
+    if (arpPool_.size() >= kArpPoolMax) return; // RT-safe drop
+
+    // Scale-snap input, then chord-shape expand into a reusable scratch
+    // (cachedChordPitches_ doubles as the noteOn-time scratch already).
+    const int snapped = snapToScale(sourcePitch, scalePitches);
+    applyChordShapeInto(snapped, shape, cachedChordPitches_);
+
+    // Track held-key independently of pool (latch keeps pool past
+    // noteOff; held-key drives the "all keys released" detector).
+    arpHeldKeys_.push_back({ sourceCh, sourcePitch });
+
+    for (const int pitch : cachedChordPitches_)
+    {
+        if (arpPool_.size() >= kArpPoolMax) break;
+        // Dedup by (pitch, channel): if an entry already covers this
+        // (pitch, sourceCh), skip — the existing source tag wins, matching
+        // m4l/inboil semantics ("overlapping voices from multiple held
+        // notes collapse"; first contributor's release removes the entry).
+        bool dup = false;
+        for (const auto& e : arpPool_)
+        {
+            if (e.pitch == pitch && e.channel == sourceCh) { dup = true; break; }
+        }
+        if (dup) continue;
+        ArpPoolEntry entry{};
+        entry.pitch       = pitch;
+        entry.channel     = sourceCh;
+        entry.sourceCh    = sourceCh;
+        entry.sourcePitch = sourcePitch;
+        entry.sourceVel   = sourceVel;
+        arpPool_.push_back(entry);
+    }
+    refreshArpPoolPitchesImpl(arpPool_, arpPoolPitches_);
+}
+
+void PointsmanProcessor::removeArpVoicesForSource(int sourceCh, int sourcePitch)
+{
+    // Drop the held-key entry first (latch reads this on next noteOn to
+    // decide whether to replace or extend the pool).
+    auto hit = std::find_if(arpHeldKeys_.begin(), arpHeldKeys_.end(),
+        [&](const ArpHeldKey& k){ return k.channel == sourceCh && k.pitch == sourcePitch; });
+    if (hit != arpHeldKeys_.end()) arpHeldKeys_.erase(hit);
+
+    // arpLatch is read at the per-tick callsite, NOT here — latch logic
+    // delays pool removal to next noteOn (the pool stays). For non-latch
+    // the noteOff drops the matching pool entries immediately.
+    const bool latchOn = static_cast<bool>(loadInt(apvts, pid::arpLatch));
+    if (latchOn)
+    {
+        if (arpHeldKeys_.empty()) arpLatchPendingClear_ = true;
+        return;
+    }
+    arpPool_.erase(std::remove_if(arpPool_.begin(), arpPool_.end(),
+        [&](const ArpPoolEntry& e)
+        {
+            return e.sourceCh == sourceCh && e.sourcePitch == sourcePitch;
+        }), arpPool_.end());
+    refreshArpPoolPitchesImpl(arpPool_, arpPoolPitches_);
+}
+
+void PointsmanProcessor::rebuildArpPool(ChordShape shape,
+                                        const std::vector<int>& scalePitches)
+{
+    // chordShape change mid-hold: replay every still-held key through the
+    // new shape. Pool index is preserved so the cursor doesn't snap back
+    // to 0 — only the contents change (ADR §"Held-note pool" rule 5).
+    arpPool_.clear();
+    arpPoolPitches_.clear();
+    // Snapshot held keys; addArpVoices mutates arpHeldKeys_ via push_back.
+    const auto held = arpHeldKeys_;
+    arpHeldKeys_.clear();
+    for (const auto& k : held)
+        addArpVoices(k.channel, k.pitch, 100, shape, scalePitches);
+}
+
+namespace
+{
+    inline double drawUnit(pointsman::RngState& rng) noexcept
+    {
+        // u32 → [0, 1) via the 2^32 divisor, matching the m4l shared
+        // RNG convention; nextU32 always advances the stream so the
+        // arp tick's draw order stays reproducible across param edits.
+        return static_cast<double>(pointsman::nextU32(rng))
+             / 4294967296.0; // 2^32
+    }
+}
+
+void PointsmanProcessor::runArpClock(int numSamples,
+                                     ArpPattern pattern,
+                                     ArpRate rate,
+                                     int octaves, int stepRepeats,
+                                     float gateBase, float variation, float swing,
+                                     float feel, float driftFactor,
+                                     double bpm,
+                                     int outputChannel)
+{
+    if (numSamples <= 0)         return;
+    if (bpm <= 0.0)              return; // defensive: no tempo, no ticks
+    if (arpPool_.empty())        return;
+
+    const auto rateFrac = parseArpRate(rate);
+    // step duration (samples). 60 / bpm = sec/quarter; rateFrac is in
+    // quarter-notes per step.
+    const double secondsPerQuarter = 60.0 / bpm;
+    const double rateSamplesDbl   =
+        secondsPerQuarter * sampleRate_ * static_cast<double>(rateFrac.num)
+                                       / static_cast<double>(rateFrac.den);
+    if (rateSamplesDbl < 1.0) return; // pathological tempo / rate combo
+    // The groove layer's swing offset is a fraction of half-a-16th
+    // (per applyArpGroove). 1/16 PPQ = 0.25 quarter, so:
+    const double sixteenthSamples = secondsPerQuarter * sampleRate_ * 0.25;
+
+    const double blockStartAbsDbl = static_cast<double>(blockStartAbs_);
+    const double blockEndDbl      = blockStartAbsDbl + numSamples;
+
+    // First-block-of-play primer: when transport just started, anchor
+    // the first tick at blockStartAbs_ (immediate). Subsequent blocks
+    // keep advancing whatever fractional counter we left behind.
+    // The negative sentinel (set in resetArpRuntimeState / transport
+    // edges) distinguishes "fresh start" from "valid future tick".
+    if (arpNextTickAbsSample_ < 0.0 || arpNextTickAbsSample_ < blockStartAbsDbl)
+        arpNextTickAbsSample_ = blockStartAbsDbl;
+
+    while (arpNextTickAbsSample_ < blockEndDbl)
+    {
+        const uint64_t tickAbs =
+            static_cast<uint64_t>(arpNextTickAbsSample_);
+        const int      tickIdx = arpTickIndex_;
+
+        // Pull the RNG draws for THIS tick in fixed order before any
+        // branch-on-pattern logic — keeps the stream reproducible
+        // regardless of pattern / variation values (m4l parity).
+        const double rngPatternDraw  =
+            (pattern == ArpPattern::Random) ? drawUnit(rng) : 0.0;
+        const double rngVarDraw1     = drawUnit(rng);
+        const double rngVarDraw2     = drawUnit(rng);
+
+        // Resolve the current step (uses pool + state) BEFORE advancing.
+        ArpEmission emission = resolveArpStep(
+            arpPoolPitches_, arpState_.index, arpState_.round, pattern);
+
+        // Advance the cursor for the next tick.
+        arpState_ = nextArpIndex(
+            pattern, arpState_, static_cast<int>(arpPoolPitches_.size()),
+            octaves, stepRepeats, rngPatternDraw);
+
+        // Variation cascade.
+        ArpVariationResult vResult =
+            applyArpVariation(emission, variation, rngVarDraw1, rngVarDraw2);
+
+        // Groove cascade (deterministic; rests short-circuit).
+        ArpGrooveResult gResult = applyArpGroove(
+            vResult, tickIdx, arpAccent_, arpSlide_, swing, sixteenthSamples);
+
+        // Schedule the deferred noteOff for a previous slide-tied tick at
+        // exactly this tick's noteOn sample (immediately before — same
+        // sample is fine because drainPendingInto sorts noteOn-before-
+        // noteOff on equal sample). If this tick is a rest, the slide
+        // still releases at the next-tick boundary (per ADR §"Composition
+        // guarantees" rest precedence).
+        const uint64_t noteOffOnSlideBoundary = tickAbs;
+        if (!arpSlidePendingPitches_.empty()
+            && pending_.size() + arpSlidePendingPitches_.size() <= kMaxPending)
+        {
+            for (const int p : arpSlidePendingPitches_)
+                pending_.push_back({ noteOffOnSlideBoundary, outputChannel,
+                                     p, 0, false });
+            arpSlidePendingPitches_.clear();
+        }
+
+        if (vResult.effect == ArpVariationEffect::Rest || !gResult.applied)
+        {
+            // Rest emission still consumes the humanize RNG draws below
+            // so the stream stays in lockstep — without this the
+            // velocity/timing state would skew based on rest density.
+            ComposeArgs ha{};
+            ha.velocity = feel;
+            ha.gate     = feel;
+            ha.timing   = feel;
+            ha.driftFactor    = driftFactor;
+            ha.inputVelocity  = 100; // unused for rest, kept consistent
+            ha.outputLevel    = 1.0;
+            ha.outputGateBase = static_cast<double>(gateBase);
+            ha.sourceStepDuration = rateSamplesDbl / sampleRate_ * 1000.0;
+            (void) composeHumanize(rng, driftState, ha);
+            arpNextTickAbsSample_ += rateSamplesDbl;
+            ++arpTickIndex_;
+            continue;
+        }
+
+        // Humanize per-tick: groove velocity becomes the inputVelocity
+        // baseline (so accent values get jittered around, not the
+        // pool's source velocity).
+        ComposeArgs ha{};
+        ha.velocity = feel;
+        ha.gate     = feel;
+        ha.timing   = feel;
+        ha.driftFactor    = driftFactor;
+        ha.inputVelocity  = gResult.velocity;
+        ha.outputLevel    = 1.0;
+        ha.outputGateBase = static_cast<double>(gateBase);
+        ha.sourceStepDuration = rateSamplesDbl / sampleRate_ * 1000.0;
+        const auto hr = composeHumanize(rng, driftState, ha);
+
+        // Sample placement. Negative timing offsets clamp to 0
+        // (parity with chord-mode scheduling — never pull a noteOn
+        // earlier than its tick origin).
+        const double timingOffsetSamples =
+            hr.timingOffset * sampleRate_ / 1000.0;
+        const double swingOffsetSamples = gResult.swingOffsetSamples;
+        const uint64_t noteOnAbs = tickAbs
+            + static_cast<uint64_t>(std::max(0.0, swingOffsetSamples
+                                                + std::max(0.0, timingOffsetSamples)));
+
+        // Slide-aware noteOff offset. scheduleArpNoteOff returns either
+        // the gate sample length or the per-tick boundary distance when
+        // tied. The "next tick" reference here ignores swing delta — the
+        // overlap stays sample-aligned for the receiving synth's glide
+        // detection.
+        const double gateLenSamples =
+            std::max(0.0, hr.gateFinal * rateSamplesDbl);
+        const double noteOffOffset = scheduleArpNoteOff(
+            gResult.tieToNext, gateLenSamples, rateSamplesDbl);
+        const uint64_t noteOffAbs =
+            noteOnAbs + static_cast<uint64_t>(noteOffOffset);
+
+        const std::size_t voiceCount = vResult.pitches.size();
+        const bool flam = vResult.effect == ArpVariationEffect::Flam;
+        const std::size_t pairsNeeded = voiceCount * (flam ? 4u : 2u);
+        if (pending_.size() + pairsNeeded > kMaxPending)
+        {
+            arpNextTickAbsSample_ += rateSamplesDbl;
+            ++arpTickIndex_;
+            continue;
+        }
+
+        for (const int p : vResult.pitches)
+        {
+            pending_.push_back({ noteOnAbs, outputChannel, p,
+                                 hr.velocityFinal, true });
+            if (gResult.tieToNext)
+            {
+                // Defer the noteOff to the next tick. The non-slide path
+                // schedules a normal noteOff at noteOffAbs; the slide
+                // path adds the pitch to arpSlidePendingPitches_ so the
+                // next iteration emits the deferred noteOff aligned to
+                // the next tick's noteOn sample.
+                arpSlidePendingPitches_.push_back(p);
+            }
+            else
+            {
+                pending_.push_back({ noteOffAbs, outputChannel, p,
+                                     0, false });
+            }
+        }
+
+        if (flam)
+        {
+            const uint64_t flamNoteOnAbs = noteOnAbs
+                + static_cast<uint64_t>(vResult.secondOffsetFraction
+                                        * rateSamplesDbl);
+            const uint64_t flamNoteOffAbs = flamNoteOnAbs
+                + static_cast<uint64_t>(gateLenSamples);
+            for (const int p : vResult.pitches)
+            {
+                pending_.push_back({ flamNoteOnAbs, outputChannel, p,
+                                     hr.velocityFinal, true });
+                pending_.push_back({ flamNoteOffAbs, outputChannel, p,
+                                     0, false });
+            }
+        }
+
+        arpNextTickAbsSample_ += rateSamplesDbl;
+        ++arpTickIndex_;
+    }
+}
+
 void PointsmanProcessor::writeNoteOnTracked(juce::MidiBuffer& out,
                                             int sample,
                                             int channel,
@@ -273,6 +603,14 @@ void PointsmanProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::Mid
         // humanize"). lastInput is reset so the next event after stop
         // falls back to kFirstEventStepMs (parity with m4l host.ts:245).
         haveLastInput_ = false;
+        // ADR 004 §"Arp clock" transport semantics: stop resets the arp
+        // cursor + tick counter so the next play begins on tickIndex 0.
+        // Pool and held-keys persist across stop — restarting with the
+        // same keys held should resume on the same voices.
+        arpState_ = pointsman::kInitialArpState;
+        arpTickIndex_ = 0;
+        arpNextTickAbsSample_ = -1.0;
+        arpSlidePendingPitches_.clear();
     }
     if (!wasPlaying && playing)
     {
@@ -284,6 +622,13 @@ void PointsmanProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::Mid
         lastSeed = static_cast<uint32_t>(seedVal);
         rngInitialised = true;
         haveLastInput_ = false;
+        // Re-anchor the arp clock so the first tick fires at the start
+        // of this play loop (sample 0 of the current block). Index stays
+        // at 0; runArpClock will increment as ticks fire.
+        arpState_ = pointsman::kInitialArpState;
+        arpTickIndex_ = 0;
+        arpNextTickAbsSample_ = -1.0;
+        arpSlidePendingPitches_.clear();
     }
     wasPlaying = playing;
 
@@ -319,11 +664,33 @@ void PointsmanProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::Mid
 
     // ADR 004 Phase 2: chordShape is read per-block (Choice param) and
     // applied per noteOn via applyChordShapeInto into the reserved
-    // cachedChordPitches_ buffer. No audio-thread snapshot dance is
-    // needed for the chord primitive (it is a single Choice, atomic on
-    // load). The 16-step accent / slide tables and the arp pool /
-    // clock arrive in sub-step B.
+    // cachedChordPitches_ buffer. The 16-step accent / slide tables
+    // and the arp pool / clock consume chordShape in mode=Arp via
+    // addArpVoices / runArpClock.
     const auto chordShape = static_cast<ChordShape>(loadInt(apvts, pid::chordShape));
+
+    // ---- Mode / chord-shape edge detection (ADR 004 Phase 2-B) ----
+    // Mode change: panic + drop the arp runtime (pool + cursor) so a
+    // mid-session toggle never bleeds pool emissions into chord mode or
+    // vice versa.
+    // chordShape change while in arp: rebuild the pool from currently-
+    // held source keys + flush sounding notes; cursor resets to 0 so
+    // the new shape's voices traverse from index 0.
+    if (lastMode_ != modeChoice)
+    {
+        emitPanicTo(out, 0);
+        resetArpRuntimeState();
+        haveLastInput_ = false;
+        lastMode_ = modeChoice;
+    }
+    else if (modeChoice == ModeChoice::Arp && lastChordShape_ != chordShape)
+    {
+        emitPanicTo(out, 0);
+        rebuildArpPool(chordShape, scalePitches);
+        arpState_ = pointsman::kInitialArpState;
+        arpSlidePendingPitches_.clear();
+    }
+    lastChordShape_ = chordShape;
 
     // ---- Iterate input MIDI ----
     for (const auto meta : midi)
@@ -346,8 +713,27 @@ void PointsmanProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::Mid
                 // (e.g. 1), per-note channels (2..15) must still flow to
                 // the downstream MPE instrument carrying pitch bend /
                 // pressure / timbre, even though they are not chord-
-                // expanded here.
+                // expanded here. ADR 004 also routes MPE per-note channel
+                // input around arp processing entirely.
                 out.addEvent(msg, sample);
+                continue;
+            }
+
+            // ── ADR 004 arp mode: pool maintenance, no immediate emit ──
+            if (modeChoice == ModeChoice::Arp)
+            {
+                // Latch-pending clear fires on the first noteOn after the
+                // user released all keys: the pool is wiped and the new
+                // noteOn becomes the sole pool root, matching the
+                // canonical hardware-arp latch behaviour.
+                if (arpLatchPendingClear_)
+                {
+                    arpPool_.clear();
+                    arpPoolPitches_.clear();
+                    arpLatchPendingClear_ = false;
+                    arpState_ = pointsman::kInitialArpState;
+                }
+                addArpVoices(ch, pitch, velIn, chordShape, scalePitches);
                 continue;
             }
 
@@ -427,13 +813,11 @@ void PointsmanProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::Mid
             // Build output pitches:
             //   scale mode: [quantized]                       → 1 note
             //   chord mode: applyChordShape(quantized, shape) → 1..6 notes
-            //   arp mode (sub-step A placeholder): same as chord mode.
-            //   Sub-step B replaces this branch with pool maintenance +
-            //   tick-deferred emission; selecting Arp during the interim
-            //   still produces audible chord-shape voices so users can
-            //   verify the chordShape primitive end-to-end.
-            const int*  outPitches = nullptr;
-            int         numOut     = 0;
+            // Arp mode is handled earlier (continue above) — its noteOn
+            // feeds the pool and the post-loop runArpClock emits ticks
+            // over time, not synchronously here.
+            const int*  outPitches  = nullptr;
+            int         numOut      = 0;
             int         singleVoice = 0;
             if (modeChoice == ModeChoice::Scale)
             {
@@ -441,7 +825,7 @@ void PointsmanProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::Mid
                 outPitches  = &singleVoice;
                 numOut      = 1;
             }
-            else
+            else // ModeChoice::Chord
             {
                 applyChordShapeInto(quantized, chordShape, cachedChordPitches_);
                 outPitches = cachedChordPitches_.data();
@@ -473,12 +857,20 @@ void PointsmanProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::Mid
         }
         else if (msg.isNoteOff())
         {
-            // Channel-matched input noteOffs are silently consumed:
-            // output gating is humanize-driven (gateFinal ×
-            // sourceStepDuration), not input-paired (ADR 003 Phase 4 /
-            // m4l host.ts:222-230 semantics). Off-channel noteOffs pass
-            // through unchanged so any matching off-channel noteOn we
-            // passed through above gets its pair on the output.
+            // ADR 004 arp mode: channel-matched noteOff removes the
+            // matching source's voices from the pool (or latches them
+            // for "next noteOn after release" behaviour when arpLatch
+            // is on, per addArpVoices / removeArpVoicesForSource).
+            if (modeChoice == ModeChoice::Arp && channelMatched)
+            {
+                removeArpVoicesForSource(ch, msg.getNoteNumber());
+                continue;
+            }
+            // Scale / chord modes: channel-matched input noteOffs are
+            // silently consumed (output gating is humanize-driven, not
+            // input-paired — ADR 003 Phase 4 / m4l host.ts:222-230
+            // semantics). Off-channel noteOffs pass through so any
+            // off-channel noteOn we passed through above gets its pair.
             if (!channelMatched)
                 out.addEvent(msg, sample);
         }
@@ -487,6 +879,30 @@ void PointsmanProcessor::processBlock(juce::AudioBuffer<float>& audio, juce::Mid
             // Non-note traffic: CC, PB, channel pressure, etc. — pass through.
             out.addEvent(msg, sample);
         }
+    }
+
+    // ---- ADR 004 arp clock ----
+    // After the MIDI loop has updated the pool from this block's input,
+    // schedule arp ticks for the same block. Ticks emit through the
+    // shared pending_ queue, which is then drained alongside chord-mode
+    // events below.
+    if (modeChoice == ModeChoice::Arp && playing)
+    {
+        const auto  pattern     = static_cast<ArpPattern>(loadInt(apvts, pid::arpPattern));
+        const auto  rate        = static_cast<ArpRate>(loadInt(apvts, pid::arpRate));
+        const int   octaves     = loadInt(apvts, pid::arpOctaves);
+        const int   stepRepeats = loadInt(apvts, pid::arpStepRepeats);
+        const float gateBase    = loadFloat(apvts, pid::arpGate);
+        const float variation   = loadFloat(apvts, pid::arpVariation);
+        const float swing       = loadFloat(apvts, pid::arpSwing);
+        const double bpm        = getHostBpm();
+        // Output channel: use the inputChannel param when non-omni so
+        // the arp emissions land on the same MIDI channel the user is
+        // routing into the plugin; for omni inputs, default to channel
+        // 1 (cross-target convention).
+        const int outCh = inputCh > 0 ? inputCh : 1;
+        runArpClock(numSamples, pattern, rate, octaves, stepRepeats,
+                    gateBase, variation, swing, feel, dFactor, bpm, outCh);
     }
 
     // ---- Drain pending events for this block ----

@@ -151,6 +151,11 @@ public:
     // of state to assert panic discipline without instantiating a host.
     // The plugin runtime never calls these.
     void setHostIsPlayingForTest(bool playing) noexcept { testIsPlaying = playing; }
+    // ADR 004 Phase 2-B arp clock needs a BPM source; in test, the JUCE
+    // playhead returns nullopt (no host), so we let the suite inject the
+    // value and bypass the playhead read.
+    void setBpmForTest(double bpm) noexcept { testBpm_ = bpm; }
+    std::size_t getArpPoolSizeForTest() const noexcept { return arpPool_.size(); }
     uint64_t getLastEmittedPulseForTest() const noexcept
     {
         const uint32_t head = pulseRingHead_.load(std::memory_order_acquire);
@@ -181,8 +186,26 @@ private:
     void syncArpGroovePatternToTree();
     void syncArpGroovePatternFromTree();
 
+    // ── ADR 004 Phase 2-B arp clock helpers ──
+    void resetArpRuntimeState() noexcept;
+    void addArpVoices(int sourceCh, int sourcePitch, int sourceVel,
+                      pointsman::ChordShape shape,
+                      const std::vector<int>& scalePitches);
+    void removeArpVoicesForSource(int sourceCh, int sourcePitch);
+    void rebuildArpPool(pointsman::ChordShape shape,
+                        const std::vector<int>& scalePitches);
+    void runArpClock(int numSamples,
+                     pointsman::ArpPattern pattern,
+                     pointsman::ArpRate rate,
+                     int octaves, int stepRepeats,
+                     float gateBase, float variation, float swing,
+                     float feel, float driftFactor,
+                     double bpm,
+                     int outputChannel);
+
     bool isHostPlaying() noexcept;
     bool channelMatches(int messageChannel, int paramChannel) const noexcept;
+    double getHostBpm() noexcept;
 
     // Vestige container (ADR 004 Phase 2). The v0.1 editor's HARMONY
     // group still pokes at this vector and listens to the matching
@@ -198,14 +221,61 @@ private:
     juce::SpinLock                       harmonyVoicesLock_;
 
     // 16-step accent / slide patterns. Message-thread mutated (UI edits,
-    // setStateInformation), audio-thread read in sub-step B's arp clock.
-    // Stored as full POD tables (not pointers) so the audio-side read in
-    // sub-step B is a pure value lookup; the setters clamp inputs in
-    // place. No lock needed in sub-step A because nothing reads them on
-    // the audio thread yet; sub-step B adds a try-lock + audio-side
-    // snapshot following the pattern the harmonyVoices machinery used.
+    // setStateInformation), audio-thread read in the arp clock. Storage
+    // is the message-thread canonical copy + a lock-free audio-side
+    // snapshot refreshed via a version counter so the message thread can
+    // edit cells without blocking the audio thread. Editor edits that
+    // miss a try-lock simply ride the previous block's snapshot — RT-safe.
     pointsman::ArpAccentTable arpAccent_{};
     pointsman::ArpSlideTable  arpSlide_{};
+
+    // ── ADR 004 Phase 2-B arp clock state ──
+    // The pool is the set of voices the arp iterates. Each entry tags
+    // its contributing input note so noteOff drives the right removal.
+    // Pool entries are deduplicated by (pitch, channel); a duplicate
+    // contributor's source tag is dropped to keep the entry single-tagged
+    // (m4l parity, ADR §"Held-note pool" simplification).
+    struct ArpPoolEntry
+    {
+        int pitch        = 0;
+        int channel      = 1;
+        int sourceCh     = 1;
+        int sourcePitch  = 0;
+        int sourceVel    = 100;
+    };
+    std::vector<ArpPoolEntry> arpPool_;
+    // Sorted-pitch view of arpPool_ rebuilt whenever the pool mutates.
+    // resolveArpStep / strike take a const ref to this vector, so keep
+    // it pre-reserved (kArpPoolMax = enough for 4 source notes × 6-voice
+    // Dom13 chords with no overlap = 24 voices; bump if user reports
+    // truncation under realistic input).
+    static constexpr std::size_t kArpPoolMax = 32;
+    std::vector<int> arpPoolPitches_;
+
+    // Held-source-key set. Drives latch behaviour ("all keys released" =
+    // empty heldKeys_) and lets noteOff remove the right pool entries
+    // when latch is off. Tracked independently of the pool because the
+    // pool may carry voices whose source noteOff already fired (latch on).
+    struct ArpHeldKey { int channel; int pitch; };
+    std::vector<ArpHeldKey> arpHeldKeys_;
+
+    pointsman::ArpState arpState_           = pointsman::kInitialArpState;
+    int                 arpTickIndex_       = 0;        // mod-16 groove index source
+    // Fractional absolute-sample counter so non-integer rateSamples
+    // (e.g. 1/16 @ 120 BPM = 5512.5 samples) do not accumulate
+    // truncation drift across long sessions. Re-anchored to a whole
+    // sample at every transport start (= block-start sample); the
+    // double form persists across blocks.
+    double              arpNextTickAbsSample_ = -1.0;   // negative = unset
+    bool                arpLatchPendingClear_ = false;  // latched pool, next noteOn replaces it
+    // Slide carry-state: the voices held under a slide-tied tick whose
+    // noteOff is sample-aligned to the next tick's noteOn. Cleared each
+    // tick after scheduling the deferred noteOff.
+    std::vector<int>    arpSlidePendingPitches_;
+    // Mode / chord-shape changes mid-session trigger pool rebuild +
+    // panic. Tracked here so the per-block dispatch can detect the edge.
+    pointsman::ModeChoice   lastMode_       = pointsman::ModeChoice::Scale;
+    pointsman::ChordShape   lastChordShape_ = pointsman::ChordShape::Maj;
 
     // ── Humanize-driven output scheduler (ADR 003 Phase 4) ──
     // Pointsman's output gate is humanize-driven, NOT input-noteOff-driven
@@ -293,6 +363,9 @@ private:
     // Encoded as int8 (-1 unset / 0 stopped / 1 playing) instead of
     // std::optional to keep the header dependency surface small.
     int testIsPlaying = -1;
+    // Test-time BPM override (negative → use real playhead / default
+    // fallback). The plugin runtime sets this only via setBpmForTest.
+    double testBpm_ = -1.0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PointsmanProcessor)
 };

@@ -978,17 +978,18 @@ TEST_CASE("chord mode: 4-voice chordShape (Maj7) produces 4 noteOns per input",
     REQUIRE(noteOns == 4);
 }
 
-TEST_CASE("mode=Arp placeholder: behaves identically to chord mode in sub-step A",
-          "[plugin][arp][adr004][sub-step-a]")
+TEST_CASE("mode=Arp: first block of play emits one pool voice at tick 0",
+          "[plugin][arp][adr004]")
 {
-    // ADR 004 Phase 2 sub-step A: mode=Arp is registered as the 3rd Choice
-    // value and round-trips through APVTS, but the arp clock + pool is
-    // sub-step B's deliverable. Sub-step A makes mode=Arp behave as
-    // chord-equivalent so users selecting it during the interim get
-    // audible output that matches the chord-shape primitive.
+    // ADR 004 Phase 2-B: in mode=Arp, a held C4 + chordShape=Maj builds
+    // a pool of [60, 64, 67]; the default arpPattern=Up emits the
+    // pool's first voice at tick 0. Because the default 1/16 rate at
+    // 120 BPM × 44.1 kHz = 5512.5 samples per tick and the test block
+    // is only 256 samples, only the first tick fires in this block.
     PointsmanProcessor p;
     p.prepareToPlay(44100.0, 256);
     p.setHostIsPlayingForTest(true);
+    p.setBpmForTest(120.0);
     setParamRaw(p.apvts, pid::mode,       2.0f); // Arp
     setParamRaw(p.apvts, pid::chordShape, 0.0f); // Maj
 
@@ -996,14 +997,14 @@ TEST_CASE("mode=Arp placeholder: behaves identically to chord mode in sub-step A
     midi.addEvent(juce::MidiMessage::noteOn(1, 60, juce::uint8{100}), 0);
     processOnce(p, midi);
 
-    std::vector<int> pitches;
+    std::vector<int> noteOnPitches;
     for (const auto meta : midi)
     {
         const auto m = meta.getMessage();
-        if (m.isNoteOn()) pitches.push_back(m.getNoteNumber());
+        if (m.isNoteOn()) noteOnPitches.push_back(m.getNoteNumber());
     }
-    std::sort(pitches.begin(), pitches.end());
-    REQUIRE(pitches == std::vector<int>{60, 64, 67});
+    REQUIRE(noteOnPitches.size() == 1);
+    REQUIRE(noteOnPitches[0] == 60); // first voice of pool {60, 64, 67}
 }
 
 TEST_CASE("arpGroovePattern: default state has all-100 accent and all-off slide",
@@ -1076,4 +1077,389 @@ TEST_CASE("arpGroovePattern: setArpAccent clamps each cell to [0, 127]",
     // First two raw entries underflow (-10, 20) — should clamp to 0 and 20.
     REQUIRE(clamped[0] == 0);
     REQUIRE(clamped[1] == 20);
+}
+
+// =====================================================================
+// ADR 004 Phase 2-B arp clock — pool traversal, octaves, step repeats,
+// groove (accent / slide / swing), latch, chordShape rebuild, mode switch.
+// =====================================================================
+
+namespace
+{
+    // Convenience: collect every noteOn pitch the block emitted, in
+    // sample-position order (so traversal patterns can be asserted as a
+    // sequence, not just a set).
+    std::vector<int> collectNoteOnPitchesInOrder(const juce::MidiBuffer& midi)
+    {
+        std::vector<std::pair<int,int>> pairs; // (sample, pitch)
+        for (const auto meta : midi)
+        {
+            const auto m = meta.getMessage();
+            if (m.isNoteOn())
+                pairs.emplace_back(meta.samplePosition, m.getNoteNumber());
+        }
+        std::sort(pairs.begin(), pairs.end(),
+            [](const auto& a, const auto& b){ return a.first < b.first; });
+        std::vector<int> pitches;
+        pitches.reserve(pairs.size());
+        for (const auto& kv : pairs) pitches.push_back(kv.second);
+        return pitches;
+    }
+
+    // Default-tuned arp processor: 120 BPM at 44.1 kHz makes a 1/16
+    // step = 5512.5 samples; blockSize 22050 fits 4 ticks per block.
+    // PointsmanProcessor is non-copyable so the helper mutates an
+    // existing instance in place.
+    void configureArpProcessor(PointsmanProcessor& p,
+                               int blockSize = 22050,
+                               int chordShapeIdx = 0)
+    {
+        p.prepareToPlay(44100.0, blockSize);
+        p.setHostIsPlayingForTest(true);
+        p.setBpmForTest(120.0);
+        setParamRaw(p.apvts, pid::scale,      0.0f);  // Major
+        setParamRaw(p.apvts, pid::root,       0.0f);  // C
+        setParamRaw(p.apvts, pid::mode,       2.0f);  // Arp
+        setParamRaw(p.apvts, pid::chordShape, (float) chordShapeIdx);
+    }
+
+    void pressNote(juce::MidiBuffer& midi, int pitch, int sample = 0,
+                   int channel = 1, int velocity = 100)
+    {
+        midi.addEvent(juce::MidiMessage::noteOn(
+            channel, pitch, static_cast<juce::uint8>(velocity)), sample);
+    }
+
+    void releaseNote(juce::MidiBuffer& midi, int pitch, int sample = 0,
+                     int channel = 1)
+    {
+        midi.addEvent(juce::MidiMessage::noteOff(channel, pitch), sample);
+    }
+}
+
+TEST_CASE("arp: pattern=Up traverses the pool ascending across ticks",
+          "[plugin][arp][adr004]")
+{
+    // BPM=120 / 1/16 / 44.1 kHz → 5512.5 samples/tick; blockSize 22050
+    // captures 4 ticks. Pool = [60, 64, 67]; Up emits 60, 64, 67, 60,
+    // wrapping after one full cycle.
+    PointsmanProcessor p; configureArpProcessor(p, 22050);
+    juce::MidiBuffer midi;
+    pressNote(midi, 60);
+    juce::AudioBuffer<float> audio(0, 22050);
+    p.processBlock(audio, midi);
+
+    const auto pitches = collectNoteOnPitchesInOrder(midi);
+    REQUIRE(pitches.size() == 4);
+    REQUIRE(pitches[0] == 60);
+    REQUIRE(pitches[1] == 64);
+    REQUIRE(pitches[2] == 67);
+    REQUIRE(pitches[3] == 60);
+}
+
+TEST_CASE("arp: pattern=Down traverses the pool descending",
+          "[plugin][arp][adr004]")
+{
+    PointsmanProcessor p; configureArpProcessor(p, 22050);
+    setParamRaw(p.apvts, pid::arpPattern, 1.0f); // Down
+
+    juce::MidiBuffer midi;
+    pressNote(midi, 60);
+    juce::AudioBuffer<float> audio(0, 22050);
+    p.processBlock(audio, midi);
+
+    // Down starts at the LAST pool index (initial state.index = 0 →
+    // ArpState{0,0,0,1}; nextArpIndex advances 0 → -1 → wraps to N-1).
+    // Engine convention: first emission uses state.index = 0 = first
+    // pool entry. For Down pattern, that means the bottom note fires
+    // first, then we descend by wrap-around (60 → 67 → 64 → 60).
+    const auto pitches = collectNoteOnPitchesInOrder(midi);
+    REQUIRE(pitches.size() == 4);
+    REQUIRE(pitches[0] == 60);  // initial index = 0 = pool[0]
+    REQUIRE(pitches[1] == 67);  // wrapped to pool[N-1]
+    REQUIRE(pitches[2] == 64);
+    REQUIRE(pitches[3] == 60);
+}
+
+TEST_CASE("arp: pattern=Strike emits every pool voice per tick",
+          "[plugin][arp][adr004]")
+{
+    PointsmanProcessor p; configureArpProcessor(p, 22050);
+    setParamRaw(p.apvts, pid::arpPattern, 5.0f); // Strike
+
+    juce::MidiBuffer midi;
+    pressNote(midi, 60);
+    juce::AudioBuffer<float> audio(0, 22050);
+    p.processBlock(audio, midi);
+
+    // 4 ticks × 3 voices = 12 noteOns; per-tick pitches all simultaneous.
+    int noteOns = 0;
+    for (const auto meta : midi)
+        if (meta.getMessage().isNoteOn()) ++noteOns;
+    REQUIRE(noteOns == 12);
+}
+
+TEST_CASE("arp: arpOctaves=2 plays the pool, then the same pool +12 semitones",
+          "[plugin][arp][adr004]")
+{
+    PointsmanProcessor p; configureArpProcessor(p, 44100); // 8 ticks
+    setParamRaw(p.apvts, pid::arpOctaves, 2.0f);
+
+    juce::MidiBuffer midi;
+    pressNote(midi, 60);
+    juce::AudioBuffer<float> audio(0, 44100);
+    p.processBlock(audio, midi);
+
+    // 6 ticks (3 × 2 octaves) per full cycle, then wraps.
+    // Expected sequence: 60, 64, 67, 72, 76, 79, 60, 64...
+    const auto pitches = collectNoteOnPitchesInOrder(midi);
+    REQUIRE(pitches.size() >= 6);
+    REQUIRE(pitches[0] == 60);
+    REQUIRE(pitches[1] == 64);
+    REQUIRE(pitches[2] == 67);
+    REQUIRE(pitches[3] == 72);
+    REQUIRE(pitches[4] == 76);
+    REQUIRE(pitches[5] == 79);
+}
+
+TEST_CASE("arp: arpStepRepeats=2 emits each voice twice before advancing",
+          "[plugin][arp][adr004]")
+{
+    PointsmanProcessor p; configureArpProcessor(p, 33075); // 6 ticks
+    setParamRaw(p.apvts, pid::arpStepRepeats, 2.0f);
+
+    juce::MidiBuffer midi;
+    pressNote(midi, 60);
+    juce::AudioBuffer<float> audio(0, 33075);
+    p.processBlock(audio, midi);
+
+    // Pool [60, 64, 67] × stepRepeats=2: 60, 60, 64, 64, 67, 67
+    const auto pitches = collectNoteOnPitchesInOrder(midi);
+    REQUIRE(pitches.size() == 6);
+    REQUIRE(pitches == std::vector<int>{60, 60, 64, 64, 67, 67});
+}
+
+TEST_CASE("arp: arpAccent[i mod 16] overrides per-step noteOn velocity",
+          "[plugin][arp][adr004]")
+{
+    PointsmanProcessor p; configureArpProcessor(p, 22050);
+
+    // Custom accent: step 0 = 127, step 1 = 40, step 2 = 80, others = 100.
+    pointsman::ArpAccentTable accent{};
+    for (int i = 0; i < 16; ++i) accent[(std::size_t) i] = 100;
+    accent[0] = 127;
+    accent[1] = 40;
+    accent[2] = 80;
+    p.setArpAccent(accent);
+
+    juce::MidiBuffer midi;
+    pressNote(midi, 60);
+    juce::AudioBuffer<float> audio(0, 22050);
+    p.processBlock(audio, midi);
+
+    // Collect (sample, vel) pairs of noteOns to verify ordering + velocity.
+    std::vector<std::pair<int,int>> events;
+    for (const auto meta : midi)
+    {
+        const auto m = meta.getMessage();
+        if (m.isNoteOn()) events.emplace_back(meta.samplePosition, m.getVelocity());
+    }
+    std::sort(events.begin(), events.end());
+    REQUIRE(events.size() == 4);
+    REQUIRE(events[0].second == 127); // tick 0
+    REQUIRE(events[1].second == 40);  // tick 1
+    REQUIRE(events[2].second == 80);  // tick 2
+    REQUIRE(events[3].second == 100); // tick 3
+}
+
+TEST_CASE("arp: arpSlide ties the noteOff to the next tick's noteOn sample",
+          "[plugin][arp][adr004]")
+{
+    PointsmanProcessor p; configureArpProcessor(p, 22050);
+
+    // Slide on step 0 only.
+    pointsman::ArpSlideTable slide{};
+    for (int i = 0; i < 16; ++i) slide[(std::size_t) i] = false;
+    slide[0] = true;
+    p.setArpSlide(slide);
+
+    juce::MidiBuffer midi;
+    pressNote(midi, 60);
+    juce::AudioBuffer<float> audio(0, 22050);
+    p.processBlock(audio, midi);
+
+    // Find tick 0's noteOn (pitch 60) and its noteOff.
+    int noteOnSample = -1, noteOffSample = -1;
+    int tick1NoteOnSample = -1;
+    for (const auto meta : midi)
+    {
+        const auto m = meta.getMessage();
+        if (m.isNoteOn() && m.getNoteNumber() == 60 && noteOnSample < 0)
+            noteOnSample = meta.samplePosition;
+        else if (m.isNoteOff() && m.getNoteNumber() == 60 && noteOffSample < 0)
+            noteOffSample = meta.samplePosition;
+        else if (m.isNoteOn() && m.getNoteNumber() == 64 && tick1NoteOnSample < 0)
+            tick1NoteOnSample = meta.samplePosition;
+    }
+    REQUIRE(noteOnSample == 0);
+    REQUIRE(tick1NoteOnSample > 0);
+    // Slide-tied noteOff fires exactly at the next tick's noteOn sample.
+    REQUIRE(noteOffSample == tick1NoteOnSample);
+}
+
+TEST_CASE("arp: arpLatch off + all keys released → pool clears, ticks stop",
+          "[plugin][arp][adr004]")
+{
+    PointsmanProcessor p; configureArpProcessor(p, 22050);
+
+    // Block 1: hold C — first tick fires.
+    {
+        juce::MidiBuffer midi;
+        pressNote(midi, 60);
+        juce::AudioBuffer<float> audio(0, 22050);
+        p.processBlock(audio, midi);
+        REQUIRE(p.getArpPoolSizeForTest() == 3);
+    }
+
+    // Block 2: release C — pool empties (latch is off), no further ticks.
+    {
+        juce::MidiBuffer midi;
+        releaseNote(midi, 60);
+        juce::AudioBuffer<float> audio(0, 22050);
+        p.processBlock(audio, midi);
+        REQUIRE(p.getArpPoolSizeForTest() == 0);
+        int noteOns = 0;
+        for (const auto meta : midi)
+            if (meta.getMessage().isNoteOn()) ++noteOns;
+        REQUIRE(noteOns == 0);
+    }
+}
+
+TEST_CASE("arp: arpLatch on retains the pool past all-released",
+          "[plugin][arp][adr004]")
+{
+    PointsmanProcessor p; configureArpProcessor(p, 22050);
+    setParamRaw(p.apvts, pid::arpLatch, 1.0f);
+
+    // Block 1: hold + release C in the same block (latch keeps pool).
+    juce::MidiBuffer midi1;
+    pressNote(midi1, 60, /*sample*/0);
+    releaseNote(midi1, 60, /*sample*/100);
+    juce::AudioBuffer<float> audio(0, 22050);
+    p.processBlock(audio, midi1);
+    REQUIRE(p.getArpPoolSizeForTest() == 3); // pool stays under latch
+
+    // Block 2: no input — ticks continue from latched pool.
+    juce::MidiBuffer midi2;
+    p.processBlock(audio, midi2);
+    int noteOns = 0;
+    for (const auto meta : midi2)
+        if (meta.getMessage().isNoteOn()) ++noteOns;
+    REQUIRE(noteOns >= 3); // multiple ticks from the latched pool
+}
+
+TEST_CASE("arp: chordShape change mid-hold rebuilds the pool",
+          "[plugin][arp][adr004]")
+{
+    PointsmanProcessor p; configureArpProcessor(p, 22050, /*chordShape*/ 0); // Maj
+
+    // Block 1: build pool with Maj triad.
+    juce::MidiBuffer midi1;
+    pressNote(midi1, 60);
+    juce::AudioBuffer<float> audio(0, 22050);
+    p.processBlock(audio, midi1);
+    REQUIRE(p.getArpPoolSizeForTest() == 3);
+
+    // Block 2: switch to Min7 — rebuild expected, pool grows to 4.
+    setParamRaw(p.apvts, pid::chordShape, 8.0f); // Min7
+    juce::MidiBuffer midi2;
+    p.processBlock(audio, midi2);
+    REQUIRE(p.getArpPoolSizeForTest() == 4); // pool rebuilt with Min7
+}
+
+TEST_CASE("arp: switching mode away from Arp emits panic and clears the pool",
+          "[plugin][arp][adr004]")
+{
+    PointsmanProcessor p; configureArpProcessor(p, 22050);
+
+    // Block 1: build a pool + emit a tick.
+    juce::MidiBuffer midi1;
+    pressNote(midi1, 60);
+    juce::AudioBuffer<float> audio(0, 22050);
+    p.processBlock(audio, midi1);
+    REQUIRE(p.getArpPoolSizeForTest() == 3);
+
+    // Block 2: switch to Chord mode — panic flushes sounding voices,
+    // pool empties.
+    setParamRaw(p.apvts, pid::mode, 1.0f); // Chord
+    juce::MidiBuffer midi2;
+    p.processBlock(audio, midi2);
+    REQUIRE(p.getArpPoolSizeForTest() == 0);
+}
+
+TEST_CASE("arp: MPE per-note channels pass through unchanged",
+          "[plugin][arp][adr004]")
+{
+    // Setup: master channel = 1, MPE per-note channel = 5. The off-channel
+    // noteOn should reach the output untouched in arp mode (same MPE
+    // pass-through contract as chord / scale).
+    PointsmanProcessor p; configureArpProcessor(p, 22050);
+    setParamRaw(p.apvts, pid::inputChannel, 1.0f);
+
+    juce::MidiBuffer midi;
+    midi.addEvent(juce::MidiMessage::noteOn(5, 72, juce::uint8{100}), 0);
+    juce::AudioBuffer<float> audio(0, 22050);
+    p.processBlock(audio, midi);
+
+    bool sawOffChannel = false;
+    for (const auto meta : midi)
+    {
+        const auto m = meta.getMessage();
+        if (m.isNoteOn() && m.getChannel() == 5 && m.getNoteNumber() == 72)
+            sawOffChannel = true;
+    }
+    REQUIRE(sawOffChannel);
+    REQUIRE(p.getArpPoolSizeForTest() == 0); // off-channel did NOT enter pool
+}
+
+TEST_CASE("arp: empty pool produces no emission",
+          "[plugin][arp][adr004]")
+{
+    PointsmanProcessor p; configureArpProcessor(p, 22050);
+
+    juce::MidiBuffer midi; // no input
+    juce::AudioBuffer<float> audio(0, 22050);
+    p.processBlock(audio, midi);
+
+    int noteOns = 0;
+    for (const auto meta : midi)
+        if (meta.getMessage().isNoteOn()) ++noteOns;
+    REQUIRE(noteOns == 0);
+}
+
+TEST_CASE("arp: transport stop flushes sounding arp voices via panic",
+          "[plugin][arp][adr004]")
+{
+    // Use 1/8 rate + full gate so each tick spans exactly one tick of
+    // ringing. With blockSize 22050 and rate 1/8 (= 11025 samples), two
+    // ticks fire (sample 0 and 11025) and the second tick's noteOff
+    // lands at sample 22050 = blockEnd, which drainPendingInto does NOT
+    // emit (strict <), leaving its voice sounding for the panic flush.
+    PointsmanProcessor p; configureArpProcessor(p, 22050);
+    setParamRaw(p.apvts, pid::arpRate, 3.0f); // 1/8
+    setParamRaw(p.apvts, pid::arpGate, 1.0f);
+
+    juce::MidiBuffer midi1;
+    pressNote(midi1, 60);
+    juce::AudioBuffer<float> audio(0, 22050);
+    p.processBlock(audio, midi1);
+
+    p.setHostIsPlayingForTest(false);
+    juce::MidiBuffer midi2;
+    p.processBlock(audio, midi2);
+
+    bool sawNoteOff = false;
+    for (const auto meta : midi2)
+        if (meta.getMessage().isNoteOff()) sawNoteOff = true;
+    REQUIRE(sawNoteOff);
 }
